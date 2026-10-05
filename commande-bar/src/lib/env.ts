@@ -1,12 +1,39 @@
 // Lecture des variables d'environnement (configurées dans Vercel, ou dans
 // le fichier .env.local pour travailler sur son ordinateur).
-// Les espaces ou retours à la ligne collés par erreur sont ignorés.
+// Les erreurs de copier-coller courantes sont corrigées automatiquement :
+// espaces, guillemets, « Bearer » devant une clé, adresse sans https://…
 
 function clean(value: string | undefined): string {
-  return (value ?? "").trim();
+  return (value ?? "")
+    .trim()
+    .replace(/^["'](.*)["']$/, "$1")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
 }
 
-export const supabaseUrl = clean(process.env.NEXT_PUBLIC_SUPABASE_URL).replace(/\/+$/, "");
+/**
+ * Ramène l'adresse Supabase à la forme attendue « https://xxxx.supabase.co » :
+ * ajoute https:// s'il manque, retire ce qui suit le nom de domaine
+ * (/rest/v1…), et accepte l'adresse du tableau de bord
+ * (supabase.com/dashboard/project/xxxx).
+ */
+export function normalizeSupabaseUrl(raw: string | undefined): string {
+  let value = clean(raw);
+  if (!value) return "";
+  if (!/^https?:\/\//i.test(value)) value = `https://${value}`;
+  try {
+    const url = new URL(value);
+    const dashboard = /(^|\.)supabase\.com$/i.test(url.hostname)
+      ? url.pathname.match(/\/project\/([a-z0-9]+)/i)
+      : null;
+    if (dashboard) return `https://${dashboard[1].toLowerCase()}.supabase.co`;
+    return url.origin;
+  } catch {
+    return value;
+  }
+}
+
+export const supabaseUrl = normalizeSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
 
 // Nouvelle clé « publishable » de Supabase, ou ancienne clé « anon ».
 export const supabasePublishableKey = clean(
