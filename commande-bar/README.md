@@ -95,13 +95,18 @@ Vercel publie la branche principale (`main`) du dépôt GitHub : le code doit do
    - *Project Name* : `commande-bar`
    - *Root Directory* : **Edit** → choisis le dossier `commande-bar` → **Continue**
      (le *Framework Preset* passe tout seul à **Next.js**)
-   - *Environment Variables* : ajoute les 3 variables :
+   - *Environment Variables* : ajoute les 3 variables, **avec le bon type** :
 
-     | Key | Value |
-     |---|---|
-     | `NEXT_PUBLIC_SUPABASE_URL` | la Project URL |
-     | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | la publishable key |
-     | `SUPABASE_SECRET_KEY` | la secret key |
+     | Key | Value | Type |
+     |---|---|---|
+     | `NEXT_PUBLIC_SUPABASE_URL` | la Project URL | **Config** |
+     | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | la publishable key | **Config** |
+     | `SUPABASE_SECRET_KEY` | la secret key | **Secret** |
+
+     ⚠️ Les variables qui commencent par `NEXT_PUBLIC_` doivent être de type **Config** :
+     elles sont publiques par nature (la sécurité repose sur les règles de la base).
+     Une variable enregistrée en *Secret* ne peut plus être passée en *Config* :
+     il faut la supprimer (**⋯ → Remove**) puis la recréer.
 
 4. **Deploy** → 1 à 2 minutes → l'adresse du site s'affiche dans **Domains**
    (par exemple `commande-bar.vercel.app`).
@@ -138,7 +143,7 @@ La page d'une table affiche un message d'aide en cas de problème de configurati
 | « La clé Supabase est refusée » | `SUPABASE_SECRET_KEY` mal copiée. |
 | « Accès refusé par la base » | Tu as mis la publishable key à la place de la secret key. |
 | « La base n'est pas installée » | Exécute `supabase/1-structure.sql`. |
-| « Supabase est injoignable » | `NEXT_PUBLIC_SUPABASE_URL` incorrecte, ou projet Supabase en pause (réactive-le depuis supabase.com). |
+| « Supabase est injoignable » / « Cette adresse Supabase n'existe pas » | `NEXT_PUBLIC_SUPABASE_URL` incorrecte ou enregistrée en type *Secret* au lieu de *Config* (voir plus haut), ou projet Supabase en pause (réactive-le depuis supabase.com). Après correction : nouveau déploiement. |
 | « Carte non reconnue » | Lien incomplet, table désactivée ou lien régénéré. |
 
 Le détail technique des erreurs est visible dans Vercel → ton projet → **Logs**.
