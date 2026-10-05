@@ -1,0 +1,205 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { QuantityStepper } from "@/components/menu/QuantityStepper";
+import { formatPrice } from "@/lib/format";
+import type { MenuProduct } from "@/lib/menu";
+import { MAX_COMMENT_LENGTH, type PaymentMethod } from "@/lib/order-types";
+
+export type CartLine = { product: MenuProduct; quantity: number };
+
+export function CartSheet({
+  tableLabel,
+  lines,
+  total,
+  payment,
+  onClose,
+  onChangeQuantity,
+  onSubmit,
+}: {
+  tableLabel: string;
+  lines: CartLine[];
+  total: number;
+  payment: { staff: boolean; online: boolean };
+  onClose: () => void;
+  onChangeQuantity: (productId: string, quantity: number) => void;
+  /** Renvoie un message d'erreur, ou null si la commande est partie. */
+  onSubmit: (order: { comment: string; paymentMethod: PaymentMethod }) => Promise<string | null>;
+}) {
+  const [comment, setComment] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(payment.online ? "online" : "staff");
+  const [submitting, setSubmitting] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Pas de défilement de la page derrière le panier ; « Échap » ferme.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  async function submit() {
+    setSubmitting(true);
+    setError(null);
+    const message = await onSubmit({ comment, paymentMethod });
+    if (message) {
+      setError(message);
+      setSubmitting(false);
+    } else {
+      setSent(true);
+    }
+  }
+
+  const canOrder = payment.staff || payment.online;
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-end justify-center bg-stone-900/50" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="panier-titre"
+        onClick={(event) => event.stopPropagation()}
+        className="flex max-h-[92dvh] w-full max-w-xl flex-col rounded-t-3xl bg-white"
+      >
+        <div className="flex items-center justify-between border-b border-stone-200 px-5 py-4">
+          <h2 id="panier-titre" className="text-xl font-bold">
+            Votre commande · {tableLabel}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fermer le panier"
+            className="grid h-11 w-11 place-items-center rounded-full bg-stone-100 text-2xl active:bg-stone-200"
+          >
+            ×
+          </button>
+        </div>
+
+        {sent ? (
+          <div className="px-5 py-16 text-center">
+            <p className="text-5xl">✅</p>
+            <p className="mt-4 text-xl font-bold">Commande envoyée !</p>
+            <p className="mt-2 text-stone-500">Ouverture du suivi…</p>
+          </div>
+        ) : lines.length === 0 ? (
+          <p className="px-5 py-16 text-center text-lg text-stone-500">Votre panier est vide.</p>
+        ) : (
+          <>
+            <div className="overflow-y-auto px-5 py-2">
+              <ul className="divide-y divide-stone-200">
+                {lines.map(({ product, quantity }) => (
+                  <li key={product.id} className="flex items-center gap-3 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold leading-snug">{product.name}</p>
+                      <p className="text-stone-500 tabular-nums">{formatPrice(product.price_cents * quantity)}</p>
+                    </div>
+                    <QuantityStepper
+                      quantity={quantity}
+                      label={product.name}
+                      onChange={(next) => onChangeQuantity(product.id, next)}
+                    />
+                  </li>
+                ))}
+              </ul>
+
+              <label className="mt-4 block">
+                <span className="text-base font-semibold">Un commentaire ? (facultatif)</span>
+                <textarea
+                  value={comment}
+                  onChange={(event) => setComment(event.target.value)}
+                  maxLength={MAX_COMMENT_LENGTH}
+                  rows={2}
+                  placeholder="Ex. : sans glaçons, bien frais…"
+                  className="mt-2 block w-full rounded-xl border border-stone-300 px-4 py-3 text-base focus:border-stone-900 focus:outline-none"
+                />
+              </label>
+
+              {payment.staff && payment.online && (
+                <fieldset className="mt-4">
+                  <legend className="text-base font-semibold">Paiement</legend>
+                  <div className="mt-2 grid gap-2">
+                    <PaymentOption
+                      checked={paymentMethod === "online"}
+                      onSelect={() => setPaymentMethod("online")}
+                      title="Payer maintenant"
+                      subtitle="Carte bancaire, Apple Pay, Google Pay"
+                    />
+                    <PaymentOption
+                      checked={paymentMethod === "staff"}
+                      onSelect={() => setPaymentMethod("staff")}
+                      title="Payer au serveur"
+                      subtitle="Vous réglez quand on vous apporte la commande"
+                    />
+                  </div>
+                </fieldset>
+              )}
+            </div>
+
+            <div className="border-t border-stone-200 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4">
+              {error && (
+                <p role="alert" className="mb-3 rounded-xl bg-red-50 px-4 py-3 text-base text-red-800">
+                  {error}
+                </p>
+              )}
+              {canOrder ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={submit}
+                    disabled={submitting}
+                    className="flex h-14 w-full items-center justify-between rounded-2xl bg-stone-900 px-5 text-lg font-bold text-white active:bg-stone-700 disabled:opacity-60"
+                  >
+                    <span>
+                      {submitting ? "Envoi…" : paymentMethod === "online" ? "Payer" : "Envoyer la commande"}
+                    </span>
+                    <span className="tabular-nums">{formatPrice(total)}</span>
+                  </button>
+                  {paymentMethod === "staff" && (
+                    <p className="mt-2 text-center text-sm text-stone-500">Vous réglerez auprès du serveur.</p>
+                  )}
+                </>
+              ) : (
+                <p className="rounded-xl bg-stone-100 px-4 py-3 text-center text-base text-stone-700">
+                  La commande depuis le téléphone n&apos;est pas disponible pour le moment. Demandez au serveur.
+                </p>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PaymentOption({
+  checked,
+  onSelect,
+  title,
+  subtitle,
+}: {
+  checked: boolean;
+  onSelect: () => void;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 ${
+        checked ? "border-stone-900 bg-stone-50" : "border-stone-200"
+      }`}
+    >
+      <input type="radio" name="paiement" checked={checked} onChange={onSelect} className="h-5 w-5 accent-stone-900" />
+      <span>
+        <span className="block font-semibold">{title}</span>
+        <span className="block text-sm text-stone-500">{subtitle}</span>
+      </span>
+    </label>
+  );
+}

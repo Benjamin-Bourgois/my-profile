@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import { CarteNonReconnue } from "@/components/CarteNonReconnue";
 import { ConfigManquante } from "@/components/ConfigManquante";
 import { ErreurTechnique } from "@/components/ErreurTechnique";
-import { MenuView } from "@/components/MenuView";
+import { MenuOrder } from "@/components/menu/MenuOrder";
 import { diagnose } from "@/lib/diagnose";
-import { missingConfig } from "@/lib/env";
+import { isStripeConfigured, missingConfig } from "@/lib/env";
 import { getMenu, type Menu } from "@/lib/menu";
 
 // La carte doit toujours être à jour (produits indisponibles, table désactivée…).
@@ -35,5 +35,9 @@ export default async function TablePage(props: PageProps<"/t/[token]">) {
   }
 
   if (!menu) return <CarteNonReconnue />;
-  return <MenuView menu={menu} />;
+  const payment = {
+    staff: menu.venue.pay_to_staff_enabled,
+    online: menu.venue.online_payment_enabled && isStripeConfigured(),
+  };
+  return <MenuOrder menu={menu} token={token} payment={payment} />;
 }

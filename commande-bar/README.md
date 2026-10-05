@@ -6,7 +6,7 @@ paie. La commande arrive en temps réel sur l'écran du bar avec le numéro de t
 
 > **Avancement**
 > - ✅ Étape 1 : base de données, sécurité, données de démo, page client (lecture de la carte)
-> - ⏳ Étape 2 : panier, commande, écran du bar en temps réel
+> - ✅ Étape 2 : panier, commande « Payer au serveur », suivi en direct, écran du bar en temps réel
 > - ⏳ Étape 3 : paiement Stripe (mode test)
 > - ⏳ Étape 4 : espace gérant (carte, tables, QR codes, réglages)
 > - ⏳ Étape 5 : finitions et scénario de démonstration
@@ -27,7 +27,10 @@ paie. La commande arrive en temps réel sur l'écran du bar avec le numéro de t
 | Adresse | Pour qui |
 |---|---|
 | `/` | Page de présentation |
-| `/t/<lien-secret>` | Le client (adresse écrite dans la puce NFC / le QR code) |
+| `/t/<lien-secret>` | Le client (adresse écrite dans la puce NFC / le QR code) : carte et panier |
+| `/t/<lien-secret>/commande/<n°>` | Le client : suivi de sa commande, mis à jour toutes les 4 secondes |
+| `/connexion` | Connexion du personnel et du gérant |
+| `/bar` | Écran du bar (tablette) : commandes en temps réel |
 
 ### Les liens des cartes NFC
 
@@ -73,7 +76,9 @@ volée, on « régénère » le lien : l'ancien cesse immédiatement de fonction
    - `bar@comptoir-demo.fr` (le personnel du bar)
 6. **SQL Editor** → **New query** → colle tout [`supabase/2-donnees-demo.sql`](supabase/2-donnees-demo.sql)
    → **Run**. Attendu : la liste des 10 tables avec leur lien (`/t/…`). Garde-la.
-7. Récupère 3 valeurs (elles serviront dans Vercel) :
+7. **SQL Editor** → **New query** → colle tout [`supabase/3-etape-2.sql`](supabase/3-etape-2.sql) → **Run**
+   (fonctions de l'écran du bar). Attendu : « Success. No rows returned ».
+8. Récupère 3 valeurs (elles serviront dans Vercel) :
    - **Project URL** (`https://xxxx.supabase.co`) : *Project Settings → Data API*,
      ou bouton **Connect** en haut de l'écran. (C'est aussi `https://` + l'identifiant
      qui suit `/project/` dans l'adresse du tableau de bord + `.supabase.co`.)
@@ -130,6 +135,28 @@ automatiquement. Si tu changes une variable d'environnement : **Deployments** �
   d'un client, pour ne jamais avoir à les reprogrammer.
 - Une fois une carte programmée, **verrouille-la** dans NFC Tools (*Autres → Verrouiller
   le tag*) pour que personne ne puisse la réécrire. C'est irréversible : pas pendant les tests.
+
+---
+
+## L'écran du bar (tablette)
+
+1. Sur la tablette, ouvre `https://<ton-adresse>/bar` et connecte-toi
+   (`bar@comptoir-demo.fr` ou `gerant@comptoir-demo.fr`).
+2. Touche **« Activer le son »** (obligatoire à chaque ouverture : les navigateurs
+   interdisent le son sans un premier appui).
+3. Réglages de la tablette : **verrouillage automatique → Jamais**, volume au maximum.
+   Astuce : « Partager → Sur l'écran d'accueil » pour l'ouvrir comme une application.
+
+Ce que fait l'écran :
+- les nouvelles commandes arrivent **sans recharger** (pastille « ● En direct »),
+  avec un signal sonore ; si le temps réel est coupé, l'écran se relit tout seul
+  toutes les 20 secondes (« ○ Actualisation auto ») ;
+- **numéro de table en très grand**, articles, commentaire, heure, paiement
+  (« Payé en ligne » / « À encaisser ») ;
+- boutons **En préparation → Servie**, **Encaissé**, **Annuler** (commandes non payées) ;
+- la carte devient **orange après 5 minutes** d'attente, **rouge après 10 minutes**
+  (réglable dans `src/components/bar/OrderCard.tsx`) ;
+- les commandes servies passent dans **Historique du jour** (une « journée » va de 5 h à 5 h).
 
 ---
 

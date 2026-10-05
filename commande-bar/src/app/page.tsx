@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const steps = [
   { icon: "📱", title: "Le client approche son téléphone", text: "de la carte posée sur la table (puce NFC ou QR code). Aucune application à installer." },
   { icon: "🍹", title: "Il commande et paie", text: "depuis la carte du bar, en quelques secondes." },
@@ -27,6 +29,13 @@ export default function Home() {
           </li>
         ))}
       </ol>
+
+      <footer className="mt-auto pt-16 text-stone-500">
+        Vous travaillez dans un bar ?{" "}
+        <Link href="/bar" className="font-semibold text-stone-900 underline">
+          Écran du bar
+        </Link>
+      </footer>
     </main>
   );
 }
