@@ -53,3 +53,8 @@ export function missingConfig(): string[] {
 export function supabaseSecretKey(): string {
   return clean(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
+
+/** Paiement en ligne disponible ? (clés Stripe renseignées — étape 3) */
+export function isStripeConfigured(): boolean {
+  return clean(process.env.STRIPE_SECRET_KEY).length > 0;
+}
