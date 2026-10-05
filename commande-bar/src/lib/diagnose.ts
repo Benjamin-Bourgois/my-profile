@@ -1,13 +1,19 @@
 // Traduit une erreur technique en piste concrète, pour aider à la mise en
-// route. Le détail affiché ne contient jamais de clé secrète.
+// route. Le détail affiché ne contient jamais de clé secrète (l'adresse
+// Supabase, elle, est publique).
 
-type MaybeError = { message?: unknown; code?: unknown } | null | undefined;
+import { supabaseUrl } from "@/lib/env";
+
+type MaybeError = { message?: unknown; code?: unknown; details?: unknown } | null | undefined;
 
 export function diagnose(error: unknown): string {
   const e = error as MaybeError;
-  const message = String(e?.message ?? error ?? "");
+  // Pour les erreurs réseau (« fetch failed »), la vraie raison (adresse
+  // introuvable, connexion refusée…) est indiquée après « Caused by: ».
+  const cause = String(e?.details ?? "").match(/Caused by: ([^\n]+)/)?.[1] ?? "";
+  const message = [String(e?.message ?? error ?? ""), cause].filter(Boolean).join(" · ");
   const code = String(e?.code ?? "");
-  return `${hint(message, code)}\n\nDétail : ${detail(message, code)}`;
+  return `${hint(message, code)}\n\nAdresse Supabase utilisée : ${supabaseUrl || "aucune"}\nDétail : ${detail(message, code)}`;
 }
 
 function hint(message: string, code: string): string {
@@ -29,7 +35,10 @@ function hint(message: string, code: string): string {
   if (code === "PGRST002" || /schema cache/i.test(message)) {
     return "Supabase est en train de démarrer : réessaie dans une minute.";
   }
-  if (/fetch failed|enotfound|econnrefused|getaddrinfo/i.test(message)) {
+  if (/enotfound|getaddrinfo|eai_again/i.test(message)) {
+    return "Cette adresse Supabase n'existe pas : compare NEXT_PUBLIC_SUPABASE_URL (Vercel) avec la « Project URL » de Supabase, lettre par lettre (elle se termine par .supabase.co).";
+  }
+  if (/fetch failed|econnrefused|econnreset|etimedout|certificate/i.test(message)) {
     return "Supabase est injoignable : vérifie NEXT_PUBLIC_SUPABASE_URL (https://xxxx.supabase.co). Si le projet Supabase est en pause, réactive-le.";
   }
   return "Erreur technique inattendue.";
