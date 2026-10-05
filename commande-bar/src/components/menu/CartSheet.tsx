@@ -84,9 +84,13 @@ export function CartSheet({
 
         {sent ? (
           <div className="px-5 py-16 text-center">
-            <p className="text-5xl">✅</p>
-            <p className="mt-4 text-xl font-bold">Commande envoyée !</p>
-            <p className="mt-2 text-stone-500">Ouverture du suivi…</p>
+            <p className="text-5xl">{paymentMethod === "online" ? "💳" : "✅"}</p>
+            <p className="mt-4 text-xl font-bold">
+              {paymentMethod === "online" ? "Ouverture du paiement sécurisé…" : "Commande envoyée !"}
+            </p>
+            <p className="mt-2 text-stone-500">
+              {paymentMethod === "online" ? "Carte bancaire, Apple Pay ou Google Pay." : "Ouverture du suivi…"}
+            </p>
           </div>
         ) : lines.length === 0 ? (
           <p className="px-5 py-16 text-center text-lg text-stone-500">Votre panier est vide.</p>

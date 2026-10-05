@@ -84,6 +84,12 @@ export function MenuOrder({
     }
 
     setRecentOrders((current) => [{ id: body.id, number: body.order_number, at: Date.now() }, ...current].slice(0, 5));
+    if (typeof body.checkout_url === "string") {
+      // Paiement en ligne : page sécurisée de Stripe. Le panier est gardé
+      // jusqu'au paiement (le client peut annuler et revenir).
+      window.location.assign(body.checkout_url);
+      return null;
+    }
     router.push(`/t/${token}/commande/${body.id}`);
     setCart(() => ({}));
     return null;

@@ -7,7 +7,7 @@ paie. La commande arrive en temps réel sur l'écran du bar avec le numéro de t
 > **Avancement**
 > - ✅ Étape 1 : base de données, sécurité, données de démo, page client (lecture de la carte)
 > - ✅ Étape 2 : panier, commande « Payer au serveur », suivi en direct, écran du bar en temps réel
-> - ⏳ Étape 3 : paiement Stripe (mode test)
+> - ✅ Étape 3 : paiement en ligne Stripe Checkout (mode test), confirmé par webhook
 > - ⏳ Étape 4 : espace gérant (carte, tables, QR codes, réglages)
 > - ⏳ Étape 5 : finitions et scénario de démonstration
 
@@ -51,6 +51,10 @@ volée, on « régénère » le lien : l'ancien cesse immédiatement de fonction
   son bar ; seul le gérant peut modifier la carte, les tables et les réglages.
 - **Anti-abus** : 5 commandes maximum par table toutes les 2 minutes (réglable dans
   `supabase/1-structure.sql`, fonction `create_order`).
+- **Paiement en ligne** : la commande est créée « en attente de paiement », invisible
+  au bar. Elle ne devient « Payée » qu'à réception du message **signé** de Stripe
+  (webhook), après vérification du montant. Un paiement abandonné expire au bout de
+  30 minutes et la commande est annulée.
 - Les **clés secrètes** sont uniquement dans les variables d'environnement
   (Vercel), jamais dans le code.
 
@@ -136,6 +140,44 @@ automatiquement. Si tu changes une variable d'environnement : **Deployments** �
 - Une fois une carte programmée, **verrouille-la** dans NFC Tools (*Autres → Verrouiller
   le tag*) pour que personne ne puisse la réécrire. C'est irréversible : pas pendant les tests.
 
+### 4. Stripe (paiement en ligne, mode test)
+
+Le mode test ne demande ni SIRET ni compte bancaire, et aucun argent réel ne circule.
+
+1. Crée un compte sur <https://dashboard.stripe.com/register> (email, nom, mot de passe).
+   Si Stripe propose d'activer les paiements, passe cette étape (**plus tard**).
+2. Vérifie en haut du tableau de bord que tu es en **mode test** (ou dans un **Sandbox**).
+3. **Développeurs → Clés API** : copie la **clé secrète** `sk_test_…`.
+4. **Développeurs → Webhooks → Ajouter une destination** (ou *Ajouter un endpoint*) :
+   - événements à cocher : `checkout.session.completed`,
+     `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`,
+     `checkout.session.expired` ;
+   - type : **Endpoint de webhook** ;
+   - URL : `https://<ton-adresse>/api/stripe/webhook`
+     (ex. `https://commande-bar.vercel.app/api/stripe/webhook`).
+   Une fois créé, copie son **secret de signature** `whsec_…`.
+5. Dans Vercel → **Environment Variables**, ajoute (type **Secret**) :
+
+   | Key | Value |
+   |---|---|
+   | `STRIPE_SECRET_KEY` | la clé `sk_test_…` |
+   | `STRIPE_WEBHOOK_SECRET` | le secret `whsec_…` |
+
+6. Remets le site en ligne (nouveau déploiement). Le choix **« Payer maintenant »**
+   apparaît alors dans le panier, à côté de « Payer au serveur ».
+
+**Cartes bancaires de test** (date d'expiration future, CVC et code postal au choix) :
+
+| Carte | Résultat |
+|---|---|
+| `4242 4242 4242 4242` | paiement accepté |
+| `4000 0025 0000 3155` | demande une validation 3D Secure (accepte-la dans la fenêtre de test) |
+| `4000 0000 0000 9995` | paiement refusé (fonds insuffisants) |
+
+Apple Pay / Google Pay s'affichent automatiquement sur la page Stripe si le téléphone
+en est équipé (Safari avec une carte dans Wallet, Chrome avec une carte enregistrée).
+En mode test, rien n'est débité.
+
 ---
 
 ## L'écran du bar (tablette)
@@ -172,6 +214,9 @@ La page d'une table affiche un message d'aide en cas de problème de configurati
 | « La base n'est pas installée » | Exécute `supabase/1-structure.sql`. |
 | « Supabase est injoignable » / « Cette adresse Supabase n'existe pas » | `NEXT_PUBLIC_SUPABASE_URL` incorrecte ou enregistrée en type *Secret* au lieu de *Config* (voir plus haut), ou projet Supabase en pause (réactive-le depuis supabase.com). Après correction : nouveau déploiement. |
 | « Carte non reconnue » | Lien incomplet, table désactivée ou lien régénéré. |
+| « Payer maintenant » n'apparaît pas | `STRIPE_SECRET_KEY` ou `STRIPE_WEBHOOK_SECRET` manquante, ou pas de nouveau déploiement depuis. |
+| Paiement accepté mais commande absente du bar (« Paiement en cours… » qui dure) | Le webhook n'arrive pas : dans Stripe → Webhooks → ta destination, regarde les envois en échec. Vérifie l'URL (`…/api/stripe/webhook`) et que `STRIPE_WEBHOOK_SECRET` est bien le secret de **cette** destination. Dans Vercel → Logs, cherche « Webhook Stripe refusé ». |
+| « Le paiement en ligne est momentanément indisponible » | Clé `STRIPE_SECRET_KEY` incorrecte (Vercel → Logs : « Ouverture du paiement Stripe impossible »). |
 
 Le détail technique des erreurs est visible dans Vercel → ton projet → **Logs**.
 
