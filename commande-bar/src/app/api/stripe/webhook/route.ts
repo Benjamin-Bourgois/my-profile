@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     case "checkout.session.completed":
     case "checkout.session.async_payment_succeeded": {
       const session = event.data.object;
-      if (session.payment_status !== "paid") break; // paiement différé : on attend « async_payment_succeeded »
+      if (session.payment_status === "unpaid") break; // paiement différé : on attend « async_payment_succeeded »
       const orderId = session.metadata?.order_id ?? session.client_reference_id;
       if (!orderId) break;
       const { data: confirmed, error } = await admin.rpc("confirm_online_payment", {

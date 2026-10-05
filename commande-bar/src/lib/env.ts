@@ -54,7 +54,10 @@ export function supabaseSecretKey(): string {
   return clean(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
-/** Clé secrète Stripe (sk_test_… en mode test) : uniquement côté serveur. */
+/**
+ * Clé API Stripe, uniquement côté serveur : de préférence une clé restreinte
+ * (rk_test_…, permission « Checkout Sessions : écriture »), sinon la clé secrète (sk_test_…).
+ */
 export function stripeSecretKey(): string {
   return clean(process.env.STRIPE_SECRET_KEY);
 }

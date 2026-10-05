@@ -4,6 +4,9 @@ import type { CustomerOrder } from "@/lib/order-types";
 import { getStripe } from "@/lib/stripe";
 import { getAdminClient } from "@/lib/supabase/admin";
 
+/** Étiquette de ce parcours de paiement, pour le retrouver dans le tableau de bord Stripe. */
+const INTEGRATION_IDENTIFIER = "tapigo-commande-table-qvhxkmrd";
+
 /** Durée pour payer, au minimum 30 minutes chez Stripe. Ensuite la commande est annulée. */
 const CHECKOUT_LIFETIME_SECONDS = 30 * 60;
 
@@ -28,6 +31,7 @@ export async function startCheckout({
   const session = await getStripe().checkout.sessions.create(
     {
       mode: "payment",
+      integration_identifier: INTEGRATION_IDENTIFIER,
       locale: "fr",
       submit_type: "pay",
       line_items: order.items

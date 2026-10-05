@@ -147,7 +147,12 @@ Le mode test ne demande ni SIRET ni compte bancaire, et aucun argent réel ne ci
 1. Crée un compte sur <https://dashboard.stripe.com/register> (email, nom, mot de passe).
    Si Stripe propose d'activer les paiements, passe cette étape (**plus tard**).
 2. Vérifie en haut du tableau de bord que tu es en **mode test** (ou dans un **Sandbox**).
-3. **Développeurs → Clés API** : copie la **clé secrète** `sk_test_…`.
+3. **Développeurs → Clés API** → **Créer une clé restreinte** (recommandé par Stripe : si elle
+   fuitait, elle ne permettrait que de créer des pages de paiement) :
+   - nom : `commande-bar` ;
+   - permission : **Checkout Sessions → Écriture** (tout le reste : Aucun) ;
+   - copie la clé `rk_test_…`.
+   (À défaut, la clé secrète `sk_test_…` fonctionne aussi, mais elle donne tous les droits.)
 4. **Développeurs → Webhooks → Ajouter une destination** (ou *Ajouter un endpoint*) :
    - événements à cocher : `checkout.session.completed`,
      `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`,
@@ -160,11 +165,22 @@ Le mode test ne demande ni SIRET ni compte bancaire, et aucun argent réel ne ci
 
    | Key | Value |
    |---|---|
-   | `STRIPE_SECRET_KEY` | la clé `sk_test_…` |
+   | `STRIPE_SECRET_KEY` | la clé restreinte `rk_test_…` (ou `sk_test_…`) |
    | `STRIPE_WEBHOOK_SECRET` | le secret `whsec_…` |
 
 6. Remets le site en ligne (nouveau déploiement). Le choix **« Payer maintenant »**
    apparaît alors dans le panier, à côté de « Payer au serveur ».
+
+**Sécurité du compte Stripe** : active la double authentification avec une application
+(Google Authenticator…) ou une clé d'accès, plutôt que par SMS.
+
+**Pour revendre à plusieurs bars (plus tard) : Stripe Connect.** Aujourd'hui, l'argent
+arrive sur ton compte Stripe. Pour que chaque bar encaisse directement, le modèle
+recommandé par Stripe pour une plateforme comme Tapigo est le « SaaS avec paiements » :
+chaque bar a son propre compte Stripe connecté (API Accounts v2, tableau de bord Stripe
+complet, frais et litiges à la charge du bar), les paiements sont des « direct charges »
+au nom du bar, et Tapigo peut prélever une commission (`application_fee_amount`).
+La base est prête : colonne `venues.stripe_account_id`.
 
 **Cartes bancaires de test** (date d'expiration future, CVC et code postal au choix) :
 
@@ -216,7 +232,7 @@ La page d'une table affiche un message d'aide en cas de problème de configurati
 | « Carte non reconnue » | Lien incomplet, table désactivée ou lien régénéré. |
 | « Payer maintenant » n'apparaît pas | `STRIPE_SECRET_KEY` ou `STRIPE_WEBHOOK_SECRET` manquante, ou pas de nouveau déploiement depuis. |
 | Paiement accepté mais commande absente du bar (« Paiement en cours… » qui dure) | Le webhook n'arrive pas : dans Stripe → Webhooks → ta destination, regarde les envois en échec. Vérifie l'URL (`…/api/stripe/webhook`) et que `STRIPE_WEBHOOK_SECRET` est bien le secret de **cette** destination. Dans Vercel → Logs, cherche « Webhook Stripe refusé ». |
-| « Le paiement en ligne est momentanément indisponible » | Clé `STRIPE_SECRET_KEY` incorrecte (Vercel → Logs : « Ouverture du paiement Stripe impossible »). |
+| « Le paiement en ligne est momentanément indisponible » | Clé `STRIPE_SECRET_KEY` incorrecte, ou clé restreinte sans la permission « Checkout Sessions : écriture » (Vercel → Logs : « Ouverture du paiement Stripe impossible »). |
 
 Le détail technique des erreurs est visible dans Vercel → ton projet → **Logs**.
 
