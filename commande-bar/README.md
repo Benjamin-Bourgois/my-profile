@@ -27,10 +27,10 @@ arrive aussitôt sur l'écran du bar avec le numéro de table, et le serveur la 
 
 | Adresse | Pour qui | Contenu |
 |---|---|---|
-| `/t/<lien-secret>` | Le client (adresse écrite dans la puce NFC / le QR code) | Nom du bar, « Table X », carte par catégories, produits épuisés grisés, panier, commentaire, paiement |
-| `/t/<lien-secret>/commande/<n°>` | Le client | Numéro de commande, statut mis à jour toutes les 3 s (Reçue → En préparation → Servie), « Commander à nouveau » |
-| `/bar` | Le personnel (tablette) | Commandes en temps réel avec signal sonore, numéro de table en très grand, boutons En préparation / Servie / Encaissé |
-| `/admin` | Le gérant | Commandes du jour et totaux, carte, tables et cartes NFC, QR codes, réglages |
+| `/t/<lien-secret>` | Le client (adresse écrite dans la puce NFC / le QR code) | Nom du bar, « Table X », carte par catégories, produits épuisés grisés, panier, commentaire, paiement, pourboire, boutons « Appeler un serveur » / « L'addition », mention sur l'alcool |
+| `/t/<lien-secret>/commande/<n°>` | Le client | Numéro de commande, statut mis à jour toutes les 3 s (Reçue → En préparation → Servie), « Commander à nouveau », appel du serveur |
+| `/bar` | Le personnel (tablette) | Commandes et appels des tables en temps réel avec signal sonore, numéro de table en très grand, boutons En préparation / Servie / Encaissé, pause des commandes |
+| `/admin` | Le gérant | Commandes du jour et totaux (dont pourboires), carte, tables et cartes NFC, QR codes, réglages, pause des commandes |
 | `/connexion` | Personnel et gérant | Email + mot de passe |
 | `/` | Prospects | Page de présentation |
 
@@ -99,15 +99,20 @@ une tablette (le « bar »). Durée : 5 minutes.
 1. **Scanner** — Pose la carte sur la table, approche le téléphone : la carte du bar
    s'ouvre, avec « Table X ». *« Aucune application à télécharger. »*
 2. **Commander** — Ajoute 2 Mojitos et une Pinte, écris « sans glace », ouvre le panier.
-3. **Payer** — Choisis **« Payer maintenant »** → page Stripe → carte `4242 4242 4242 4242`
+3. **Payer** — Choisis **« Payer maintenant »**, un pourboire de **10 %** → page Stripe → carte `4242 4242 4242 4242`
    (ou Apple Pay / Google Pay). La page de suivi s'affiche : *Commande reçue · Payé en ligne*.
    (Variante : **« Payer au serveur »**, la commande arrive « À encaisser ».)
 4. **Voir la commande au bar** — La tablette sonne : **numéro de table en très grand**,
-   articles, commentaire en jaune, « ✓ Payé en ligne ».
+   articles, commentaire en jaune, « ✓ Payé en ligne », « 🙏 Pourboire ».
 5. **Préparer puis servir** — Touche **En préparation** : le téléphone affiche
    « En préparation ». Touche **✓ Servie** : le téléphone affiche « Servie » et la
    commande passe dans l'historique.
-6. **Recommander** — Sur le téléphone, **« Commander à nouveau »**.
+6. **Appeler un serveur** — Sur le téléphone, **« 🙋 Appeler un serveur »** : la tablette
+   sonne (son différent) et affiche « Table X appelle un serveur ». Touche **✓ Fait**.
+   Même chose avec **« 🧾 L'addition »**.
+7. **Rush** — Sur la tablette, **« ⏸️ Pause des commandes »** : le téléphone affiche
+   « Commandes en pause » et ne peut plus commander. **« ▶ Reprendre les commandes »**.
+8. **Recommander** — Sur le téléphone, **« Commander à nouveau »**.
 
 **Pour finir, l'espace gérant** (`/admin`)
 - Passe un produit en **Épuisé** : il est grisé sur le téléphone.
@@ -136,9 +141,10 @@ Tout se fait dans le navigateur, rien à installer sur l'ordinateur.
    `gerant@comptoir-demo.fr` puis `bar@comptoir-demo.fr` (mots de passe à noter).
 6. **SQL Editor** : exécute [`supabase/2-donnees-demo.sql`](supabase/2-donnees-demo.sql)
    (bar de démo, affiche les 10 liens de tables), puis
-   [`supabase/3-etape-2.sql`](supabase/3-etape-2.sql) (écran du bar) et
-   [`supabase/4-etape-4.sql`](supabase/4-etape-4.sql) (espace gérant).
-   Les scripts 3 et 4 peuvent être relancés sans risque.
+   [`supabase/3-etape-2.sql`](supabase/3-etape-2.sql) (écran du bar),
+   [`supabase/4-etape-4.sql`](supabase/4-etape-4.sql) (espace gérant) et
+   [`supabase/5-ajouts.sql`](supabase/5-ajouts.sql) (appel du serveur, pourboire, pause).
+   Les scripts 3, 4 et 5 peuvent être relancés sans risque.
 7. **Authentication → Sign In / Providers** : désactive **Allow new users to sign up**
    (seuls les comptes que tu crées peuvent se connecter).
 8. Récupère 3 valeurs pour Vercel :
@@ -219,11 +225,23 @@ Le mode test ne demande ni SIRET ni compte bancaire ; aucun argent réel ne circ
 - La carte devient **orange après 5 min** d'attente, **rouge après 10 min**
   (réglable dans `src/components/bar/OrderCard.tsx`).
 - **Historique du jour** : commandes servies ou annulées (une journée va de 5 h à 5 h).
+- **Appels des tables** : quand un client touche « Appeler un serveur » (violet) ou
+  « L'addition » (bleu), un bandeau s'affiche en haut avec un son différent de celui des
+  commandes. **✓ Fait** l'enlève. Un appel non traité disparaît seul au bout d'1 heure.
+- **⏸️ Pause des commandes** (rush, cuisine fermée, fermeture) : les clients voient
+  « Commandes en pause » et ne peuvent plus commander depuis le téléphone ; ils peuvent
+  toujours consulter la carte et appeler un serveur. Bandeau rouge sur la tablette tant que
+  la pause est active ; **▶ Reprendre les commandes** pour rouvrir. Le personnel et le
+  gérant peuvent l'activer.
+- **Pourboire** : proposé avec le paiement en ligne (Sans, 5 %, 10 % ou montant libre,
+  au plus le montant de la commande) ; affiché « 🙏 Pourboire » sur la commande.
 
 ### L'espace gérant (`/admin`, compte gérant uniquement)
 
 - **Commandes du jour** : chiffre d'affaires, nombre de commandes, payé en ligne,
-  encaissé au bar, reste à encaisser ; jours précédents.
+  encaissé au bar, reste à encaisser, pourboires (en plus du chiffre d'affaires) ;
+  jours précédents.
+- **⏸️ Pause des commandes** en haut de chaque page, comme sur l'écran du bar.
 - **Carte** : catégories et produits (nom, description, prix, photo, ordre),
   interrupteur **Disponible / Épuisé** immédiat chez les clients. Les photos sont
   réduites à 800 px avant l'envoi (chargement rapide en 4G).
@@ -251,8 +269,12 @@ l'écran revient à l'état réel.
   **signé** de Stripe (webhook) et la vérification du montant. Messages en double sans
   effet. Paiement abandonné : annulé après 30 minutes.
 - **Anti-abus** : 5 commandes maximum par table toutes les 2 minutes (réglable dans
-  `supabase/1-structure.sql`, fonction `create_order`), 20 exemplaires par produit,
-  50 articles par commande.
+  `supabase/5-ajouts.sql`, fonction `create_order`), 20 exemplaires par produit,
+  50 articles par commande ; 10 appels du serveur maximum par table toutes les
+  10 minutes, un seul appel du même type en attente. Pourboire vérifié par la base
+  (paiement en ligne uniquement, au plus le montant de la commande et 100 €).
+- **Pause des commandes** vérifiée par la base : une commande envoyée pendant la pause
+  est refusée, même si la page du client n'est pas à jour.
 - **Liens de table** : 12 caractères aléatoires (générateur cryptographique), pages
   exclues des moteurs de recherche.
 - **Clés secrètes** uniquement dans les variables Vercel, jamais dans le code ni dans
@@ -284,7 +306,8 @@ l'écran revient à l'état réel.
 | « La base n'est pas installée » | Exécute `supabase/1-structure.sql`. |
 | « Supabase est injoignable » / « Cette adresse Supabase n'existe pas » | `NEXT_PUBLIC_SUPABASE_URL` incorrecte ou en type *Secret* au lieu de *Config*, ou projet Supabase en pause (réactive-le sur supabase.com). Puis redéploie. |
 | « Carte non reconnue » | Lien incomplet, table désactivée ou lien régénéré. |
-| « Base incomplète : exécutez le script supabase/4-etape-4.sql » | Exécute ce script dans Supabase. |
+| « Base incomplète : exécutez les scripts… » | Exécute `supabase/4-etape-4.sql` puis `supabase/5-ajouts.sql` dans Supabase. |
+| Après une mise à jour, plus aucune commande ne passe (« Petit souci technique ») ou l'écran du bar reste vide | Le dernier script SQL n'a pas été exécuté : lance `supabase/5-ajouts.sql` dans Supabase. Vercel → Logs : « Could not find the function ». |
 | « Envoi impossible » en ajoutant une photo | Stockage des images absent : relance la fin de `1-structure.sql` ou crée un bucket public `images` dans Supabase → Storage. |
 | « Payer maintenant » n'apparaît pas | `STRIPE_SECRET_KEY` ou `STRIPE_WEBHOOK_SECRET` manquante, ou pas redéployé. |
 | Paiement accepté mais rien au bar (« Paiement en cours… » qui dure) | Webhook : Stripe → Webhooks → ta destination → envois en échec. Vérifie l'URL `…/api/stripe/webhook` et le secret `whsec_…` de **cette** destination. Vercel → Logs : « Webhook Stripe refusé ». |
@@ -321,7 +344,7 @@ Organisation du code :
 | `src/app/admin/`, `src/components/admin/` | Espace gérant |
 | `src/app/api/` | Commandes, webhook Stripe, QR codes |
 | `src/lib/` | Accès Supabase et Stripe, types, formatage, configuration |
-| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4) |
+| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5) |
 
 ---
 
@@ -361,4 +384,6 @@ where v.slug = 'nom-du-bar' and u.email = 'gerant@nom-du-bar.fr';
 - [ ] Dépôt GitHub **privé**.
 - [ ] Puces NFC **verrouillées** une fois posées.
 - [ ] Mentions légales, CGV/CGU et politique de confidentialité (RGPD) sur le site.
+- [ ] Pourboires : vérifier avec le comptable du bar comment les reverser à l'équipe
+      (ils sont encaissés avec la commande).
 - [ ] Tester le scénario de démonstration sur place, avec le wifi / la 4G du bar.

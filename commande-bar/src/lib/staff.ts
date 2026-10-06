@@ -9,6 +9,7 @@ export type StaffVenue = {
   name: string;
   logo_url: string | null;
   timezone: string;
+  orders_paused: boolean;
   role: "owner" | "staff";
 };
 

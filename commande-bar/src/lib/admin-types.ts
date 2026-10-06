@@ -34,6 +34,7 @@ export type DayTotals = {
   online_cents: number;
   staff_paid_cents: number;
   to_collect_cents: number;
+  tips_cents: number;
 };
 
 export type DayData = { business_date: string; today: string; orders: BarOrder[]; totals: DayTotals };

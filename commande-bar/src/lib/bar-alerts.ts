@@ -37,6 +37,27 @@ export function playChime(context: AudioContext) {
   });
 }
 
+/** Trois notes rapides, différentes du « ding-dong » : une table appelle un serveur. */
+export function playCallChime(context: AudioContext) {
+  const start = context.currentTime + 0.05;
+  [
+    { frequency: 1568, at: 0 },
+    { frequency: 1568, at: 0.16 },
+    { frequency: 2093, at: 0.32 },
+  ].forEach(({ frequency, at }) => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "triangle";
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(0.0001, start + at);
+    gain.gain.exponentialRampToValueAtTime(0.6, start + at + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.28);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start(start + at);
+    oscillator.stop(start + at + 0.3);
+  });
+}
+
 /** Empêche la tablette de se mettre en veille tant que l'écran du bar est affiché. */
 export async function keepScreenOn() {
   try {

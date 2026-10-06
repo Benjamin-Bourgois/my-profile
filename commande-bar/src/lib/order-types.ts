@@ -18,6 +18,7 @@ export type CustomerOrder = {
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
   total_cents: number;
+  tip_cents: number;
   comment: string | null;
   table_label: string;
   created_at: string;
@@ -33,6 +34,7 @@ export type BarOrder = {
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
   total_cents: number;
+  tip_cents: number;
   comment: string | null;
   created_at: string;
   received_at: string | null;
@@ -42,11 +44,23 @@ export type BarOrder = {
   items: OrderItem[];
 };
 
+/** Appel depuis une table : « Appeler un serveur » ou « L'addition ». */
+export type CallKind = "waiter" | "bill";
+
+export type TableCall = {
+  id: string;
+  table_label: string;
+  kind: CallKind;
+  created_at: string;
+};
+
 export type BarOrders = {
   business_date: string;
   server_time: string;
+  orders_paused: boolean;
   active: BarOrder[];
   history: BarOrder[];
+  calls: TableCall[];
 };
 
 /** Libellé du paiement, tel qu'affiché au bar. */
@@ -62,3 +76,5 @@ export const FINAL_STATUSES: OrderStatus[] = ["served", "cancelled"];
 /** Mêmes limites que la fonction SQL create_order(). */
 export const MAX_QUANTITY_PER_LINE = 20;
 export const MAX_COMMENT_LENGTH = 300;
+/** Pourboire : au plus le montant de la commande, et 100 €. */
+export const MAX_TIP_CENTS = 10000;

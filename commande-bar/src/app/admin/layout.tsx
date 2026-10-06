@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { signOut } from "@/app/connexion/actions";
 import { AdminNav } from "@/components/admin/AdminNav";
+import { AdminPauseButton } from "@/components/admin/AdminPauseButton";
 import { ConfigManquante } from "@/components/ConfigManquante";
 import { ErreurTechnique } from "@/components/ErreurTechnique";
 import { MessageScreen } from "@/components/MessageScreen";
@@ -46,7 +47,8 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <h1 className="text-xl font-bold">{venue.name}</h1>
           <span className="text-stone-400">Espace gérant</span>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <AdminPauseButton venueId={venue.id} paused={venue.orders_paused} />
             <Link href="/bar" className="flex h-11 items-center rounded-xl bg-stone-700 px-4 font-semibold hover:bg-stone-600">
               Écran du bar →
             </Link>

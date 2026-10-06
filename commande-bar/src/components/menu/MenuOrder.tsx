@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { CallButtons } from "@/components/menu/CallButtons";
 import { CartSheet, type CartLine } from "@/components/menu/CartSheet";
 import { CategoryNav } from "@/components/menu/CategoryNav";
 import { MenuHeader } from "@/components/menu/MenuHeader";
@@ -13,6 +14,8 @@ import { formatPrice } from "@/lib/format";
 import type { Menu } from "@/lib/menu";
 import { GENERIC_ORDER_ERROR, MENU_CHANGED_CODES } from "@/lib/order-errors";
 import { MAX_QUANTITY_PER_LINE, type PaymentMethod } from "@/lib/order-types";
+
+const PAUSED_REFRESH_INTERVAL = 30_000;
 
 /** Carte du bar avec panier et envoi de la commande. */
 export function MenuOrder({
@@ -28,7 +31,20 @@ export function MenuOrder({
   const [cart, setCart] = useCart(token);
   const [recentOrders, setRecentOrders] = useRecentOrders(token);
   const [cartOpen, setCartOpen] = useState(false);
-  const orderingEnabled = payment.staff || payment.online;
+  const paused = menu.venue.orders_paused;
+  const orderingEnabled = !paused && (payment.staff || payment.online);
+
+  // Commandes en pause : la carte se recharge toute seule pour voir la reprise.
+  useEffect(() => {
+    if (!paused) return;
+    const timer = window.setInterval(() => router.refresh(), PAUSED_REFRESH_INTERVAL);
+    const onVisible = () => document.visibilityState === "visible" && router.refresh();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [paused, router]);
 
   const products = useMemo(
     () => new Map(menu.categories.flatMap((category) => category.products).map((product) => [product.id, product])),
@@ -60,7 +76,15 @@ export function MenuOrder({
 
   const closeCart = useCallback(() => setCartOpen(false), []);
 
-  async function sendOrder({ comment, paymentMethod }: { comment: string; paymentMethod: PaymentMethod }) {
+  async function sendOrder({
+    comment,
+    paymentMethod,
+    tipCents,
+  }: {
+    comment: string;
+    paymentMethod: PaymentMethod;
+    tipCents: number;
+  }) {
     let response: Response;
     try {
       response = await fetch("/api/orders", {
@@ -71,6 +95,7 @@ export function MenuOrder({
           items: lines.map(({ product, quantity }) => ({ product_id: product.id, quantity })),
           comment: comment.trim() || null,
           payment_method: paymentMethod,
+          tip_cents: tipCents,
         }),
       });
     } catch {
@@ -115,9 +140,22 @@ export function MenuOrder({
         </Link>
       )}
 
+      {paused && (
+        <div role="status" className="bg-red-100 px-4 py-3 text-red-950">
+          <p className="mx-auto max-w-xl">
+            <strong>Commandes en pause.</strong> Le bar ne prend plus de commandes depuis le téléphone pour le
+            moment. Vous pouvez consulter la carte ou appeler un serveur.
+          </p>
+        </div>
+      )}
+
+      <div className="mx-auto max-w-xl px-4 pt-4">
+        <CallButtons token={token} />
+      </div>
+
       <CategoryNav categories={menu.categories} />
 
-      <main className={`mx-auto max-w-xl px-4 ${count > 0 ? "pb-32" : "pb-16"}`}>
+      <main className={`mx-auto max-w-xl px-4 ${count > 0 ? "pb-32" : "pb-12"}`}>
         {menu.categories.length === 0 && (
           <p className="py-16 text-center text-lg text-stone-500">La carte est en cours de préparation.</p>
         )}
@@ -137,6 +175,11 @@ export function MenuOrder({
             </ul>
           </section>
         ))}
+
+        <footer className="mt-10 space-y-1 text-center text-sm text-stone-500">
+          <p>La vente d&apos;alcool est interdite aux mineurs de moins de 18 ans.</p>
+          <p>L&apos;abus d&apos;alcool est dangereux pour la santé, à consommer avec modération.</p>
+        </footer>
       </main>
 
       {count > 0 && !cartOpen && (
@@ -163,6 +206,7 @@ export function MenuOrder({
           lines={lines}
           total={total}
           payment={payment}
+          paused={paused}
           onClose={closeCart}
           onChangeQuantity={setQuantity}
           onSubmit={sendOrder}

@@ -34,11 +34,14 @@ export async function startCheckout({
       integration_identifier: INTEGRATION_IDENTIFIER,
       locale: "fr",
       submit_type: "pay",
-      line_items: order.items
-        .filter((item) => item.unit_price_cents > 0) // Stripe refuse les lignes gratuites
-        .map((item) => ({
-          quantity: item.quantity,
-          price_data: { currency: "eur", unit_amount: item.unit_price_cents, product_data: { name: item.name } },
+      line_items: [
+        ...order.items.map((item) => ({ name: item.name, quantity: item.quantity, cents: item.unit_price_cents })),
+        { name: "Pourboire", quantity: 1, cents: order.tip_cents },
+      ]
+        .filter((line) => line.cents > 0) // Stripe refuse les lignes gratuites
+        .map((line) => ({
+          quantity: line.quantity,
+          price_data: { currency: "eur", unit_amount: line.cents, product_data: { name: line.name } },
         })),
       custom_text: {
         submit: { message: `${venueName} · ${order.table_label} · commande n° ${order.order_number}` },
