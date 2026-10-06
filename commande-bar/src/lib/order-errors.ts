@@ -1,8 +1,12 @@
-// Messages affichés au client quand la base refuse une commande
-// (codes levés par la fonction SQL create_order).
+// Messages affichés au client quand la base refuse une commande ou un appel
+// (codes levés par les fonctions SQL create_order et create_table_call).
 
 const MESSAGES: Record<string, { status: number; message: string }> = {
   CARTE_INVALIDE: { status: 404, message: "Carte non reconnue, demandez au serveur." },
+  COMMANDES_EN_PAUSE: {
+    status: 409,
+    message: "Le bar ne prend plus de commandes pour le moment. Réessayez un peu plus tard ou appelez un serveur.",
+  },
   PAIEMENT_INDISPONIBLE: { status: 400, message: "Ce mode de paiement n'est pas disponible." },
   TROP_DE_COMMANDES: {
     status: 429,
@@ -18,12 +22,14 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
   PANIER_TROP_GROS: { status: 400, message: "Commande trop importante : 20 exemplaires par produit et 50 articles au maximum." },
   COMMENTAIRE_TROP_LONG: { status: 400, message: "Le commentaire est trop long (300 caractères maximum)." },
   MONTANT_TROP_FAIBLE: { status: 400, message: "Le paiement en ligne n'est possible qu'à partir de 0,50 €." },
+  POURBOIRE_INVALIDE: { status: 400, message: "Le pourboire ne peut pas dépasser le montant de la commande." },
+  TROP_D_APPELS: { status: 429, message: "Plusieurs appels viennent d'être envoyés. Un serveur va passer, merci de patienter." },
 };
 
 export const GENERIC_ORDER_ERROR = "Petit souci technique, la commande n'est pas partie. Réessayez dans un instant.";
 
 /** Codes après lesquels la carte affichée doit être rechargée. */
-export const MENU_CHANGED_CODES = ["PRODUIT_INDISPONIBLE", "PRODUIT_INCONNU"];
+export const MENU_CHANGED_CODES = ["PRODUIT_INDISPONIBLE", "PRODUIT_INCONNU", "COMMANDES_EN_PAUSE"];
 
 export function orderError(code: string): { status: number; message: string } {
   return MESSAGES[code] ?? { status: 500, message: GENERIC_ORDER_ERROR };

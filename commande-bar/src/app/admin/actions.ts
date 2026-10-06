@@ -18,6 +18,7 @@ const ADMIN_FUNCTIONS = new Set([
   "admin_delete_table",
   "admin_update_settings",
   "regenerate_table_token",
+  "set_orders_paused",
 ]);
 
 export type AdminActionResult = { error?: string; data?: unknown };

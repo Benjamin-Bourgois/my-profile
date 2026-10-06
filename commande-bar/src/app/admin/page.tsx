@@ -60,15 +60,17 @@ export default async function AdminDayPage(props: PageProps<"/admin">) {
         </div>
       </div>
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-5" aria-label="Totaux">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6" aria-label="Totaux">
         <Tile label="Chiffre d'affaires" value={formatPrice(day.totals.revenue_cents)} strong />
         <Tile label="Commandes" value={String(day.totals.count)} />
         <Tile label="Payé en ligne" value={formatPrice(day.totals.online_cents)} />
         <Tile label="Encaissé au bar" value={formatPrice(day.totals.staff_paid_cents)} />
         <Tile label="Reste à encaisser" value={formatPrice(day.totals.to_collect_cents)} warn={day.totals.to_collect_cents > 0} />
+        <Tile label="Pourboires" value={formatPrice(day.totals.tips_cents)} />
       </section>
       <p className="text-sm text-stone-500">
         Une journée va de 5 h à 5 h du matin. Les commandes annulées ({day.totals.cancelled_count}) ne sont pas comptées.
+        Les pourboires ne sont pas inclus dans le chiffre d&apos;affaires.
       </p>
 
       {day.orders.length === 0 ? (
@@ -86,7 +88,12 @@ export default async function AdminDayPage(props: PageProps<"/admin">) {
                 {order.items.map((item) => `${item.quantity} × ${item.name}`).join(", ")}
                 {order.comment && <span className="block text-sm text-stone-500">💬 {order.comment}</span>}
               </span>
-              <span className="w-20 text-right font-bold tabular-nums">{formatPrice(order.total_cents)}</span>
+              <span className="w-20 text-right font-bold tabular-nums">
+                {formatPrice(order.total_cents)}
+                {order.tip_cents > 0 && (
+                  <span className="block text-xs font-normal text-stone-500">+ {formatPrice(order.tip_cents)} pourb.</span>
+                )}
+              </span>
               <span className="w-36 text-sm text-stone-600">{paymentLabel(order)}</span>
               <span className="w-28 text-sm font-semibold">{STATUS_LABEL[order.status]}</span>
             </li>

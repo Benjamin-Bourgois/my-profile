@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { cancelUnstartedCheckout, startCheckout } from "@/lib/checkout";
 import { isStripeConfigured } from "@/lib/env";
 import { GENERIC_ORDER_ERROR, isKnownOrderError, orderError } from "@/lib/order-errors";
-import { MAX_COMMENT_LENGTH, MAX_QUANTITY_PER_LINE, UUID_PATTERN, type PaymentMethod } from "@/lib/order-types";
+import { MAX_COMMENT_LENGTH, MAX_QUANTITY_PER_LINE, MAX_TIP_CENTS, UUID_PATTERN, type PaymentMethod } from "@/lib/order-types";
 import { getMenu, TOKEN_PATTERN } from "@/lib/menu";
 import { getCustomerOrder } from "@/lib/orders";
 import { getAdminClient } from "@/lib/supabase/admin";
@@ -13,15 +13,17 @@ type OrderRequest = {
   items: { product_id: string; quantity: number }[];
   comment: string | null;
   payment_method: PaymentMethod;
+  tip_cents: number;
 };
 
 /** Vérifie la forme de la demande. Les prix ne sont jamais lus : la base les recalcule. */
 function parse(body: unknown): OrderRequest | null {
   if (!body || typeof body !== "object") return null;
-  const { token, items, comment, payment_method } = body as Record<string, unknown>;
+  const { token, items, comment, payment_method, tip_cents = 0 } = body as Record<string, unknown>;
   if (typeof token !== "string" || !TOKEN_PATTERN.test(token)) return null;
   if (payment_method !== "staff" && payment_method !== "online") return null;
   if (comment != null && (typeof comment !== "string" || comment.length > MAX_COMMENT_LENGTH)) return null;
+  if (!Number.isInteger(tip_cents) || (tip_cents as number) < 0 || (tip_cents as number) > MAX_TIP_CENTS) return null;
   if (!Array.isArray(items) || items.length === 0 || items.length > 30) return null;
   const lines = items.map((item) => ({
     product_id: (item as Record<string, unknown>)?.product_id,
@@ -41,6 +43,8 @@ function parse(body: unknown): OrderRequest | null {
     items: lines as OrderRequest["items"],
     comment: typeof comment === "string" && comment.trim() ? comment.trim() : null,
     payment_method,
+    // Pourboire : seulement avec le paiement en ligne (la base le vérifie aussi)
+    tip_cents: payment_method === "online" ? (tip_cents as number) : 0,
   };
 }
 
@@ -59,6 +63,7 @@ export async function POST(request: Request) {
     p_items: order.items,
     p_comment: order.comment,
     p_payment_method: order.payment_method,
+    p_tip_cents: order.tip_cents,
   });
 
   if (error) {

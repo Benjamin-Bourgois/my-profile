@@ -28,6 +28,16 @@ export function PaymentBadge({ order }: { order: BarOrder }) {
   );
 }
 
+/** Pourboire laissé avec le paiement en ligne. */
+export function TipBadge({ order }: { order: BarOrder }) {
+  if (order.tip_cents <= 0 || order.payment_status !== "paid") return null;
+  return (
+    <span className="inline-flex items-center rounded-full bg-violet-100 px-3 py-1 text-base font-bold text-violet-900">
+      🙏 Pourboire {formatPrice(order.tip_cents)}
+    </span>
+  );
+}
+
 const canCollect = (order: BarOrder) =>
   order.payment_method === "staff" && order.payment_status === "unpaid" && order.status !== "cancelled";
 
@@ -80,8 +90,9 @@ export function OrderCard({
           </span>
         </span>
       </div>
-      <div className="mt-2">
+      <div className="mt-2 flex flex-wrap gap-2">
         <PaymentBadge order={order} />
+        <TipBadge order={order} />
       </div>
 
       <ul className="mt-4 space-y-1 text-2xl">
@@ -156,6 +167,7 @@ export function HistoryRow({
         {served ? `Servie à ${formatTime(order.served_at, timeZone)}` : `Annulée à ${formatTime(order.cancelled_at, timeZone)}`}
       </span>
       {served && <PaymentBadge order={order} />}
+      {served && <TipBadge order={order} />}
       {canCollect(order) && (
         <SmallButton disabled={busy} onClick={() => actions.onPaid(order)}>
           € Encaissé

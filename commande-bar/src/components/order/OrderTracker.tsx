@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { CallButtons } from "@/components/menu/CallButtons";
 import { useCart } from "@/lib/cart";
 import { formatPrice } from "@/lib/format";
 import { FINAL_STATUSES, type CustomerOrder, type OrderStatus } from "@/lib/order-types";
@@ -158,12 +159,24 @@ export function OrderTracker({
           ))}
         </ul>
         {order.comment && <p className="mt-3 rounded-xl bg-stone-100 px-3 py-2 text-stone-700">💬 {order.comment}</p>}
+        {order.tip_cents > 0 && (
+          <div className="mt-3 flex justify-between gap-3 text-stone-600">
+            <span>Pourboire</span>
+            <span className="tabular-nums">{formatPrice(order.tip_cents)}</span>
+          </div>
+        )}
         <div className="mt-4 flex justify-between border-t border-stone-200 pt-3 text-lg font-bold">
           <span>Total</span>
-          <span className="tabular-nums">{formatPrice(order.total_cents)}</span>
+          <span className="tabular-nums">{formatPrice(order.total_cents + order.tip_cents)}</span>
         </div>
         <p className="mt-2 text-stone-600">{paymentText(order, paymentCancelled)}</p>
       </section>
+
+      {canReorder && !paymentCancelled && order.status !== "pending_payment" && (
+        <div className="mt-6">
+          <CallButtons token={token} />
+        </div>
+      )}
 
       {canReorder && (
         <Link

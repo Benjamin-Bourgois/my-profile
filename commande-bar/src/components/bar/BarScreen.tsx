@@ -7,9 +7,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { signOut } from "@/app/connexion/actions";
 import { HistoryRow, OrderCard, type OrderActions } from "@/components/bar/OrderCard";
-import { keepScreenOn, playChime, unlockAudio } from "@/lib/bar-alerts";
+import { TableCalls } from "@/components/bar/TableCalls";
+import { PauseOrdersButton } from "@/components/PauseOrdersButton";
+import { keepScreenOn, playCallChime, playChime, unlockAudio } from "@/lib/bar-alerts";
 import { formatTime } from "@/lib/format";
-import type { BarOrder, BarOrders, OrderStatus } from "@/lib/order-types";
+import type { BarOrder, BarOrders, OrderStatus, TableCall } from "@/lib/order-types";
 import type { StaffVenue } from "@/lib/staff";
 import { getBrowserClient } from "@/lib/supabase/browser";
 
@@ -41,6 +43,7 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
   const [now, setNow] = useState(0);
   const clockOffset = useRef(0);
   const seenIds = useRef<Set<string> | null>(null);
+  const seenCallIds = useRef<Set<string> | null>(null);
   const audio = useRef<AudioContext | null>(null);
   const refreshTimeout = useRef<number | undefined>(undefined);
 
@@ -59,14 +62,20 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
       return;
     }
 
-    const orders = result as BarOrders;
+    // Valeurs par défaut si le script supabase/5-ajouts.sql n'a pas encore été exécuté.
+    const raw = result as Partial<BarOrders> & Omit<BarOrders, "orders_paused" | "calls">;
+    const orders: BarOrders = { ...raw, orders_paused: raw.orders_paused ?? false, calls: raw.calls ?? [] };
     clockOffset.current = Date.parse(orders.server_time) - Date.now();
-    // Signal sonore pour chaque commande jamais vue (pas au premier chargement).
-    if (seenIds.current && audio.current) {
-      const arrived = orders.active.some((order) => !seenIds.current?.has(order.id));
-      if (arrived) playChime(audio.current);
+    // Signal sonore pour chaque commande ou appel jamais vu (pas au premier chargement).
+    if (seenIds.current && seenCallIds.current && audio.current) {
+      const context = audio.current;
+      const orderArrived = orders.active.some((order) => !seenIds.current?.has(order.id));
+      const callArrived = orders.calls.some((call) => !seenCallIds.current?.has(call.id));
+      if (orderArrived) playChime(context);
+      if (callArrived) window.setTimeout(() => playCallChime(context), orderArrived ? 1500 : 0);
     }
     seenIds.current = new Set([...orders.active, ...orders.history].map((order) => order.id));
+    seenCallIds.current = new Set(orders.calls.map((call) => call.id));
     setData(orders);
     setError(null);
     setNow(Date.now() + clockOffset.current);
@@ -112,6 +121,11 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
           { event: "*", schema: "public", table: "orders", filter: `venue_id=eq.${venue.id}` },
           scheduleRefresh,
         )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "table_calls", filter: `venue_id=eq.${venue.id}` },
+          scheduleRefresh,
+        )
         .subscribe((status) => {
           setLive(status === "SUBSCRIBED");
           if (status === "SUBSCRIBED") scheduleRefresh();
@@ -123,8 +137,8 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
     };
   }, [supabase, venue.id, scheduleRefresh]);
 
-  // Nombre de nouvelles commandes dans l'onglet du navigateur.
-  const newCount = data?.active.filter((order) => order.status === "received").length ?? 0;
+  // Nombre de nouvelles commandes et d'appels dans l'onglet du navigateur.
+  const newCount = (data?.active.filter((order) => order.status === "received").length ?? 0) + (data?.calls.length ?? 0);
   useEffect(() => {
     document.title = newCount > 0 ? `(${newCount}) Bar · ${venue.name}` : `Bar · ${venue.name}`;
   }, [newCount, venue.name]);
@@ -146,6 +160,20 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
     const { error: callError } = await call();
     if (callError) setError(`La commande n° ${order.order_number} n'a pas pu être modifiée. Réessayez.`);
     setBusyId(null);
+    refresh();
+  }
+
+  async function handleCall(call: TableCall) {
+    setData((current) => (current ? { ...current, calls: current.calls.filter((c) => c.id !== call.id) } : current));
+    const { error: callError } = await supabase.rpc("handle_table_call", { p_call_id: call.id });
+    if (callError) setError(`L'appel de ${call.table_label} n'a pas pu être marqué comme fait. Réessayez.`);
+    refresh();
+  }
+
+  async function setPaused(paused: boolean) {
+    setData((current) => (current ? { ...current, orders_paused: paused } : current));
+    const { error: pauseError } = await supabase.rpc("set_orders_paused", { p_venue_id: venue.id, p_paused: paused });
+    if (pauseError) setError("La pause des commandes n'a pas pu être modifiée. Réessayez.");
     refresh();
   }
 
@@ -176,8 +204,9 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
           >
             {live ? "● En direct" : "○ Actualisation auto"}
           </span>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex flex-wrap items-center gap-3">
             {data && <span className="text-2xl font-bold tabular-nums">{formatTime(new Date(now).toISOString(), venue.timezone)}</span>}
+            {data && <PauseOrdersButton paused={data.orders_paused} onToggle={setPaused} />}
             <button
               type="button"
               onClick={enableSound}
@@ -207,13 +236,19 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
         </nav>
       </header>
 
+      {data?.orders_paused && (
+        <p role="status" className="bg-red-600 px-4 py-3 text-lg font-bold text-white">
+          Commandes en pause : les clients ne peuvent plus commander depuis leur téléphone.
+        </p>
+      )}
+
       {!soundOn && (
         <button
           type="button"
           onClick={enableSound}
           className="block w-full bg-amber-400 px-4 py-4 text-lg font-bold text-stone-900 active:bg-amber-500"
         >
-          🔔 Touchez ici pour activer le son des nouvelles commandes
+          🔔 Touchez ici pour activer le son des nouvelles commandes et des appels
         </button>
       )}
 
@@ -224,6 +259,9 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
       )}
 
       <main className="p-4">
+        {data && data.calls.length > 0 && (
+          <TableCalls calls={data.calls} now={now} timeZone={venue.timezone} onDone={handleCall} />
+        )}
         {!data ? (
           <p className="py-24 text-center text-xl text-stone-500">Chargement des commandes…</p>
         ) : view === "active" ? (

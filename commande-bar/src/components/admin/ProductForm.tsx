@@ -5,15 +5,8 @@ import { useEffect, useState } from "react";
 import { ImageField } from "@/components/admin/ImageField";
 import { Toggle } from "@/components/admin/Toggle";
 import type { AdminProduct } from "@/lib/admin-types";
+import { parsePrice } from "@/lib/format";
 import { useAdminAction } from "@/lib/use-admin-action";
-
-/** « 6,50 » / « 6.5 » / « 6 € » → 650 ; null si invalide. */
-export function parsePrice(input: string): number | null {
-  const normalized = input.replace(/\s|€/g, "").replace(",", ".");
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
-  const cents = Math.round(Number(normalized) * 100);
-  return cents <= 100000 ? cents : null;
-}
 
 function priceToInput(cents: number): string {
   return (cents / 100).toFixed(2).replace(".", ",");

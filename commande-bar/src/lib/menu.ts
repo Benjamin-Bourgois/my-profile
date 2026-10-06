@@ -28,6 +28,7 @@ export type Menu = {
     currency: string;
     pay_to_staff_enabled: boolean;
     online_payment_enabled: boolean;
+    orders_paused: boolean;
   };
   categories: MenuCategory[];
 };
