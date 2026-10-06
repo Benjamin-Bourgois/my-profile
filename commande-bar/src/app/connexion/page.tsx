@@ -23,10 +23,13 @@ export default async function ConnexionPage(props: PageProps<"/connexion">) {
   if (data.user) redirect(nextPath);
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-6 py-12">
-      <p className="text-sm font-semibold uppercase tracking-widest text-amber-600">Commande à table</p>
-      <h1 className="mt-2 text-3xl font-bold">Espace personnel</h1>
-      <p className="mt-2 text-stone-600">Connecte-toi pour voir les commandes du bar.</p>
+    <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-4 py-12">
+      <span aria-hidden className="grid h-14 w-14 place-items-center rounded-full bg-matte font-serif text-[30px] font-semibold italic text-sand">
+        T
+      </span>
+      <p className="eyebrow mt-6">Commande à table</p>
+      <h1 className="mt-1 text-[34px]">Espace personnel</h1>
+      <p className="mt-1 text-ink-2">Connectez-vous pour voir les commandes du bar.</p>
       <LoginForm next={nextPath} />
     </main>
   );

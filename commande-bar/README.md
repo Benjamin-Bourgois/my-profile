@@ -353,6 +353,16 @@ Organisation du code :
 | `src/lib/` | Accès Supabase et Stripe, types, formatage, configuration |
 | `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5) |
 
+**Charte graphique Tapigo « Chic & Élégant »** : fond sable, cartes blanches, titres en
+*Cormorant Garamond*, texte en *Manrope*, boutons noir mat en pilule, doré en touche.
+- Couleurs, rayons, ombres et courbe d'animation : variables en haut de
+  [`src/app/globals.css`](src/app/globals.css) (avec les classes `.btn`, `.chip`, `.badge`,
+  `.card`, `.input`, `.stat-tile`…). Changer une couleur à cet endroit la change partout.
+- Polices : [`src/app/layout.tsx`](src/app/layout.tsx). Elles sont hébergées par le site
+  lui-même (rien n'est demandé à Google depuis le téléphone du client).
+- Icônes au trait : [`src/components/Icon.tsx`](src/components/Icon.tsx).
+- Les animations sont coupées si le téléphone est réglé sur « Réduire les animations ».
+
 ---
 
 ## 9. Ajouter un nouveau bar

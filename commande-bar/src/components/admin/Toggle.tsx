@@ -1,6 +1,6 @@
 "use client";
 
-/** Interrupteur on/off, gros et lisible. */
+/** Interrupteur de la charte (vert quand il est activé), zone tactile de 40 px. */
 export function Toggle({
   checked,
   onChange,
@@ -20,13 +20,17 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
-        checked ? "bg-green-600" : "bg-stone-300"
-      }`}
+      className="inline-flex h-10 shrink-0 items-center disabled:opacity-45"
     >
       <span
-        className={`inline-block h-6 w-6 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-7" : "translate-x-1"}`}
-      />
+        className={`relative inline-block h-6 w-[42px] rounded-full transition-colors duration-200 ${checked ? "bg-ok" : "bg-sand-3"}`}
+      >
+        <span
+          className={`absolute left-[3px] top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,.2)] transition-transform duration-[250ms] ease-chic ${
+            checked ? "translate-x-[18px]" : ""
+          }`}
+        />
+      </span>
     </button>
   );
 }

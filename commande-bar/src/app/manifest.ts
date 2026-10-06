@@ -9,8 +9,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Les commandes des tables, en temps réel.",
     start_url: "/bar",
     display: "standalone",
-    background_color: "#1c1917",
-    theme_color: "#1c1917",
+    background_color: "#FBF9F5",
+    theme_color: "#FBF9F5",
     icons: [
       { src: "/icon.svg", sizes: "any", type: "image/svg+xml" },
       { src: "/apple-icon", sizes: "180x180", type: "image/png" },

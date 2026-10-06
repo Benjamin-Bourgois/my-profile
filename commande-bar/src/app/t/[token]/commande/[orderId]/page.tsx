@@ -35,10 +35,10 @@ export default async function OrderPage(props: PageProps<"/t/[token]/commande/[o
 
   if (!order) {
     return (
-      <MessageScreen icon="🔎" title="Commande introuvable">
+      <MessageScreen icon="search" title="Commande introuvable">
         <p>Demandez au serveur, il va vous aider.</p>
         {menu && (
-          <Link href={`/t/${token}`} className="mt-6 inline-block font-semibold text-stone-900 underline">
+          <Link href={`/t/${token}`} className="btn btn--ghost mt-6">
             Retour à la carte
           </Link>
         )}

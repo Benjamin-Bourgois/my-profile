@@ -2,12 +2,37 @@
 
 import { useState } from "react";
 
+import { Icon, type IconName } from "@/components/Icon";
 import type { CallKind } from "@/lib/order-types";
 
-const BUTTONS: { kind: CallKind; icon: string; label: string; sent: string }[] = [
-  { kind: "waiter", icon: "🙋", label: "Appeler un serveur", sent: "Serveur prévenu" },
-  { kind: "bill", icon: "🧾", label: "L'addition", sent: "Addition demandée" },
+type CallButton = {
+  kind: CallKind;
+  icon: IconName;
+  /** Texte affiché, puis nom complet lu par les lecteurs d'écran. */
+  label: [string, string];
+  sent: [string, string];
+  toast: string;
+};
+
+const BUTTONS: CallButton[] = [
+  {
+    kind: "waiter",
+    icon: "waiter",
+    label: ["Appeler un serveur", "Appeler un serveur"],
+    sent: ["Serveur prévenu", "Serveur prévenu"],
+    toast: "Un serveur arrive, merci de patienter.",
+  },
+  {
+    kind: "bill",
+    icon: "receipt",
+    label: ["L'addition", "Demander l'addition"],
+    sent: ["Demandée", "Addition demandée"],
+    toast: "On vous apporte l'addition.",
+  },
 ];
+
+/** Durée d'affichage de la notification. */
+const TOAST_MS = 2600;
 
 /** Durée d'affichage de la confirmation, avant de pouvoir rappeler. */
 const SENT_DISPLAY_MS = 60_000;
@@ -17,6 +42,7 @@ export function CallButtons({ token }: { token: string }) {
   const [sent, setSent] = useState<Partial<Record<CallKind, boolean>>>({});
   const [pending, setPending] = useState<CallKind | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   async function call(kind: CallKind) {
     if (pending || sent[kind]) return;
@@ -34,6 +60,8 @@ export function CallButtons({ token }: { token: string }) {
         return;
       }
       setSent((current) => ({ ...current, [kind]: true }));
+      setToast(BUTTONS.find((button) => button.kind === kind)?.toast ?? null);
+      window.setTimeout(() => setToast(null), TOAST_MS);
       window.setTimeout(() => setSent((current) => ({ ...current, [kind]: false })), SENT_DISPLAY_MS);
     } catch {
       setError("Pas de connexion. Faites signe à un serveur.");
@@ -44,7 +72,7 @@ export function CallButtons({ token }: { token: string }) {
 
   return (
     <div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
         {BUTTONS.map(({ kind, icon, label, sent: sentLabel }) => (
           <button
             key={kind}
@@ -52,21 +80,23 @@ export function CallButtons({ token }: { token: string }) {
             onClick={() => call(kind)}
             disabled={pending !== null && pending !== kind}
             aria-live="polite"
-            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 py-2 text-center text-base font-semibold leading-tight ring-1 transition-colors ${
-              sent[kind]
-                ? "bg-green-100 text-green-900 ring-green-300"
-                : "bg-white text-stone-900 ring-stone-300 active:bg-stone-100"
-            }`}
+            aria-label={sent[kind] ? sentLabel[1] : label[1]}
+            className={`btn !px-4 ${sent[kind] ? "border-transparent bg-ok-soft text-ok" : "btn--ghost bg-card"}`}
           >
-            <span aria-hidden>{sent[kind] ? "✓" : icon}</span>
-            <span>{pending === kind ? "Envoi…" : sent[kind] ? sentLabel : label}</span>
+            <Icon name={sent[kind] ? "check" : icon} />
+            <span>{pending === kind ? "Envoi…" : sent[kind] ? sentLabel[0] : label[0]}</span>
           </button>
         ))}
       </div>
       {error && (
-        <p role="alert" className="mt-2 rounded-xl bg-red-50 px-4 py-2 text-base text-red-800">
+        <p role="alert" className="mt-2 rounded-md bg-danger-soft px-4 py-3 text-[14px] text-danger">
           {error}
         </p>
+      )}
+      {toast && (
+        <div role="status" className="toast">
+          <strong>C&apos;est noté !</strong> {toast}
+        </div>
       )}
     </div>
   );

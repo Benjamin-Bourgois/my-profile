@@ -12,7 +12,7 @@ export function AdminPauseButton({ venueId, paused }: { venueId: string; paused:
 
   return (
     <span className="flex items-center gap-2">
-      {error && <span className="text-sm text-red-300">{error}</span>}
+      {error && <span className="text-[13px] text-danger">{error}</span>}
       <PauseOrdersButton
         paused={shown}
         onToggle={(next) => run("set_orders_paused", { p_venue_id: venueId, p_paused: next }, () => setShown(next))}

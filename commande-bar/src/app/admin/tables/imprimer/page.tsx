@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { PrintButton } from "@/components/admin/PrintButton";
 import { ErreurTechnique } from "@/components/ErreurTechnique";
+import { Icon } from "@/components/Icon";
 import { getAdminData, requireOwnerVenue, withLinks } from "@/lib/admin";
 import { adminErrorMessage } from "@/lib/admin-errors";
 
@@ -22,19 +23,20 @@ export default async function PrintQrPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center gap-3 print:hidden">
-        <Link href="/admin/tables" className="font-semibold underline">
-          ← Tables
+        <Link href="/admin/tables" className="btn btn--ghost btn--sm">
+          <Icon name="arrowLeft" size={16} />
+          Tables
         </Link>
-        <p className="flex-1 text-stone-600">Une étiquette par table active, à découper et coller sur les cartes.</p>
+        <p className="flex-1 text-ink-2">Une étiquette par table active, à découper et coller sur les cartes.</p>
         <PrintButton />
       </div>
       <ul className="grid grid-cols-2 gap-4 print:gap-6">
         {tables.map((table) => (
-          <li key={table.id} className="break-inside-avoid rounded-2xl border-2 border-dashed border-stone-300 bg-white p-6 text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-stone-500">{data.venue.name}</p>
-            <p className="mt-1 text-3xl font-black">{table.label}</p>
+          <li key={table.id} className="break-inside-avoid rounded-md border border-dashed border-line bg-card p-6 text-center">
+            <p className="eyebrow">{data.venue.name}</p>
+            <p className="mt-1 font-serif text-[34px] font-semibold leading-tight">{table.label}</p>
             <img src={`data:image/svg+xml;utf8,${encodeURIComponent(table.qrSvg)}`} alt="" className="mx-auto mt-4 h-44 w-44" />
-            <p className="mt-3 text-base">Approchez votre téléphone ou scannez pour commander</p>
+            <p className="mt-3 text-[14px] text-ink-2">Approchez votre téléphone ou scannez pour commander</p>
           </li>
         ))}
       </ul>

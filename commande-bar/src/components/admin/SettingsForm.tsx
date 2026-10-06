@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ImageField } from "@/components/admin/ImageField";
 import { Field, inputClass } from "@/components/admin/ProductForm";
 import { Toggle } from "@/components/admin/Toggle";
+import { Icon } from "@/components/Icon";
 import type { AdminSettings } from "@/lib/admin-types";
 import { useAdminAction } from "@/lib/use-admin-action";
 
@@ -32,34 +33,32 @@ export function SettingsForm({ settings, stripeConfigured }: { settings: AdminSe
   }
 
   return (
-    <form onSubmit={save} className="max-w-2xl space-y-6" onChange={() => setSaved(false)}>
-      <h2 className="text-2xl font-bold">Réglages</h2>
+    <form onSubmit={save} className="max-w-2xl space-y-5" onChange={() => setSaved(false)}>
+      <h2 className="text-[30px]">Réglages</h2>
 
-      <section className="space-y-4 rounded-2xl bg-white p-5 ring-1 ring-stone-200">
+      <section className="card grid gap-4 !p-5">
         <Field label="Nom du bar (affiché aux clients)">
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required className={inputClass} />
         </Field>
-        <div>
-          <span className="text-sm font-semibold text-stone-700">Logo (facultatif, carré de préférence)</span>
-          <div className="mt-1">
-            <ImageField
-              venueId={settings.id}
-              folder="logo"
-              value={logoUrl}
-              onChange={(url) => {
-                setLogoUrl(url);
-                setSaved(false);
-              }}
-              maxSize={512}
-              format="image/png"
-              emptyLabel="Pas de logo"
-            />
-          </div>
+        <div className="field">
+          <span>Logo (facultatif, carré de préférence)</span>
+          <ImageField
+            venueId={settings.id}
+            folder="logo"
+            value={logoUrl}
+            onChange={(url) => {
+              setLogoUrl(url);
+              setSaved(false);
+            }}
+            maxSize={512}
+            format="image/png"
+            emptyLabel="Pas de logo"
+          />
         </div>
       </section>
 
-      <section className="space-y-4 rounded-2xl bg-white p-5 ring-1 ring-stone-200">
-        <h3 className="text-lg font-bold">Paiement</h3>
+      <section className="card grid gap-3 !p-5">
+        <h3 className="text-[24px]">Paiement</h3>
         <Setting
           title="Payer au serveur"
           text="Le client commande sans payer ; la commande arrive au bar « À encaisser »."
@@ -77,18 +76,28 @@ export function SettingsForm({ settings, stripeConfigured }: { settings: AdminSe
           onChange={setOnline}
         />
         {!customersCanOrder && (
-          <p className="rounded-xl bg-amber-100 px-4 py-3 text-amber-950">
-            ⚠️ Aucun mode de paiement disponible : les clients pourront voir la carte mais pas commander.
+          <p className="flex gap-2 rounded-md bg-warn-soft px-4 py-3 text-warn-ink">
+            <Icon name="alert" className="mt-0.5" />
+            Aucun mode de paiement disponible : les clients pourront voir la carte mais pas commander.
           </p>
         )}
       </section>
 
-      {error && <p role="alert" className="rounded-xl bg-red-100 px-4 py-3 text-red-900">{error}</p>}
+      {error && (
+        <p role="alert" className="rounded-md bg-danger-soft px-4 py-3 text-danger">
+          {error}
+        </p>
+      )}
       <div className="flex items-center gap-4">
-        <button type="submit" disabled={saving} className="h-12 rounded-xl bg-stone-900 px-6 font-bold text-white disabled:opacity-50">
+        <button type="submit" disabled={saving} className="btn btn--primary">
           {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
-        {saved && <span className="font-semibold text-green-700">✓ Enregistré</span>}
+        {saved && (
+          <span className="badge badge--ok">
+            <Icon name="check" size={12} />
+            Enregistré
+          </span>
+        )}
       </div>
     </form>
   );
@@ -96,10 +105,10 @@ export function SettingsForm({ settings, stripeConfigured }: { settings: AdminSe
 
 function Setting({ title, text, checked, onChange }: { title: string; text: string; checked: boolean; onChange: (value: boolean) => void }) {
   return (
-    <div className="flex items-start justify-between gap-4">
+    <div className="flex items-start justify-between gap-4 border-t border-line pt-3 first-of-type:border-0">
       <div>
         <p className="font-semibold">{title}</p>
-        <p className="text-sm text-stone-500">{text}</p>
+        <p className="text-[13px] text-ink-2">{text}</p>
       </div>
       <Toggle checked={checked} onChange={onChange} label={title} />
     </div>

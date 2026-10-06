@@ -8,7 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { signOut } from "@/app/connexion/actions";
 import { HistoryRow, OrderCard, type OrderActions } from "@/components/bar/OrderCard";
 import { TableCalls } from "@/components/bar/TableCalls";
+import { Icon } from "@/components/Icon";
 import { PauseOrdersButton } from "@/components/PauseOrdersButton";
+import { VenueMark } from "@/components/VenueMark";
 import { keepScreenOn, loadSounds, playSound, unlockSounds, type BarSounds, type SoundName } from "@/lib/bar-alerts";
 import { formatTime } from "@/lib/format";
 import type { BarOrder, BarOrders, OrderStatus, TableCall } from "@/lib/order-types";
@@ -226,51 +228,54 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
     Math.max(0, Math.floor((now - Date.parse(order.received_at ?? order.created_at)) / 60_000));
 
   return (
-    <div className="min-h-dvh bg-stone-100">
-      <header className="sticky top-0 z-10 bg-stone-900 text-white shadow">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-          <h1 className="text-xl font-bold">{venue.name}</h1>
-          <span
-            className={`rounded-full px-3 py-1 text-sm font-semibold ${live ? "bg-green-600" : "bg-stone-700 text-stone-300"}`}
-            title={live ? "Les commandes arrivent instantanément" : "Actualisation toutes les 20 secondes"}
-          >
-            {live ? "● En direct" : "○ Actualisation auto"}
-          </span>
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            {data && <span className="text-2xl font-bold tabular-nums">{formatTime(new Date(now).toISOString(), venue.timezone)}</span>}
+    <div className="min-h-dvh">
+      <header className="sticky top-0 z-10 border-b border-line bg-[rgba(251,249,245,.9)] backdrop-blur-[14px] backdrop-saturate-[1.4]">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3 md:flex-none">
+            <VenueMark name={venue.name} logoUrl={venue.logo_url} size={40} />
+            <div className="min-w-0">
+              <p className="eyebrow">Écran du bar</p>
+              <h1 className="truncate text-[24px]">{venue.name}</h1>
+            </div>
+          </div>
+          <LiveBadge live={live} className="max-md:hidden" />
+          {data && (
+            <span className="font-serif text-[30px] font-semibold leading-none md:ml-auto">
+              {formatTime(new Date(now).toISOString(), venue.timezone)}
+            </span>
+          )}
+          <div className="order-last flex w-full flex-wrap items-center gap-2 md:order-none md:w-auto">
+            <LiveBadge live={live} className="mr-auto md:hidden" />
             {data && <PauseOrdersButton paused={data.orders_paused} onToggle={setPaused} />}
-            <button
-              type="button"
-              onClick={enableSound}
-              title="Toucher pour tester le son"
-              className="h-11 rounded-xl bg-stone-700 px-4 font-semibold active:bg-stone-600"
-            >
-              {sound === "on" ? "🔔 Son activé" : "🔇 Activer le son"}
+            <button type="button" onClick={enableSound} title="Toucher pour tester le son" className="btn btn--soft btn--sm">
+              <Icon name={sound === "on" ? "bell" : "bellOff"} size={16} />
+              <span className="max-sm:sr-only">{sound === "on" ? "Son activé" : "Activer le son"}</span>
             </button>
             {venue.role === "owner" && (
-              <Link href="/admin" className="flex h-11 items-center rounded-xl px-3 font-semibold text-stone-300 underline">
+              <Link href="/admin" className="btn btn--ghost btn--sm">
                 Espace gérant
               </Link>
             )}
-            <form action={signOut}>
-              <button type="submit" className="h-11 rounded-xl px-3 text-stone-300 underline">
-                Déconnexion
-              </button>
-            </form>
           </div>
+          <form action={signOut}>
+            <button type="submit" aria-label="Déconnexion" title="Déconnexion" className="icon-btn">
+              <Icon name="logout" size={17} />
+            </button>
+          </form>
         </div>
-        <nav className="flex gap-2 px-4 pb-3" aria-label="Affichage">
-          <TabButton active={view === "active"} onClick={() => setView("active")}>
+        <nav className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-3" aria-label="Affichage">
+          <button type="button" className="chip" aria-pressed={view === "active"} onClick={() => setView("active")}>
             À préparer ({data?.active.length ?? 0})
-          </TabButton>
-          <TabButton active={view === "history"} onClick={() => setView("history")}>
+          </button>
+          <button type="button" className="chip" aria-pressed={view === "history"} onClick={() => setView("history")}>
             Historique du jour ({data?.history.length ?? 0})
-          </TabButton>
+          </button>
         </nav>
       </header>
 
       {data?.orders_paused && (
-        <p role="status" className="bg-red-600 px-4 py-3 text-lg font-bold text-white">
+        <p role="status" className="flex items-center gap-2 bg-danger-soft px-4 py-3 font-semibold text-danger">
+          <Icon name="pause" />
           Commandes en pause : les clients ne peuvent plus commander depuis leur téléphone.
         </p>
       )}
@@ -279,16 +284,19 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
         <button
           type="button"
           onClick={enableSound}
-          className="block w-full bg-amber-400 px-4 py-4 text-lg font-bold text-stone-900 active:bg-amber-500"
+          className={`flex w-full items-center justify-center gap-2 px-4 py-3.5 text-[16px] font-semibold transition-colors ${
+            sound === "lost" ? "bg-danger-soft text-danger" : "bg-warn-soft text-warn-ink hover:bg-[#F3E4CB]"
+          }`}
         >
+          <Icon name={sound === "lost" ? "bellOff" : "bell"} />
           {sound === "lost"
-            ? "🔇 L'appareil a coupé le son : touchez ici pour le réactiver"
-            : "🔔 Touchez ici pour activer le son des nouvelles commandes et des appels"}
+            ? "L'appareil a coupé le son : touchez ici pour le réactiver"
+            : "Touchez ici pour activer le son des nouvelles commandes et des appels"}
         </button>
       )}
 
       {error && (
-        <p role="alert" className="mx-4 mt-4 rounded-xl bg-red-100 px-4 py-3 text-lg text-red-900">
+        <p role="alert" className="mx-4 mt-4 rounded-md bg-danger-soft px-4 py-3 text-danger">
           {error}
         </p>
       )}
@@ -298,16 +306,18 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
           <TableCalls calls={data.calls} now={now} timeZone={venue.timezone} onDone={handleCall} />
         )}
         {!data ? (
-          <p className="py-24 text-center text-xl text-stone-500">Chargement des commandes…</p>
+          <p className="py-24 text-center text-ink-2">Chargement des commandes…</p>
         ) : view === "active" ? (
           data.active.length === 0 ? (
-            <div className="py-24 text-center">
-              <p className="text-6xl">🍸</p>
-              <p className="mt-4 text-2xl font-bold text-stone-700">Aucune commande en attente</p>
-              <p className="mt-2 text-lg text-stone-500">Les nouvelles commandes apparaîtront ici automatiquement.</p>
+            <div className="py-20 text-center">
+              <span aria-hidden className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-line bg-card text-ink-2">
+                <Icon name="glass" size={26} />
+              </span>
+              <p className="mt-5 font-serif text-[30px] font-semibold">Aucune commande en attente</p>
+              <p className="mt-1 text-ink-2">Les nouvelles commandes apparaîtront ici automatiquement.</p>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {data.active.map((order) => (
                 <OrderCard
                   key={order.id}
@@ -321,9 +331,9 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
             </div>
           )
         ) : data.history.length === 0 ? (
-          <p className="py-24 text-center text-xl text-stone-500">Aucune commande servie aujourd&apos;hui.</p>
+          <p className="py-24 text-center text-ink-2">Aucune commande servie aujourd&apos;hui.</p>
         ) : (
-          <ul className="space-y-3">
+          <ul className="grid gap-2">
             {data.history.map((order) => (
               <HistoryRow key={order.id} order={order} busy={busyId === order.id} timeZone={venue.timezone} actions={actions} />
             ))}
@@ -334,15 +344,14 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
   );
 }
 
-function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
+function LiveBadge({ live, className }: { live: boolean; className?: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`h-11 rounded-xl px-4 text-base font-bold ${active ? "bg-white text-stone-900" : "bg-stone-800 text-stone-300"}`}
+    <span
+      className={`badge ${live ? "badge--ok" : ""} ${className ?? ""}`}
+      title={live ? "Les commandes arrivent instantanément" : "Actualisation toutes les 20 secondes"}
     >
-      {children}
-    </button>
+      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${live ? "bg-ok" : "bg-muted"}`} />
+      {live ? "En direct" : "Actualisation auto"}
+    </span>
   );
 }

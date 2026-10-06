@@ -4,9 +4,11 @@ import { useOptimistic, useState } from "react";
 
 import { inputClass, ProductForm } from "@/components/admin/ProductForm";
 import { Toggle } from "@/components/admin/Toggle";
+import { Icon } from "@/components/Icon";
 import { menuReducer, type MenuAction } from "@/lib/admin-reducers";
 import type { AdminCategory, AdminProduct } from "@/lib/admin-types";
 import { formatPrice } from "@/lib/format";
+import { productEmoji } from "@/lib/style";
 import { useAdminAction } from "@/lib/use-admin-action";
 
 type Editing = { product: AdminProduct | null; categoryId: string };
@@ -52,49 +54,46 @@ export function MenuManager({ venueId, categories: serverCategories }: { venueId
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold">La carte</h2>
-          <p className="text-stone-600">Les changements apparaissent immédiatement sur les téléphones des clients.</p>
+          <h2 className="text-[30px]">La carte</h2>
+          <p className="text-ink-2">Les changements apparaissent immédiatement sur les téléphones des clients.</p>
         </div>
         <SavingIndicator pending={pending} />
       </div>
 
-      {error && (
-        <p role="alert" className="sticky top-2 z-10 rounded-xl bg-red-100 px-4 py-3 text-red-900 shadow">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {categories.map((category, index) => (
-        <section key={category.id} className="overflow-hidden rounded-2xl bg-white ring-1 ring-stone-200">
-          <div className="flex flex-wrap items-center gap-2 border-b border-stone-200 bg-stone-50 px-4 py-3">
+        <section key={category.id} className="card overflow-hidden !p-0">
+          <div className="flex flex-wrap items-center gap-2 border-b border-line bg-sand-2/60 px-4 py-3">
             {renaming?.id === category.id ? (
-              <form onSubmit={renameCategory} className="flex flex-1 gap-2">
+              <form onSubmit={renameCategory} className="flex flex-1 flex-wrap gap-2">
                 <input
                   autoFocus
                   value={renaming.name}
                   onChange={(e) => setRenaming({ id: category.id, name: e.target.value })}
                   maxLength={40}
-                  className="h-11 flex-1 rounded-xl border border-stone-300 px-3"
+                  className="input min-w-40 flex-1"
                   aria-label="Nouveau nom de la catégorie"
                 />
-                <button type="submit" className="h-11 rounded-xl bg-stone-900 px-4 font-semibold text-white">
+                <button type="submit" className="btn btn--primary btn--sm">
                   OK
                 </button>
-                <button type="button" onClick={() => setRenaming(null)} className="h-11 rounded-xl px-3 font-semibold text-stone-600">
+                <button type="button" onClick={() => setRenaming(null)} className="btn btn--ghost btn--sm">
                   Annuler
                 </button>
               </form>
             ) : (
               <>
-                <h3 className="flex-1 text-xl font-bold">{category.name}</h3>
+                <h3 className="flex-1 text-[24px]">{category.name}</h3>
                 <IconButton label={`Monter ${category.name}`} disabled={index === 0} onClick={() => moveCategory(category.id, -1)}>
-                  ↑
+                  <Icon name="chevronUp" size={16} />
                 </IconButton>
                 <IconButton label={`Descendre ${category.name}`} disabled={index === categories.length - 1} onClick={() => moveCategory(category.id, 1)}>
-                  ↓
+                  <Icon name="chevronDown" size={16} />
                 </IconButton>
                 <SmallButton onClick={() => setRenaming({ id: category.id, name: category.name })}>Renommer</SmallButton>
                 <SmallButton
+                  danger
                   disabled={category.products.length > 0}
                   title={category.products.length > 0 ? "Videz d'abord la catégorie" : undefined}
                   onClick={() => {
@@ -109,20 +108,22 @@ export function MenuManager({ venueId, categories: serverCategories }: { venueId
             )}
           </div>
 
-          <ul className="divide-y divide-stone-200">
+          <ul className="divide-y divide-line">
             {category.products.map((product, productIndex) => (
               <li key={product.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                 {product.image_url ? (
-                  <img src={product.image_url} alt="" className="h-14 w-14 shrink-0 rounded-lg bg-stone-100 object-cover" />
+                  <img src={product.image_url} alt="" className="h-14 w-14 shrink-0 rounded-[12px] bg-sand-2 object-cover" />
                 ) : (
-                  <div className="h-14 w-14 shrink-0 rounded-lg bg-stone-100" aria-hidden />
+                  <div aria-hidden className="photo-placeholder h-14 w-14 shrink-0 rounded-[12px] !text-[24px]">
+                    {productEmoji(product.name, category.name)}
+                  </div>
                 )}
-                <div className={`min-w-40 flex-1 ${product.is_available ? "" : "opacity-50"}`}>
-                  <p className="font-semibold">{product.name}</p>
-                  {product.description && <p className="line-clamp-1 text-sm text-stone-500">{product.description}</p>}
+                <div className={`min-w-40 flex-1 ${product.is_available ? "" : "opacity-55"}`}>
+                  <p className="font-serif text-[20px] font-semibold leading-tight">{product.name}</p>
+                  {product.description && <p className="line-clamp-1 text-[13px] text-ink-2">{product.description}</p>}
                 </div>
                 <span className="w-20 text-right font-bold tabular-nums">{formatPrice(product.price_cents)}</span>
-                <label className="flex items-center gap-2 text-sm font-semibold text-stone-600">
+                <span className="flex w-36 items-center gap-2">
                   <Toggle
                     checked={product.is_available}
                     label={`${product.name} disponible`}
@@ -134,21 +135,27 @@ export function MenuManager({ venueId, categories: serverCategories }: { venueId
                       )
                     }
                   />
-                  <span className="w-20">{product.is_available ? "Disponible" : "Épuisé"}</span>
-                </label>
-                <div className="flex gap-1">
+                  <span className={`badge ${product.is_available ? "badge--ok" : "badge--danger"}`}>
+                    {product.is_available ? "Disponible" : "Épuisé"}
+                  </span>
+                </span>
+                <div className="flex flex-wrap gap-1.5">
                   <IconButton label={`Monter ${product.name}`} disabled={productIndex === 0} onClick={() => moveProduct(product.id, -1)}>
-                    ↑
+                    <Icon name="chevronUp" size={16} />
                   </IconButton>
                   <IconButton
                     label={`Descendre ${product.name}`}
                     disabled={productIndex === category.products.length - 1}
                     onClick={() => moveProduct(product.id, 1)}
                   >
-                    ↓
+                    <Icon name="chevronDown" size={16} />
                   </IconButton>
-                  <SmallButton onClick={() => setEditing({ product, categoryId: category.id })}>Modifier</SmallButton>
+                  <SmallButton onClick={() => setEditing({ product, categoryId: category.id })}>
+                    <Icon name="pencil" size={15} />
+                    Modifier
+                  </SmallButton>
                   <SmallButton
+                    danger
                     onClick={() => {
                       if (window.confirm(`Supprimer « ${product.name} » de la carte ?`)) {
                         act("admin_delete_product", { p_product_id: product.id }, { type: "delete-product", productId: product.id });
@@ -160,26 +167,23 @@ export function MenuManager({ venueId, categories: serverCategories }: { venueId
                 </div>
               </li>
             ))}
-            {category.products.length === 0 && <li className="px-4 py-4 text-stone-500">Aucun produit dans cette catégorie.</li>}
+            {category.products.length === 0 && <li className="px-4 py-4 text-ink-2">Aucun produit dans cette catégorie.</li>}
           </ul>
-          <div className="border-t border-stone-200 px-4 py-3">
-            <button
-              type="button"
-              onClick={() => setEditing({ product: null, categoryId: category.id })}
-              className="h-11 rounded-xl bg-amber-400 px-4 font-bold text-stone-900 hover:bg-amber-500"
-            >
-              + Ajouter un produit
+          <div className="border-t border-line px-4 py-3">
+            <button type="button" onClick={() => setEditing({ product: null, categoryId: category.id })} className="btn btn--soft btn--sm">
+              <Icon name="plus" size={16} />
+              Ajouter un produit
             </button>
           </div>
         </section>
       ))}
 
-      <form onSubmit={addCategory} className="flex flex-wrap items-end gap-3 rounded-2xl bg-white p-4 ring-1 ring-stone-200">
-        <label className="min-w-56 flex-1">
-          <span className="text-sm font-semibold text-stone-700">Nouvelle catégorie</span>
+      <form onSubmit={addCategory} className="card flex flex-wrap items-end gap-3 !p-4">
+        <label className="field min-w-56 flex-1">
+          <span>Nouvelle catégorie</span>
           <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} maxLength={40} placeholder="Ex. : Vins" className={inputClass} />
         </label>
-        <button type="submit" disabled={adding || !newCategory.trim()} className="h-12 rounded-xl bg-stone-900 px-5 font-bold text-white disabled:opacity-50">
+        <button type="submit" disabled={adding || !newCategory.trim()} className="btn btn--primary">
           {adding ? "Ajout…" : "Ajouter la catégorie"}
         </button>
       </form>
@@ -200,19 +204,26 @@ export function MenuManager({ venueId, categories: serverCategories }: { venueId
 /** Petit indicateur discret pendant l'enregistrement en arrière-plan. */
 export function SavingIndicator({ pending }: { pending: boolean }) {
   return (
-    <span aria-live="polite" className={`text-sm font-semibold ${pending ? "text-stone-500" : "text-green-700"}`}>
-      {pending ? "Enregistrement…" : "✓ À jour"}
+    <span aria-live="polite" className={`badge ${pending ? "" : "badge--ok"}`}>
+      {!pending && <Icon name="check" size={12} />}
+      {pending ? "Enregistrement…" : "À jour"}
     </span>
   );
 }
 
-export function SmallButton({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+/** Message d'erreur qui reste visible en haut pendant le défilement. */
+export function ErrorBanner({ children }: { children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      {...props}
-      className="h-10 rounded-xl bg-stone-200 px-3 text-sm font-semibold text-stone-800 hover:bg-stone-300 disabled:opacity-40"
-    >
+    <p role="alert" className="sticky top-2 z-10 flex gap-2 rounded-md border border-danger-soft bg-danger-soft px-4 py-3 text-danger shadow-soft">
+      <Icon name="alert" className="mt-0.5" />
+      {children}
+    </p>
+  );
+}
+
+export function SmallButton({ children, danger, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { danger?: boolean }) {
+  return (
+    <button type="button" {...props} className={`btn btn--sm ${danger ? "btn--danger" : "btn--ghost"}`}>
       {children}
     </button>
   );
@@ -220,13 +231,7 @@ export function SmallButton({ children, ...props }: React.ButtonHTMLAttributes<H
 
 export function IconButton({ label, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      {...props}
-      className="grid h-10 w-10 place-items-center rounded-xl bg-stone-200 text-lg font-bold text-stone-800 hover:bg-stone-300 disabled:opacity-30"
-    >
+    <button type="button" aria-label={label} title={label} {...props} className="icon-btn">
       {children}
     </button>
   );

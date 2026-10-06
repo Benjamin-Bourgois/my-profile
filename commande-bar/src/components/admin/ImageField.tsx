@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { Icon } from "@/components/Icon";
 import { resizeImage } from "@/lib/image-resize";
 import { getBrowserClient } from "@/lib/supabase/browser";
 
@@ -54,16 +55,17 @@ export function ImageField({
   }
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex flex-wrap items-center gap-4">
       {value ? (
-        <img src={value} alt="" className="h-20 w-20 shrink-0 rounded-xl bg-stone-100 object-cover ring-1 ring-stone-200" />
+        <img src={value} alt="" className="h-20 w-20 shrink-0 rounded-[12px] border border-line bg-sand-2 object-cover" />
       ) : (
-        <div className="grid h-20 w-20 shrink-0 place-items-center rounded-xl bg-stone-100 text-center text-xs text-stone-400 ring-1 ring-stone-200">
+        <div className="photo-placeholder h-20 w-20 shrink-0 rounded-[12px] border border-line text-center text-[11px] font-semibold text-muted">
           {emptyLabel}
         </div>
       )}
       <div className="flex flex-wrap gap-2">
-        <label className={`flex h-11 cursor-pointer items-center rounded-xl bg-stone-200 px-4 font-semibold ${uploading ? "opacity-50" : "hover:bg-stone-300"}`}>
+        <label className={`btn btn--soft btn--sm ${uploading ? "pointer-events-none opacity-45" : ""}`}>
+          <Icon name="image" size={16} />
           {uploading ? "Envoi…" : value ? "Changer" : "Choisir une photo"}
           <input
             type="file"
@@ -78,12 +80,12 @@ export function ImageField({
           />
         </label>
         {value && !uploading && (
-          <button type="button" onClick={() => onChange(null)} className="h-11 rounded-xl px-3 font-semibold text-stone-600 underline">
+          <button type="button" onClick={() => onChange(null)} className="btn btn--ghost btn--sm">
             Retirer
           </button>
         )}
       </div>
-      {error && <p className="basis-full text-sm text-red-700">{error}</p>}
+      {error && <p className="basis-full text-[13px] text-danger">{error}</p>}
     </div>
   );
 }
