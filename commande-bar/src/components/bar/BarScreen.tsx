@@ -1,12 +1,14 @@
 "use client";
 
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { signOut } from "@/app/connexion/actions";
-import { formatTime, HistoryRow, OrderCard, type OrderActions } from "@/components/bar/OrderCard";
+import { HistoryRow, OrderCard, type OrderActions } from "@/components/bar/OrderCard";
 import { keepScreenOn, playChime, unlockAudio } from "@/lib/bar-alerts";
+import { formatTime } from "@/lib/format";
 import type { BarOrder, BarOrders, OrderStatus } from "@/lib/order-types";
 import type { StaffVenue } from "@/lib/staff";
 import { getBrowserClient } from "@/lib/supabase/browser";
@@ -183,6 +185,11 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
             >
               {soundOn ? "🔔 Son activé" : "🔇 Activer le son"}
             </button>
+            {venue.role === "owner" && (
+              <Link href="/admin" className="flex h-11 items-center rounded-xl px-3 font-semibold text-stone-300 underline">
+                Espace gérant
+              </Link>
+            )}
             <form action={signOut}>
               <button type="submit" className="h-11 rounded-xl px-3 text-stone-300 underline">
                 Déconnexion

@@ -1,6 +1,6 @@
 "use client";
 
-import { formatPrice } from "@/lib/format";
+import { formatPrice, formatTime } from "@/lib/format";
 import { paymentLabel, type BarOrder, type OrderStatus } from "@/lib/order-types";
 
 /** Au-delà de ces durées d'attente, la commande change de couleur. */
@@ -12,11 +12,6 @@ export type OrderActions = {
   onPaid: (order: BarOrder) => void;
   onCancel: (order: BarOrder) => void;
 };
-
-export function formatTime(iso: string | null, timeZone: string): string {
-  if (!iso) return "";
-  return new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(iso));
-}
 
 export function PaymentBadge({ order }: { order: BarOrder }) {
   const paid = order.payment_status === "paid";

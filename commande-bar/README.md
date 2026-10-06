@@ -8,7 +8,7 @@ paie. La commande arrive en temps réel sur l'écran du bar avec le numéro de t
 > - ✅ Étape 1 : base de données, sécurité, données de démo, page client (lecture de la carte)
 > - ✅ Étape 2 : panier, commande « Payer au serveur », suivi en direct, écran du bar en temps réel
 > - ✅ Étape 3 : paiement en ligne Stripe Checkout (mode test), confirmé par webhook
-> - ⏳ Étape 4 : espace gérant (carte, tables, QR codes, réglages)
+> - ✅ Étape 4 : espace gérant (commandes du jour, carte, tables et cartes NFC, QR codes, réglages)
 > - ⏳ Étape 5 : finitions et scénario de démonstration
 
 ---
@@ -31,6 +31,11 @@ paie. La commande arrive en temps réel sur l'écran du bar avec le numéro de t
 | `/t/<lien-secret>/commande/<n°>` | Le client : suivi de sa commande, mis à jour toutes les 4 secondes |
 | `/connexion` | Connexion du personnel et du gérant |
 | `/bar` | Écran du bar (tablette) : commandes en temps réel |
+| `/admin` | Espace gérant : commandes du jour et totaux |
+| `/admin/carte` | Catégories, produits, prix, photos, disponibilité |
+| `/admin/tables` | Tables, liens des cartes NFC, QR codes, désactiver / nouveau lien |
+| `/admin/tables/imprimer` | Planche de QR codes à imprimer |
+| `/admin/reglages` | Nom du bar, logo, modes de paiement |
 
 ### Les liens des cartes NFC
 
@@ -82,6 +87,7 @@ volée, on « régénère » le lien : l'ancien cesse immédiatement de fonction
    → **Run**. Attendu : la liste des 10 tables avec leur lien (`/t/…`). Garde-la.
 7. **SQL Editor** → **New query** → colle tout [`supabase/3-etape-2.sql`](supabase/3-etape-2.sql) → **Run**
    (fonctions de l'écran du bar). Attendu : « Success. No rows returned ».
+   Puis de même avec [`supabase/4-etape-4.sql`](supabase/4-etape-4.sql) (espace gérant).
 8. Récupère 3 valeurs (elles serviront dans Vercel) :
    - **Project URL** (`https://xxxx.supabase.co`) : *Project Settings → Data API*,
      ou bouton **Connect** en haut de l'écran. (C'est aussi `https://` + l'identifiant
@@ -218,6 +224,28 @@ Ce que fait l'écran :
 
 ---
 
+## L'espace gérant
+
+Connexion avec le compte gérant (`gerant@comptoir-demo.fr`) sur `https://<ton-adresse>/admin`.
+Le compte du personnel (`bar@…`) n'y a pas accès : il ne voit que l'écran du bar.
+
+- **Commandes du jour** : chiffre d'affaires, nombre de commandes, payé en ligne,
+  encaissé au bar, reste à encaisser, et la liste détaillée (jours précédents accessibles).
+- **Carte** : ajouter / renommer / ordonner les catégories ; ajouter, modifier, ordonner,
+  supprimer les produits ; photo (réduite automatiquement à 800 px pour la 4G) ;
+  interrupteur **Disponible / Épuisé** pris en compte immédiatement chez les clients.
+- **Tables & cartes NFC** : pour chaque table, le lien à copier (pour programmer la puce),
+  le QR code à télécharger, et les actions **Renommer** (la carte n'est pas à reprogrammer),
+  **Désactiver**, **Nouveau lien** (carte perdue ou volée : l'ancienne cesse de fonctionner),
+  **Supprimer**. Une planche de QR codes est prête à imprimer.
+- **Réglages** : nom du bar, logo, « Payer au serveur » et « Paiement en ligne » activables.
+
+Les liens et QR codes utilisent automatiquement l'adresse de production Vercel. Si tu
+branches ton propre nom de domaine, ajoute dans Vercel la variable `SITE_URL`
+(ex. `https://commande.mon-domaine.fr`, type *Config*) **avant** de programmer les cartes.
+
+---
+
 ## Dépannage
 
 La page d'une table affiche un message d'aide en cas de problème de configuration :
@@ -230,6 +258,8 @@ La page d'une table affiche un message d'aide en cas de problème de configurati
 | « La base n'est pas installée » | Exécute `supabase/1-structure.sql`. |
 | « Supabase est injoignable » / « Cette adresse Supabase n'existe pas » | `NEXT_PUBLIC_SUPABASE_URL` incorrecte ou enregistrée en type *Secret* au lieu de *Config* (voir plus haut), ou projet Supabase en pause (réactive-le depuis supabase.com). Après correction : nouveau déploiement. |
 | « Carte non reconnue » | Lien incomplet, table désactivée ou lien régénéré. |
+| « Base incomplète : exécutez le script supabase/4-etape-4.sql » (espace gérant) | Exécute ce script dans Supabase → SQL Editor. |
+| « Envoi impossible » en ajoutant une photo | Le stockage des images n'a pas été créé : relance la fin de `1-structure.sql` (partie « Photos des produits ») ou crée un bucket public `images` dans Supabase → Storage. |
 | « Payer maintenant » n'apparaît pas | `STRIPE_SECRET_KEY` ou `STRIPE_WEBHOOK_SECRET` manquante, ou pas de nouveau déploiement depuis. |
 | Paiement accepté mais commande absente du bar (« Paiement en cours… » qui dure) | Le webhook n'arrive pas : dans Stripe → Webhooks → ta destination, regarde les envois en échec. Vérifie l'URL (`…/api/stripe/webhook`) et que `STRIPE_WEBHOOK_SECRET` est bien le secret de **cette** destination. Dans Vercel → Logs, cherche « Webhook Stripe refusé ». |
 | « Le paiement en ligne est momentanément indisponible » | Clé `STRIPE_SECRET_KEY` incorrecte, ou clé restreinte sans la permission « Checkout Sessions : écriture » (Vercel → Logs : « Ouverture du paiement Stripe impossible »). |
@@ -240,7 +270,7 @@ Le détail technique des erreurs est visible dans Vercel → ton projet → **Lo
 
 ## Ajouter un nouveau bar
 
-En attendant un écran dédié, dans Supabase :
+Pas encore d'écran pour ça (la création d'un bar se fait une fois). Dans Supabase :
 
 1. **Authentication → Users → Add user** : crée le compte du gérant (Auto Confirm).
 2. **SQL Editor** :
