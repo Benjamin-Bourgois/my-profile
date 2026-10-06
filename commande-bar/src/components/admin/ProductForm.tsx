@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { ImageField } from "@/components/admin/ImageField";
 import { Toggle } from "@/components/admin/Toggle";
 import type { AdminProduct } from "@/lib/admin-types";
-import { useAdminRpc } from "@/lib/use-admin-rpc";
+import { useAdminAction } from "@/lib/use-admin-action";
 
 /** « 6,50 » / « 6.5 » / « 6 € » → 650 ; null si invalide. */
 export function parsePrice(input: string): number | null {
@@ -33,7 +33,8 @@ export function ProductForm({
   categories: { id: string; name: string }[];
   onClose: () => void;
 }) {
-  const { call, busy, error, setError } = useAdminRpc();
+  const { run, error, setError } = useAdminAction();
+  const [saving, setSaving] = useState(false);
   const [name, setName] = useState(product?.name ?? "");
   const [description, setDescription] = useState(product?.description ?? "");
   const [price, setPrice] = useState(product ? priceToInput(product.price_cents) : "");
@@ -54,7 +55,8 @@ export function ProductForm({
       setError("Prix invalide : écrivez par exemple 6,50 (maximum 1 000 €).");
       return;
     }
-    const result = await call("admin_save_product", {
+    setSaving(true);
+    const result = await run("admin_save_product", {
       p_venue_id: venueId,
       p_product: {
         id: product?.id ?? null,
@@ -66,6 +68,7 @@ export function ProductForm({
         is_available: available,
       },
     });
+    setSaving(false);
     if (result.ok) onClose();
   }
 
@@ -122,8 +125,8 @@ export function ProductForm({
           <button type="button" onClick={onClose} className="h-12 flex-1 rounded-xl bg-stone-200 font-semibold">
             Annuler
           </button>
-          <button type="submit" disabled={busy} className="h-12 flex-1 rounded-xl bg-stone-900 font-bold text-white disabled:opacity-50">
-            {busy ? "Enregistrement…" : "Enregistrer"}
+          <button type="submit" disabled={saving} className="h-12 flex-1 rounded-xl bg-stone-900 font-bold text-white disabled:opacity-50">
+            {saving ? "Enregistrement…" : "Enregistrer"}
           </button>
         </div>
       </form>

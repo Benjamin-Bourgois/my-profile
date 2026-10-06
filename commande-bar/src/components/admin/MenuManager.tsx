@@ -1,37 +1,52 @@
 "use client";
 
-import { useState } from "react";
+import { useOptimistic, useState } from "react";
 
 import { inputClass, ProductForm } from "@/components/admin/ProductForm";
 import { Toggle } from "@/components/admin/Toggle";
+import { menuReducer, type MenuAction } from "@/lib/admin-reducers";
 import type { AdminCategory, AdminProduct } from "@/lib/admin-types";
 import { formatPrice } from "@/lib/format";
-import { useAdminRpc } from "@/lib/use-admin-rpc";
+import { useAdminAction } from "@/lib/use-admin-action";
 
 type Editing = { product: AdminProduct | null; categoryId: string };
 
 /** Gestion de la carte : catégories, produits, prix, photos, disponibilité. */
-export function MenuManager({ venueId, categories }: { venueId: string; categories: AdminCategory[] }) {
-  const { call, busy, error } = useAdminRpc();
+export function MenuManager({ venueId, categories: serverCategories }: { venueId: string; categories: AdminCategory[] }) {
+  const { run, pending, error } = useAdminAction();
+  // Carte affichée = carte du serveur + changements en cours d'enregistrement
+  const [categories, applyOptimistic] = useOptimistic(serverCategories, menuReducer);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [newCategory, setNewCategory] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  /** Modification avec mise à jour immédiate de l'écran. */
+  const act = (fn: string, args: Record<string, unknown>, action: MenuAction) => run(fn, args, () => applyOptimistic(action));
 
   async function addCategory(event: React.FormEvent) {
     event.preventDefault();
-    const result = await call("admin_save_category", { p_venue_id: venueId, p_category_id: null, p_name: newCategory });
+    setAdding(true);
+    const result = await run("admin_save_category", { p_venue_id: venueId, p_category_id: null, p_name: newCategory });
+    setAdding(false);
     if (result.ok) setNewCategory("");
   }
 
-  async function renameCategory(event: React.FormEvent) {
+  function renameCategory(event: React.FormEvent) {
     event.preventDefault();
     if (!renaming) return;
-    const result = await call("admin_save_category", { p_venue_id: venueId, p_category_id: renaming.id, p_name: renaming.name });
-    if (result.ok) setRenaming(null);
+    act("admin_save_category", { p_venue_id: venueId, p_category_id: renaming.id, p_name: renaming.name }, {
+      type: "rename-category",
+      categoryId: renaming.id,
+      name: renaming.name,
+    });
+    setRenaming(null);
   }
 
-  const move = (kind: "category" | "product", id: string, direction: -1 | 1) =>
-    call("admin_move", { p_kind: kind, p_id: id, p_direction: direction });
+  const moveCategory = (id: string, direction: -1 | 1) =>
+    act("admin_move", { p_kind: "category", p_id: id, p_direction: direction }, { type: "move-category", categoryId: id, direction });
+  const moveProduct = (id: string, direction: -1 | 1) =>
+    act("admin_move", { p_kind: "product", p_id: id, p_direction: direction }, { type: "move-product", productId: id, direction });
 
   return (
     <div className="space-y-6">
@@ -40,6 +55,7 @@ export function MenuManager({ venueId, categories }: { venueId: string; categori
           <h2 className="text-2xl font-bold">La carte</h2>
           <p className="text-stone-600">Les changements apparaissent immédiatement sur les téléphones des clients.</p>
         </div>
+        <SavingIndicator pending={pending} />
       </div>
 
       {error && (
@@ -61,7 +77,7 @@ export function MenuManager({ venueId, categories }: { venueId: string; categori
                   className="h-11 flex-1 rounded-xl border border-stone-300 px-3"
                   aria-label="Nouveau nom de la catégorie"
                 />
-                <button type="submit" disabled={busy} className="h-11 rounded-xl bg-stone-900 px-4 font-semibold text-white">
+                <button type="submit" className="h-11 rounded-xl bg-stone-900 px-4 font-semibold text-white">
                   OK
                 </button>
                 <button type="button" onClick={() => setRenaming(null)} className="h-11 rounded-xl px-3 font-semibold text-stone-600">
@@ -71,19 +87,19 @@ export function MenuManager({ venueId, categories }: { venueId: string; categori
             ) : (
               <>
                 <h3 className="flex-1 text-xl font-bold">{category.name}</h3>
-                <IconButton label={`Monter ${category.name}`} disabled={busy || index === 0} onClick={() => move("category", category.id, -1)}>
+                <IconButton label={`Monter ${category.name}`} disabled={index === 0} onClick={() => moveCategory(category.id, -1)}>
                   ↑
                 </IconButton>
-                <IconButton label={`Descendre ${category.name}`} disabled={busy || index === categories.length - 1} onClick={() => move("category", category.id, 1)}>
+                <IconButton label={`Descendre ${category.name}`} disabled={index === categories.length - 1} onClick={() => moveCategory(category.id, 1)}>
                   ↓
                 </IconButton>
                 <SmallButton onClick={() => setRenaming({ id: category.id, name: category.name })}>Renommer</SmallButton>
                 <SmallButton
-                  disabled={busy || category.products.length > 0}
+                  disabled={category.products.length > 0}
                   title={category.products.length > 0 ? "Videz d'abord la catégorie" : undefined}
                   onClick={() => {
                     if (window.confirm(`Supprimer la catégorie « ${category.name} » ?`)) {
-                      call("admin_delete_category", { p_category_id: category.id });
+                      act("admin_delete_category", { p_category_id: category.id }, { type: "delete-category", categoryId: category.id });
                     }
                   }}
                 >
@@ -109,29 +125,33 @@ export function MenuManager({ venueId, categories }: { venueId: string; categori
                 <label className="flex items-center gap-2 text-sm font-semibold text-stone-600">
                   <Toggle
                     checked={product.is_available}
-                    disabled={busy}
                     label={`${product.name} disponible`}
-                    onChange={(available) => call("admin_set_product_available", { p_product_id: product.id, p_available: available })}
+                    onChange={(available) =>
+                      act(
+                        "admin_set_product_available",
+                        { p_product_id: product.id, p_available: available },
+                        { type: "available", productId: product.id, value: available },
+                      )
+                    }
                   />
                   <span className="w-20">{product.is_available ? "Disponible" : "Épuisé"}</span>
                 </label>
                 <div className="flex gap-1">
-                  <IconButton label={`Monter ${product.name}`} disabled={busy || productIndex === 0} onClick={() => move("product", product.id, -1)}>
+                  <IconButton label={`Monter ${product.name}`} disabled={productIndex === 0} onClick={() => moveProduct(product.id, -1)}>
                     ↑
                   </IconButton>
                   <IconButton
                     label={`Descendre ${product.name}`}
-                    disabled={busy || productIndex === category.products.length - 1}
-                    onClick={() => move("product", product.id, 1)}
+                    disabled={productIndex === category.products.length - 1}
+                    onClick={() => moveProduct(product.id, 1)}
                   >
                     ↓
                   </IconButton>
                   <SmallButton onClick={() => setEditing({ product, categoryId: category.id })}>Modifier</SmallButton>
                   <SmallButton
-                    disabled={busy}
                     onClick={() => {
                       if (window.confirm(`Supprimer « ${product.name} » de la carte ?`)) {
-                        call("admin_delete_product", { p_product_id: product.id });
+                        act("admin_delete_product", { p_product_id: product.id }, { type: "delete-product", productId: product.id });
                       }
                     }}
                   >
@@ -159,8 +179,8 @@ export function MenuManager({ venueId, categories }: { venueId: string; categori
           <span className="text-sm font-semibold text-stone-700">Nouvelle catégorie</span>
           <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} maxLength={40} placeholder="Ex. : Vins" className={inputClass} />
         </label>
-        <button type="submit" disabled={busy || !newCategory.trim()} className="h-12 rounded-xl bg-stone-900 px-5 font-bold text-white disabled:opacity-50">
-          Ajouter la catégorie
+        <button type="submit" disabled={adding || !newCategory.trim()} className="h-12 rounded-xl bg-stone-900 px-5 font-bold text-white disabled:opacity-50">
+          {adding ? "Ajout…" : "Ajouter la catégorie"}
         </button>
       </form>
 
@@ -174,6 +194,15 @@ export function MenuManager({ venueId, categories }: { venueId: string; categori
         />
       )}
     </div>
+  );
+}
+
+/** Petit indicateur discret pendant l'enregistrement en arrière-plan. */
+export function SavingIndicator({ pending }: { pending: boolean }) {
+  return (
+    <span aria-live="polite" className={`text-sm font-semibold ${pending ? "text-stone-500" : "text-green-700"}`}>
+      {pending ? "Enregistrement…" : "✓ À jour"}
+    </span>
   );
 }
 
