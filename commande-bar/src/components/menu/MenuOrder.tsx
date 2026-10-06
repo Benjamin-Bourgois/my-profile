@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { Icon } from "@/components/Icon";
 import { CallButtons } from "@/components/menu/CallButtons";
 import { CartSheet, type CartLine } from "@/components/menu/CartSheet";
 import { CategoryNav } from "@/components/menu/CategoryNav";
@@ -126,47 +127,51 @@ export function MenuOrder({
     <div className="min-h-dvh">
       <MenuHeader venue={menu.venue} tableLabel={menu.table.label} />
 
-      {lastOrder && (
-        <Link
-          href={`/t/${token}/commande/${lastOrder.id}`}
-          className="block bg-amber-100 px-4 py-3 text-amber-950 active:bg-amber-200"
-        >
-          <span className="mx-auto flex max-w-xl items-center justify-between gap-3">
+      <div className="mx-auto grid max-w-[680px] gap-3 px-4 pt-4">
+        {lastOrder && (
+          <Link
+            href={`/t/${token}/commande/${lastOrder.id}`}
+            className="card card--hover flex items-center justify-between gap-3 !py-3"
+          >
             <span>
-              Votre commande <strong>n° {lastOrder.number}</strong>
+              <span className="eyebrow block">Votre commande</span>
+              <span className="font-serif text-[22px] font-semibold">n° {lastOrder.number}</span>
             </span>
-            <span className="font-semibold underline">Suivre →</span>
-          </span>
-        </Link>
-      )}
+            <span className="btn btn--soft btn--sm">
+              Suivre <Icon name="arrowRight" size={16} />
+            </span>
+          </Link>
+        )}
 
-      {paused && (
-        <div role="status" className="bg-red-100 px-4 py-3 text-red-950">
-          <p className="mx-auto max-w-xl">
-            <strong>Commandes en pause.</strong> Le bar ne prend plus de commandes depuis le téléphone pour le
-            moment. Vous pouvez consulter la carte ou appeler un serveur.
-          </p>
-        </div>
-      )}
+        {paused && (
+          <div role="status" className="flex gap-3 rounded-md border border-danger-soft bg-danger-soft px-4 py-3">
+            <Icon name="pause" className="mt-0.5 text-danger" />
+            <p className="text-ink-2">
+              <strong className="text-danger">Commandes en pause.</strong> Le bar ne prend plus de commandes depuis le
+              téléphone pour le moment. Vous pouvez consulter la carte ou appeler un serveur.
+            </p>
+          </div>
+        )}
 
-      <div className="mx-auto max-w-xl px-4 pt-4">
         <CallButtons token={token} />
       </div>
 
       <CategoryNav categories={menu.categories} />
 
-      <main className={`mx-auto max-w-xl px-4 ${count > 0 ? "pb-32" : "pb-12"}`}>
+      <main className={`mx-auto max-w-[680px] px-4 ${count > 0 ? "pb-32" : "pb-10"}`}>
         {menu.categories.length === 0 && (
-          <p className="py-16 text-center text-lg text-stone-500">La carte est en cours de préparation.</p>
+          <p className="py-16 text-center text-ink-2">La carte est en cours de préparation.</p>
         )}
         {menu.categories.map((category) => (
           <section key={category.id} id={`cat-${category.id}`} className="scroll-mt-20 pt-6">
-            <h2 className="mb-3 text-xl font-bold text-stone-900">{category.name}</h2>
-            <ul className="divide-y divide-stone-200 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-stone-200">
-              {category.products.map((product) => (
+            <h2 className="mb-3 text-[30px]">{category.name}</h2>
+            <ul className="grid gap-3">
+              {category.products.map((product, index) => (
                 <ProductRow
                   key={product.id}
                   product={product}
+                  category={category.name}
+                  index={index}
                   quantity={cart[product.id] ?? 0}
                   orderingEnabled={orderingEnabled}
                   onChange={(quantity) => setQuantity(product.id, quantity)}
@@ -176,26 +181,27 @@ export function MenuOrder({
           </section>
         ))}
 
-        <footer className="mt-10 space-y-1 text-center text-sm text-stone-500">
+        <footer className="mt-10 border-t border-line pt-5 text-center text-[13px] text-muted">
           <p>La vente d&apos;alcool est interdite aux mineurs de moins de 18 ans.</p>
           <p>L&apos;abus d&apos;alcool est dangereux pour la santé, à consommer avec modération.</p>
         </footer>
       </main>
 
       {count > 0 && !cartOpen && (
-        <div className="fixed inset-x-0 bottom-0 z-20 bg-gradient-to-t from-stone-50 via-stone-50/90 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-6">
+        <div className="fixed inset-x-0 bottom-[calc(16px+var(--safe-b))] z-20 px-4">
           <button
+            key={count}
             type="button"
             onClick={() => setCartOpen(true)}
-            className="mx-auto flex h-16 w-full max-w-xl items-center justify-between rounded-2xl bg-stone-900 px-5 text-lg font-bold text-white shadow-lg active:bg-stone-700"
+            className="mx-auto flex h-[60px] w-full max-w-[648px] animate-[bump_.3s_var(--ease)] items-center justify-between gap-3 rounded-full bg-matte pl-2.5 pr-2.5 text-white shadow-float transition-colors hover:bg-matte-hover"
           >
             <span className="flex items-center gap-3">
-              <span className="grid h-8 min-w-8 place-items-center rounded-full bg-amber-400 px-2 text-base text-stone-900">
+              <span className="grid h-10 min-w-10 place-items-center rounded-full bg-gold px-2 text-[15px] font-bold text-matte">
                 {count}
               </span>
-              Voir mon panier
+              <span className="text-[15px] font-semibold">Voir mon panier</span>
             </span>
-            <span className="tabular-nums">{formatPrice(total)}</span>
+            <span className="rounded-full bg-white/12 px-4 py-2 text-[15px] font-bold tabular-nums">{formatPrice(total)}</span>
           </button>
         </div>
       )}

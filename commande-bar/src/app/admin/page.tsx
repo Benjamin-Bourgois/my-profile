@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { ErreurTechnique } from "@/components/ErreurTechnique";
+import { Icon } from "@/components/Icon";
 import { requireOwnerVenue } from "@/lib/admin";
 import type { DayData } from "@/lib/admin-types";
 import { adminErrorMessage } from "@/lib/admin-errors";
@@ -8,12 +9,12 @@ import { formatPrice, formatTime } from "@/lib/format";
 import { paymentLabel, type OrderStatus } from "@/lib/order-types";
 import { getServerClient } from "@/lib/supabase/server";
 
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  pending_payment: "Paiement en cours",
-  received: "Reçue",
-  preparing: "En préparation",
-  served: "Servie",
-  cancelled: "Annulée",
+const STATUS_LABEL: Record<OrderStatus, { label: string; className: string }> = {
+  pending_payment: { label: "Paiement en cours", className: "badge--warn" },
+  received: { label: "Reçue", className: "badge--dark" },
+  preparing: { label: "En préparation", className: "badge--warn" },
+  served: { label: "Servie", className: "badge--ok" },
+  cancelled: { label: "Annulée", className: "badge--danger" },
 };
 
 /** « 2026-10-06 » ± n jours */
@@ -42,60 +43,72 @@ export default async function AdminDayPage(props: PageProps<"/admin">) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-2xl font-bold">{isToday ? "Commandes du jour" : "Commandes"}</h2>
-        <span className="text-lg text-stone-600 first-letter:uppercase">{formatDay(day.business_date)}</span>
-        <div className="ml-auto flex gap-2">
-          <Link href={`/admin?jour=${shiftDate(day.business_date, -1)}`} className="flex h-11 items-center rounded-xl bg-white px-4 font-semibold ring-1 ring-stone-300">
-            ← Jour précédent
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+        <div>
+          <p className="eyebrow first-letter:uppercase">{formatDay(day.business_date)}</p>
+          <h2 className="text-[30px]">{isToday ? "Commandes du jour" : "Commandes"}</h2>
+        </div>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Link href={`/admin?jour=${shiftDate(day.business_date, -1)}`} className="btn btn--ghost btn--sm">
+            <Icon name="arrowLeft" size={16} />
+            Jour précédent
           </Link>
           {!isToday && (
-            <Link href="/admin" className="flex h-11 items-center rounded-xl bg-white px-4 font-semibold ring-1 ring-stone-300">
+            <Link href="/admin" className="btn btn--ghost btn--sm">
               Aujourd&apos;hui
             </Link>
           )}
-          <Link href={isToday ? "/admin" : `/admin?jour=${day.business_date}`} className="flex h-11 items-center rounded-xl bg-stone-900 px-4 font-semibold text-white">
+          <Link href={isToday ? "/admin" : `/admin?jour=${day.business_date}`} className="btn btn--soft btn--sm">
+            <Icon name="refresh" size={16} />
             Actualiser
           </Link>
         </div>
       </div>
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6" aria-label="Totaux">
-        <Tile label="Chiffre d'affaires" value={formatPrice(day.totals.revenue_cents)} strong />
-        <Tile label="Commandes" value={String(day.totals.count)} />
+      <section className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3" aria-label="Totaux">
+        <Tile label="Chiffre d'affaires" value={formatPrice(day.totals.revenue_cents)} note="hors pourboires" />
+        <Tile label="Commandes" value={String(day.totals.count)} note={day.totals.cancelled_count ? `${day.totals.cancelled_count} annulée(s)` : undefined} />
         <Tile label="Payé en ligne" value={formatPrice(day.totals.online_cents)} />
         <Tile label="Encaissé au bar" value={formatPrice(day.totals.staff_paid_cents)} />
-        <Tile label="Reste à encaisser" value={formatPrice(day.totals.to_collect_cents)} warn={day.totals.to_collect_cents > 0} />
+        <Tile
+          label="Reste à encaisser"
+          value={formatPrice(day.totals.to_collect_cents)}
+          note={day.totals.to_collect_cents > 0 ? "à régler au bar" : undefined}
+          warn={day.totals.to_collect_cents > 0}
+        />
         <Tile label="Pourboires" value={formatPrice(day.totals.tips_cents)} />
       </section>
-      <p className="text-sm text-stone-500">
+      <p className="text-[13px] text-muted">
         Une journée va de 5 h à 5 h du matin. Les commandes annulées ({day.totals.cancelled_count}) ne sont pas comptées.
         Les pourboires ne sont pas inclus dans le chiffre d&apos;affaires.
       </p>
 
       {day.orders.length === 0 ? (
-        <p className="rounded-2xl bg-white p-10 text-center text-lg text-stone-500 ring-1 ring-stone-200">
-          Aucune commande ce jour-là.
-        </p>
+        <p className="card !p-10 text-center text-ink-2">Aucune commande ce jour-là.</p>
       ) : (
-        <ul className="divide-y divide-stone-200 overflow-hidden rounded-2xl bg-white ring-1 ring-stone-200">
+        <ul className="card divide-y divide-line !p-0">
           {day.orders.map((order) => (
-            <li key={order.id} className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 p-4 ${order.status === "cancelled" ? "opacity-50" : ""}`}>
-              <span className="w-14 tabular-nums text-stone-500">{formatTime(order.created_at, venue.timezone)}</span>
-              <span className="w-12 font-semibold">n° {order.order_number}</span>
-              <span className="w-28 font-bold">{order.table_label}</span>
-              <span className="min-w-48 flex-1 text-stone-700">
+            <li
+              key={order.id}
+              className={`flex flex-wrap items-baseline gap-x-4 gap-y-1.5 px-4 py-3.5 ${order.status === "cancelled" ? "opacity-55" : ""}`}
+            >
+              <span className="w-12 tabular-nums text-muted">{formatTime(order.created_at, venue.timezone)}</span>
+              <span className="w-12 text-[13px] font-semibold text-ink-2">n° {order.order_number}</span>
+              <span className="w-28 font-serif text-[20px] font-semibold leading-tight">{order.table_label}</span>
+              <span className="min-w-48 flex-1 text-ink-2">
                 {order.items.map((item) => `${item.quantity} × ${item.name}`).join(", ")}
-                {order.comment && <span className="block text-sm text-stone-500">💬 {order.comment}</span>}
+                {order.comment && <span className="block text-[13px] text-muted">« {order.comment} »</span>}
               </span>
-              <span className="w-20 text-right font-bold tabular-nums">
+              <span className="w-24 text-right font-bold tabular-nums">
                 {formatPrice(order.total_cents)}
                 {order.tip_cents > 0 && (
-                  <span className="block text-xs font-normal text-stone-500">+ {formatPrice(order.tip_cents)} pourb.</span>
+                  <span className="block text-[12px] font-medium text-gold-ink">+ {formatPrice(order.tip_cents)} pourb.</span>
                 )}
               </span>
-              <span className="w-36 text-sm text-stone-600">{paymentLabel(order)}</span>
-              <span className="w-28 text-sm font-semibold">{STATUS_LABEL[order.status]}</span>
+              <span className="flex w-64 flex-wrap justify-end gap-1.5">
+                <span className={`badge ${order.payment_status === "paid" ? "badge--ok" : "badge--warn"}`}>{paymentLabel(order)}</span>
+                <span className={`badge ${STATUS_LABEL[order.status].className}`}>{STATUS_LABEL[order.status].label}</span>
+              </span>
             </li>
           ))}
         </ul>
@@ -104,11 +117,12 @@ export default async function AdminDayPage(props: PageProps<"/admin">) {
   );
 }
 
-function Tile({ label, value, strong, warn }: { label: string; value: string; strong?: boolean; warn?: boolean }) {
+function Tile({ label, value, note, warn }: { label: string; value: string; note?: string; warn?: boolean }) {
   return (
-    <div className={`rounded-2xl p-4 ring-1 ${strong ? "bg-stone-900 text-white ring-stone-900" : warn ? "bg-amber-100 ring-amber-300" : "bg-white ring-stone-200"}`}>
-      <p className={`text-sm ${strong ? "text-stone-300" : "text-stone-500"}`}>{label}</p>
-      <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
+    <div className={`stat-tile ${warn ? "!border-warn" : ""}`}>
+      <span>{label}</span>
+      <b className={warn ? "text-warn-ink" : ""}>{value}</b>
+      {note && <small>{note}</small>}
     </div>
   );
 }

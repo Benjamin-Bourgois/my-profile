@@ -1,5 +1,7 @@
 "use client";
 
+import { Icon } from "@/components/Icon";
+
 const PAUSE_CONFIRM =
   "Mettre les commandes en pause ?\n\nLes clients ne pourront plus commander depuis leur téléphone (ils pourront toujours appeler un serveur).";
 
@@ -22,11 +24,11 @@ export function PauseOrdersButton({
         if (!paused && !window.confirm(PAUSE_CONFIRM)) return;
         onToggle(!paused);
       }}
-      className={`h-11 rounded-xl px-4 font-semibold disabled:opacity-60 ${
-        paused ? "bg-red-600 text-white active:bg-red-700" : "bg-stone-700 text-white active:bg-stone-600"
-      }`}
+      className={`btn btn--sm ${paused ? "btn--danger bg-danger-soft" : "btn--ghost"}`}
     >
-      {paused ? "▶ Reprendre les commandes" : "⏸️ Pause des commandes"}
+      <Icon name={paused ? "play" : "pause"} size={16} />
+      <span className="sm:hidden">{paused ? "Reprendre" : "Pause"}</span>
+      <span className="max-sm:hidden">{paused ? "Reprendre les commandes" : "Pause des commandes"}</span>
     </button>
   );
 }

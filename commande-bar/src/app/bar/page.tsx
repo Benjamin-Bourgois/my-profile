@@ -31,10 +31,10 @@ export default async function BarPage() {
   const venue = session.venues[0];
   if (!venue) {
     return (
-      <MessageScreen icon="🔒" title="Aucun bar associé">
+      <MessageScreen icon="lock" title="Aucun bar associé">
         <p>Le compte {session.user.email} n&apos;est rattaché à aucun bar.</p>
         <form action={signOut} className="mt-6">
-          <button type="submit" className="font-semibold text-stone-900 underline">
+          <button type="submit" className="btn btn--ghost">
             Se déconnecter
           </button>
         </form>

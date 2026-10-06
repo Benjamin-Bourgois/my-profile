@@ -7,7 +7,9 @@ import { AdminNav } from "@/components/admin/AdminNav";
 import { AdminPauseButton } from "@/components/admin/AdminPauseButton";
 import { ConfigManquante } from "@/components/ConfigManquante";
 import { ErreurTechnique } from "@/components/ErreurTechnique";
+import { Icon } from "@/components/Icon";
 import { MessageScreen } from "@/components/MessageScreen";
+import { VenueMark } from "@/components/VenueMark";
 import { diagnose } from "@/lib/diagnose";
 import { missingConfig } from "@/lib/env";
 import { getStaffSession } from "@/lib/staff";
@@ -32,9 +34,9 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   const venue = session.venues.find((v) => v.role === "owner");
   if (!venue) {
     return (
-      <MessageScreen icon="🔒" title="Réservé au gérant">
+      <MessageScreen icon="lock" title="Réservé au gérant">
         <p>Le compte {session.user.email} a accès à l&apos;écran du bar, mais pas à l&apos;espace gérant.</p>
-        <Link href="/bar" className="mt-6 inline-block font-semibold text-stone-900 underline">
+        <Link href="/bar" className="btn btn--ghost mt-6">
           Aller à l&apos;écran du bar
         </Link>
       </MessageScreen>
@@ -42,26 +44,32 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   }
 
   return (
-    <div className="min-h-dvh bg-stone-100">
-      <header className="bg-stone-900 text-white print:hidden">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-          <h1 className="text-xl font-bold">{venue.name}</h1>
-          <span className="text-stone-400">Espace gérant</span>
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            <AdminPauseButton venueId={venue.id} paused={venue.orders_paused} />
-            <Link href="/bar" className="flex h-11 items-center rounded-xl bg-stone-700 px-4 font-semibold hover:bg-stone-600">
-              Écran du bar →
-            </Link>
-            <form action={signOut}>
-              <button type="submit" className="h-11 px-2 text-stone-300 underline">
-                Déconnexion
-              </button>
-            </form>
+    <div className="min-h-dvh">
+      <header className="border-b border-line print:hidden">
+        <div className="mx-auto flex max-w-[1100px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3 md:flex-none">
+            <VenueMark name={venue.name} logoUrl={venue.logo_url} size={40} />
+            <div className="min-w-0">
+              <p className="eyebrow">Espace gérant</p>
+              <h1 className="truncate text-[24px]">{venue.name}</h1>
+            </div>
           </div>
+          <div className="order-last flex w-full flex-wrap items-center gap-2 md:order-none md:ml-auto md:w-auto">
+            <AdminPauseButton venueId={venue.id} paused={venue.orders_paused} />
+            <Link href="/bar" className="btn btn--ghost btn--sm">
+              Écran du bar
+              <Icon name="arrowRight" size={16} />
+            </Link>
+          </div>
+          <form action={signOut}>
+            <button type="submit" aria-label="Déconnexion" title="Déconnexion" className="icon-btn">
+              <Icon name="logout" size={17} />
+            </button>
+          </form>
         </div>
         <AdminNav />
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-6 print:max-w-none print:p-0">{children}</main>
+      <main className="mx-auto max-w-[1100px] px-4 py-6 print:max-w-none print:p-0">{children}</main>
     </div>
   );
 }
