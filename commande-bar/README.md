@@ -74,7 +74,7 @@ volée, on « régénère » le lien : l'ancien cesse immédiatement de fonction
 3. **New project** :
    - *Name* : `commande-bar`
    - *Database password* : clique sur **Generate a password** et garde-le dans un endroit sûr
-   - *Region* : **West EU (Paris)**
+   - *Region* : **West EU (Paris)** ou **West EU (Ireland)** (adapte alors `vercel.json`, voir plus bas)
    - laisse le reste par défaut → **Create new project** (2 minutes d'attente).
 4. Menu de gauche → **SQL Editor** → **New query** → colle **tout** le contenu de
    [`supabase/1-structure.sql`](supabase/1-structure.sql) → **Run**.
@@ -126,10 +126,11 @@ Vercel publie la branche principale (`main`) du dépôt GitHub : le code doit do
 4. **Deploy** → 1 à 2 minutes → l'adresse du site s'affiche dans **Domains**
    (par exemple `commande-bar.vercel.app`).
 
-Le fichier `vercel.json` place le site à **Paris** (`cdg1`), à côté de la base Supabase
-(région *West EU (Paris)*) : chaque clic évite un aller-retour transatlantique. Si ton
-projet Supabase est dans une autre région, choisis la région Vercel la plus proche dans ce
-fichier (ex. `fra1` pour Francfort, `dub1` pour Dublin).
+Le fichier `vercel.json` place le site à **Dublin** (`dub1`), à côté de la base Supabase
+du bar de démo (région *West EU (Ireland)*) : chaque clic évite un aller-retour
+transatlantique. Si un projet Supabase est dans une autre région (Supabase → Project
+Settings → General → Region), choisis la région Vercel la plus proche dans ce fichier :
+`cdg1` pour Paris, `fra1` pour Francfort, `lhr1` pour Londres.
 
 Ensuite, chaque modification fusionnée dans `main` sur GitHub est mise en ligne
 automatiquement. Si tu changes une variable d'environnement : **Deployments** → menu
