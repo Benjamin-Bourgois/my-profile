@@ -19,6 +19,8 @@ export const metadata: Metadata = {
 
 export default async function OrderPage(props: PageProps<"/t/[token]/commande/[orderId]">) {
   const { token, orderId } = await props.params;
+  const { paiement } = await props.searchParams;
+  const paymentReturn = paiement === "ok" || paiement === "annule" ? paiement : null;
 
   const missing = missingConfig();
   if (missing.length) return <ConfigManquante missing={missing} />;
@@ -44,5 +46,13 @@ export default async function OrderPage(props: PageProps<"/t/[token]/commande/[o
     );
   }
 
-  return <OrderTracker initialOrder={order} token={token} venueName={menu?.venue.name ?? null} canReorder={!!menu} />;
+  return (
+    <OrderTracker
+      initialOrder={order}
+      token={token}
+      venueName={menu?.venue.name ?? null}
+      canReorder={!!menu}
+      paymentReturn={paymentReturn}
+    />
+  );
 }

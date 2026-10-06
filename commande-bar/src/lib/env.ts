@@ -54,7 +54,20 @@ export function supabaseSecretKey(): string {
   return clean(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
-/** Paiement en ligne disponible ? (clés Stripe renseignées — étape 3) */
+/**
+ * Clé API Stripe, uniquement côté serveur : de préférence une clé restreinte
+ * (rk_test_…, permission « Checkout Sessions : écriture »), sinon la clé secrète (sk_test_…).
+ */
+export function stripeSecretKey(): string {
+  return clean(process.env.STRIPE_SECRET_KEY);
+}
+
+/** Secret de signature du webhook Stripe (whsec_…) : prouve qu'un message vient bien de Stripe. */
+export function stripeWebhookSecret(): string {
+  return clean(process.env.STRIPE_WEBHOOK_SECRET);
+}
+
+/** Paiement en ligne disponible ? (les deux réglages Stripe sont renseignés) */
 export function isStripeConfigured(): boolean {
-  return clean(process.env.STRIPE_SECRET_KEY).length > 0;
+  return stripeSecretKey().length > 0 && stripeWebhookSecret().length > 0;
 }

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 
+import { cancelUnstartedCheckout, startCheckout } from "@/lib/checkout";
 import { isStripeConfigured } from "@/lib/env";
 import { GENERIC_ORDER_ERROR, isKnownOrderError, orderError } from "@/lib/order-errors";
 import { MAX_COMMENT_LENGTH, MAX_QUANTITY_PER_LINE, UUID_PATTERN, type PaymentMethod } from "@/lib/order-types";
-import { TOKEN_PATTERN } from "@/lib/menu";
+import { getMenu, TOKEN_PATTERN } from "@/lib/menu";
+import { getCustomerOrder } from "@/lib/orders";
 import { getAdminClient } from "@/lib/supabase/admin";
 
 type OrderRequest = {
@@ -68,5 +70,27 @@ export async function POST(request: Request) {
 
   const created = data as { id: string; order_number: number } | null;
   if (!created) return NextResponse.json({ error: GENERIC_ORDER_ERROR, code: "ERREUR" }, { status: 500 });
+
+  if (order.payment_method === "online") {
+    try {
+      const [savedOrder, menu] = await Promise.all([getCustomerOrder(created.id, order.token), getMenu(order.token)]);
+      if (!savedOrder || !menu) throw new Error("Commande introuvable juste après sa création");
+      const checkoutUrl = await startCheckout({
+        order: savedOrder,
+        token: order.token,
+        origin: new URL(request.url).origin,
+        venueName: menu.venue.name,
+      });
+      return NextResponse.json({ id: created.id, order_number: created.order_number, checkout_url: checkoutUrl });
+    } catch (checkoutError) {
+      console.error("Ouverture du paiement Stripe impossible", checkoutError);
+      await cancelUnstartedCheckout(created.id).catch(() => undefined);
+      return NextResponse.json(
+        { error: "Le paiement en ligne est momentanément indisponible. Choisissez « Payer au serveur » ou réessayez.", code: "STRIPE" },
+        { status: 502 },
+      );
+    }
+  }
+
   return NextResponse.json({ id: created.id, order_number: created.order_number });
 }

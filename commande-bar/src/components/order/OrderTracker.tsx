@@ -1,12 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { useCart } from "@/lib/cart";
 import { formatPrice } from "@/lib/format";
 import { FINAL_STATUSES, type CustomerOrder, type OrderStatus } from "@/lib/order-types";
 
 const POLL_INTERVAL = 4000;
+/** Au-delà, on prévient le client que la confirmation du paiement tarde. */
+const SLOW_PAYMENT_CONFIRMATION = 45_000;
+
+export type PaymentReturn = "ok" | "annule" | null;
 
 const STATUS_TEXT: Record<OrderStatus, { icon: string; title: string; text: string }> = {
   pending_payment: { icon: "⏳", title: "Paiement en cours…", text: "Nous attendons la confirmation de votre paiement." },
@@ -28,15 +34,37 @@ export function OrderTracker({
   token,
   venueName,
   canReorder,
+  paymentReturn,
 }: {
   initialOrder: CustomerOrder;
   token: string;
   venueName: string | null;
   canReorder: boolean;
+  /** Retour depuis la page de paiement Stripe (?paiement=ok ou ?paiement=annule). */
+  paymentReturn: PaymentReturn;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [, setCart] = useCart(token);
   const [order, setOrder] = useState(initialOrder);
   const [connectionLost, setConnectionLost] = useState(false);
+  const [slowPayment, setSlowPayment] = useState(false);
   const finished = FINAL_STATUSES.includes(order.status);
+  const paymentCancelled = order.status === "pending_payment" && paymentReturn === "annule";
+
+  // Retour de Stripe après un paiement réussi : le panier est payé, on le vide.
+  useEffect(() => {
+    if (paymentReturn !== "ok") return;
+    setCart(() => ({}));
+    router.replace(pathname, { scroll: false });
+  }, [paymentReturn, pathname, router, setCart]);
+
+  // Confirmation du paiement anormalement longue (webhook Stripe en retard).
+  useEffect(() => {
+    if (order.status !== "pending_payment" || paymentCancelled) return;
+    const timer = window.setTimeout(() => setSlowPayment(true), SLOW_PAYMENT_CONFIRMATION);
+    return () => window.clearTimeout(timer);
+  }, [order.status, paymentCancelled]);
 
   useEffect(() => {
     if (finished) return;
@@ -59,7 +87,11 @@ export function OrderTracker({
     };
   }, [finished, order.id, token]);
 
-  const status = STATUS_TEXT[order.status];
+  const status = paymentCancelled
+    ? { icon: "↩️", title: "Paiement annulé", text: "Votre commande n'a pas été envoyée au bar. Votre panier est conservé." }
+    : order.status === "cancelled" && order.payment_method === "online" && order.payment_status === "unpaid"
+      ? { icon: "✖️", title: "Paiement non finalisé", text: "La commande n'a pas été envoyée au bar." }
+      : STATUS_TEXT[order.status];
   const stepIndex = STEPS.findIndex((step) => step.status === order.status);
 
   return (
@@ -75,7 +107,7 @@ export function OrderTracker({
         className={`mt-6 rounded-3xl p-6 text-center ${
           order.status === "served"
             ? "bg-green-100 text-green-950"
-            : order.status === "cancelled"
+            : order.status === "cancelled" || paymentCancelled
               ? "bg-stone-200 text-stone-800"
               : "bg-amber-100 text-amber-950"
         }`}
@@ -85,6 +117,11 @@ export function OrderTracker({
         </p>
         <p className="mt-3 text-2xl font-bold">{status.title}</p>
         <p className="mt-1 text-lg">{status.text}</p>
+        {slowPayment && order.status === "pending_payment" && (
+          <p className="mt-3 text-base">
+            La confirmation prend plus de temps que prévu. Si rien ne change d&apos;ici une minute, montrez cet écran au serveur.
+          </p>
+        )}
       </section>
 
       {order.status !== "cancelled" && order.status !== "pending_payment" && (
@@ -125,7 +162,7 @@ export function OrderTracker({
           <span>Total</span>
           <span className="tabular-nums">{formatPrice(order.total_cents)}</span>
         </div>
-        <p className="mt-2 text-stone-600">{paymentText(order)}</p>
+        <p className="mt-2 text-stone-600">{paymentText(order, paymentCancelled)}</p>
       </section>
 
       {canReorder && (
@@ -133,7 +170,7 @@ export function OrderTracker({
           href={`/t/${token}`}
           className="mt-8 flex h-14 w-full items-center justify-center rounded-2xl bg-amber-400 text-lg font-bold text-stone-900 active:bg-amber-500"
         >
-          Commander à nouveau
+          {paymentCancelled || order.status === "cancelled" ? "Retour à la carte" : "Commander à nouveau"}
         </Link>
       )}
 
@@ -144,8 +181,9 @@ export function OrderTracker({
   );
 }
 
-function paymentText(order: CustomerOrder): string {
+function paymentText(order: CustomerOrder, paymentCancelled: boolean): string {
   if (order.payment_status === "paid") return order.payment_method === "online" ? "✓ Payé en ligne" : "✓ Réglé";
+  if (paymentCancelled || order.status === "cancelled") return "Non payé.";
   if (order.payment_method === "online") return "Paiement en attente de confirmation.";
   return "À régler auprès du serveur.";
 }

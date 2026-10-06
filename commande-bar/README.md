@@ -7,8 +7,8 @@ paie. La commande arrive en temps réel sur l'écran du bar avec le numéro de t
 > **Avancement**
 > - ✅ Étape 1 : base de données, sécurité, données de démo, page client (lecture de la carte)
 > - ✅ Étape 2 : panier, commande « Payer au serveur », suivi en direct, écran du bar en temps réel
-> - ⏳ Étape 3 : paiement Stripe (mode test)
-> - ⏳ Étape 4 : espace gérant (carte, tables, QR codes, réglages)
+> - ✅ Étape 3 : paiement en ligne Stripe Checkout (mode test), confirmé par webhook
+> - ✅ Étape 4 : espace gérant (commandes du jour, carte, tables et cartes NFC, QR codes, réglages)
 > - ⏳ Étape 5 : finitions et scénario de démonstration
 
 ---
@@ -31,6 +31,11 @@ paie. La commande arrive en temps réel sur l'écran du bar avec le numéro de t
 | `/t/<lien-secret>/commande/<n°>` | Le client : suivi de sa commande, mis à jour toutes les 4 secondes |
 | `/connexion` | Connexion du personnel et du gérant |
 | `/bar` | Écran du bar (tablette) : commandes en temps réel |
+| `/admin` | Espace gérant : commandes du jour et totaux |
+| `/admin/carte` | Catégories, produits, prix, photos, disponibilité |
+| `/admin/tables` | Tables, liens des cartes NFC, QR codes, désactiver / nouveau lien |
+| `/admin/tables/imprimer` | Planche de QR codes à imprimer |
+| `/admin/reglages` | Nom du bar, logo, modes de paiement |
 
 ### Les liens des cartes NFC
 
@@ -51,6 +56,10 @@ volée, on « régénère » le lien : l'ancien cesse immédiatement de fonction
   son bar ; seul le gérant peut modifier la carte, les tables et les réglages.
 - **Anti-abus** : 5 commandes maximum par table toutes les 2 minutes (réglable dans
   `supabase/1-structure.sql`, fonction `create_order`).
+- **Paiement en ligne** : la commande est créée « en attente de paiement », invisible
+  au bar. Elle ne devient « Payée » qu'à réception du message **signé** de Stripe
+  (webhook), après vérification du montant. Un paiement abandonné expire au bout de
+  30 minutes et la commande est annulée.
 - Les **clés secrètes** sont uniquement dans les variables d'environnement
   (Vercel), jamais dans le code.
 
@@ -78,6 +87,7 @@ volée, on « régénère » le lien : l'ancien cesse immédiatement de fonction
    → **Run**. Attendu : la liste des 10 tables avec leur lien (`/t/…`). Garde-la.
 7. **SQL Editor** → **New query** → colle tout [`supabase/3-etape-2.sql`](supabase/3-etape-2.sql) → **Run**
    (fonctions de l'écran du bar). Attendu : « Success. No rows returned ».
+   Puis de même avec [`supabase/4-etape-4.sql`](supabase/4-etape-4.sql) (espace gérant).
 8. Récupère 3 valeurs (elles serviront dans Vercel) :
    - **Project URL** (`https://xxxx.supabase.co`) : *Project Settings → Data API*,
      ou bouton **Connect** en haut de l'écran. (C'est aussi `https://` + l'identifiant
@@ -136,6 +146,60 @@ automatiquement. Si tu changes une variable d'environnement : **Deployments** �
 - Une fois une carte programmée, **verrouille-la** dans NFC Tools (*Autres → Verrouiller
   le tag*) pour que personne ne puisse la réécrire. C'est irréversible : pas pendant les tests.
 
+### 4. Stripe (paiement en ligne, mode test)
+
+Le mode test ne demande ni SIRET ni compte bancaire, et aucun argent réel ne circule.
+
+1. Crée un compte sur <https://dashboard.stripe.com/register> (email, nom, mot de passe).
+   Si Stripe propose d'activer les paiements, passe cette étape (**plus tard**).
+2. Vérifie en haut du tableau de bord que tu es en **mode test** (ou dans un **Sandbox**).
+3. **Développeurs → Clés API** → **Créer une clé restreinte** (recommandé par Stripe : si elle
+   fuitait, elle ne permettrait que de créer des pages de paiement) :
+   - nom : `commande-bar` ;
+   - permission : **Checkout Sessions → Écriture** (tout le reste : Aucun) ;
+   - copie la clé `rk_test_…`.
+   (À défaut, la clé secrète `sk_test_…` fonctionne aussi, mais elle donne tous les droits.)
+4. **Développeurs → Webhooks → Ajouter une destination** (ou *Ajouter un endpoint*) :
+   - événements à cocher : `checkout.session.completed`,
+     `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`,
+     `checkout.session.expired` ;
+   - type : **Endpoint de webhook** ;
+   - URL : `https://<ton-adresse>/api/stripe/webhook`
+     (ex. `https://commande-bar.vercel.app/api/stripe/webhook`).
+   Une fois créé, copie son **secret de signature** `whsec_…`.
+5. Dans Vercel → **Environment Variables**, ajoute (type **Secret**) :
+
+   | Key | Value |
+   |---|---|
+   | `STRIPE_SECRET_KEY` | la clé restreinte `rk_test_…` (ou `sk_test_…`) |
+   | `STRIPE_WEBHOOK_SECRET` | le secret `whsec_…` |
+
+6. Remets le site en ligne (nouveau déploiement). Le choix **« Payer maintenant »**
+   apparaît alors dans le panier, à côté de « Payer au serveur ».
+
+**Sécurité du compte Stripe** : active la double authentification avec une application
+(Google Authenticator…) ou une clé d'accès, plutôt que par SMS.
+
+**Pour revendre à plusieurs bars (plus tard) : Stripe Connect.** Aujourd'hui, l'argent
+arrive sur ton compte Stripe. Pour que chaque bar encaisse directement, le modèle
+recommandé par Stripe pour une plateforme comme Tapigo est le « SaaS avec paiements » :
+chaque bar a son propre compte Stripe connecté (API Accounts v2, tableau de bord Stripe
+complet, frais et litiges à la charge du bar), les paiements sont des « direct charges »
+au nom du bar, et Tapigo peut prélever une commission (`application_fee_amount`).
+La base est prête : colonne `venues.stripe_account_id`.
+
+**Cartes bancaires de test** (date d'expiration future, CVC et code postal au choix) :
+
+| Carte | Résultat |
+|---|---|
+| `4242 4242 4242 4242` | paiement accepté |
+| `4000 0025 0000 3155` | demande une validation 3D Secure (accepte-la dans la fenêtre de test) |
+| `4000 0000 0000 9995` | paiement refusé (fonds insuffisants) |
+
+Apple Pay / Google Pay s'affichent automatiquement sur la page Stripe si le téléphone
+en est équipé (Safari avec une carte dans Wallet, Chrome avec une carte enregistrée).
+En mode test, rien n'est débité.
+
 ---
 
 ## L'écran du bar (tablette)
@@ -160,6 +224,28 @@ Ce que fait l'écran :
 
 ---
 
+## L'espace gérant
+
+Connexion avec le compte gérant (`gerant@comptoir-demo.fr`) sur `https://<ton-adresse>/admin`.
+Le compte du personnel (`bar@…`) n'y a pas accès : il ne voit que l'écran du bar.
+
+- **Commandes du jour** : chiffre d'affaires, nombre de commandes, payé en ligne,
+  encaissé au bar, reste à encaisser, et la liste détaillée (jours précédents accessibles).
+- **Carte** : ajouter / renommer / ordonner les catégories ; ajouter, modifier, ordonner,
+  supprimer les produits ; photo (réduite automatiquement à 800 px pour la 4G) ;
+  interrupteur **Disponible / Épuisé** pris en compte immédiatement chez les clients.
+- **Tables & cartes NFC** : pour chaque table, le lien à copier (pour programmer la puce),
+  le QR code à télécharger, et les actions **Renommer** (la carte n'est pas à reprogrammer),
+  **Désactiver**, **Nouveau lien** (carte perdue ou volée : l'ancienne cesse de fonctionner),
+  **Supprimer**. Une planche de QR codes est prête à imprimer.
+- **Réglages** : nom du bar, logo, « Payer au serveur » et « Paiement en ligne » activables.
+
+Les liens et QR codes utilisent automatiquement l'adresse de production Vercel. Si tu
+branches ton propre nom de domaine, ajoute dans Vercel la variable `SITE_URL`
+(ex. `https://commande.mon-domaine.fr`, type *Config*) **avant** de programmer les cartes.
+
+---
+
 ## Dépannage
 
 La page d'une table affiche un message d'aide en cas de problème de configuration :
@@ -172,6 +258,11 @@ La page d'une table affiche un message d'aide en cas de problème de configurati
 | « La base n'est pas installée » | Exécute `supabase/1-structure.sql`. |
 | « Supabase est injoignable » / « Cette adresse Supabase n'existe pas » | `NEXT_PUBLIC_SUPABASE_URL` incorrecte ou enregistrée en type *Secret* au lieu de *Config* (voir plus haut), ou projet Supabase en pause (réactive-le depuis supabase.com). Après correction : nouveau déploiement. |
 | « Carte non reconnue » | Lien incomplet, table désactivée ou lien régénéré. |
+| « Base incomplète : exécutez le script supabase/4-etape-4.sql » (espace gérant) | Exécute ce script dans Supabase → SQL Editor. |
+| « Envoi impossible » en ajoutant une photo | Le stockage des images n'a pas été créé : relance la fin de `1-structure.sql` (partie « Photos des produits ») ou crée un bucket public `images` dans Supabase → Storage. |
+| « Payer maintenant » n'apparaît pas | `STRIPE_SECRET_KEY` ou `STRIPE_WEBHOOK_SECRET` manquante, ou pas de nouveau déploiement depuis. |
+| Paiement accepté mais commande absente du bar (« Paiement en cours… » qui dure) | Le webhook n'arrive pas : dans Stripe → Webhooks → ta destination, regarde les envois en échec. Vérifie l'URL (`…/api/stripe/webhook`) et que `STRIPE_WEBHOOK_SECRET` est bien le secret de **cette** destination. Dans Vercel → Logs, cherche « Webhook Stripe refusé ». |
+| « Le paiement en ligne est momentanément indisponible » | Clé `STRIPE_SECRET_KEY` incorrecte, ou clé restreinte sans la permission « Checkout Sessions : écriture » (Vercel → Logs : « Ouverture du paiement Stripe impossible »). |
 
 Le détail technique des erreurs est visible dans Vercel → ton projet → **Logs**.
 
@@ -179,7 +270,7 @@ Le détail technique des erreurs est visible dans Vercel → ton projet → **Lo
 
 ## Ajouter un nouveau bar
 
-En attendant un écran dédié, dans Supabase :
+Pas encore d'écran pour ça (la création d'un bar se fait une fois). Dans Supabase :
 
 1. **Authentication → Users → Add user** : crée le compte du gérant (Auto Confirm).
 2. **SQL Editor** :

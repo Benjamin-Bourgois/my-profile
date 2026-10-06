@@ -34,6 +34,10 @@ export default function Home() {
         Vous travaillez dans un bar ?{" "}
         <Link href="/bar" className="font-semibold text-stone-900 underline">
           Écran du bar
+        </Link>{" "}
+        ·{" "}
+        <Link href="/admin" className="font-semibold text-stone-900 underline">
+          Espace gérant
         </Link>
       </footer>
     </main>
