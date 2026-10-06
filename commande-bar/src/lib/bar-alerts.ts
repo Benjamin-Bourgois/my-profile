@@ -1,61 +1,61 @@
 "use client";
 
-// Signal sonore et écran toujours allumé, pour la tablette du bar.
+// Sons et écran toujours allumé, pour la tablette du bar.
+// Les sons sont de vrais fichiers (public/sons/, créés par scripts/generer-sons.mjs)
+// joués par le lecteur audio du navigateur : sur iPhone / iPad, ils passent même en
+// mode silencieux et restent autorisés après une mise en veille.
 
-type AudioSessionNavigator = Navigator & { audioSession?: { type: string } };
+export type SoundName = "commande" | "appel";
+export type BarSounds = Record<SoundName, HTMLAudioElement>;
+
 type WakeLockNavigator = Navigator & { wakeLock?: { request: (type: "screen") => Promise<unknown> } };
 
-/** À appeler suite à un appui (les navigateurs bloquent le son sans action de l'utilisateur). */
-export async function unlockAudio(existing: AudioContext | null): Promise<AudioContext> {
-  const nav = navigator as AudioSessionNavigator;
-  // iPhone / iPad : le son passe même si le bouton « silencieux » est activé.
-  if (nav.audioSession) nav.audioSession.type = "playback";
-  const context = existing ?? new AudioContext();
-  await context.resume();
-  return context;
+let loaded: BarSounds | null = null;
+
+function createSound(name: SoundName): HTMLAudioElement {
+  const sound = new Audio(`/sons/${name}.wav`);
+  sound.preload = "auto";
+  return sound;
 }
 
-/** « Ding-dong » de nouvelle commande. */
-export function playChime(context: AudioContext) {
-  const start = context.currentTime + 0.05;
-  [
-    { frequency: 988, at: 0 },
-    { frequency: 1319, at: 0.22 },
-    { frequency: 988, at: 0.6 },
-    { frequency: 1319, at: 0.82 },
-  ].forEach(({ frequency, at }) => {
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.value = frequency;
-    gain.gain.setValueAtTime(0.0001, start + at);
-    gain.gain.exponentialRampToValueAtTime(0.7, start + at + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.5);
-    oscillator.connect(gain).connect(context.destination);
-    oscillator.start(start + at);
-    oscillator.stop(start + at + 0.55);
-  });
+/** Télécharge les sons à l'ouverture de l'écran : l'activation est ensuite immédiate. */
+export function loadSounds(): BarSounds {
+  loaded ??= { commande: createSound("commande"), appel: createSound("appel") };
+  return loaded;
 }
 
-/** Trois notes rapides, différentes du « ding-dong » : une table appelle un serveur. */
-export function playCallChime(context: AudioContext) {
-  const start = context.currentTime + 0.05;
-  [
-    { frequency: 1568, at: 0 },
-    { frequency: 1568, at: 0.16 },
-    { frequency: 2093, at: 0.32 },
-  ].forEach(({ frequency, at }) => {
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = "triangle";
-    oscillator.frequency.value = frequency;
-    gain.gain.setValueAtTime(0.0001, start + at);
-    gain.gain.exponentialRampToValueAtTime(0.6, start + at + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.28);
-    oscillator.connect(gain).connect(context.destination);
-    oscillator.start(start + at);
-    oscillator.stop(start + at + 0.3);
+/**
+ * À appeler lors d'un appui sur l'écran : les navigateurs n'autorisent le son
+ * qu'après une action de l'utilisateur, et chaque son doit être autorisé.
+ * Le « ding-dong » est joué pour confirmer, le son d'appel l'est en silence.
+ */
+export async function unlockSounds(): Promise<BarSounds> {
+  const sounds = loadSounds();
+  const { commande, appel } = sounds;
+  // Les deux lectures doivent démarrer pendant l'appui (avant toute attente).
+  commande.currentTime = 0;
+  const confirm = commande.play();
+  appel.muted = true;
+  const silent = appel.play().then(() => {
+    appel.pause();
+    appel.currentTime = 0;
+    appel.muted = false;
   });
+  await Promise.all([confirm, silent]);
+  return sounds;
+}
+
+/** Joue un son. Renvoie false si l'appareil l'a bloqué (il faut alors un nouvel appui). */
+export async function playSound(sounds: BarSounds, name: SoundName): Promise<boolean> {
+  const sound = sounds[name];
+  sound.muted = false;
+  sound.currentTime = 0;
+  try {
+    await sound.play();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Empêche la tablette de se mettre en veille tant que l'écran du bar est affiché. */

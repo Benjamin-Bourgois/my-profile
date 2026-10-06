@@ -9,7 +9,7 @@ import { signOut } from "@/app/connexion/actions";
 import { HistoryRow, OrderCard, type OrderActions } from "@/components/bar/OrderCard";
 import { TableCalls } from "@/components/bar/TableCalls";
 import { PauseOrdersButton } from "@/components/PauseOrdersButton";
-import { keepScreenOn, playCallChime, playChime, unlockAudio } from "@/lib/bar-alerts";
+import { keepScreenOn, loadSounds, playSound, unlockSounds, type BarSounds, type SoundName } from "@/lib/bar-alerts";
 import { formatTime } from "@/lib/format";
 import type { BarOrder, BarOrders, OrderStatus, TableCall } from "@/lib/order-types";
 import type { StaffVenue } from "@/lib/staff";
@@ -17,6 +17,12 @@ import { getBrowserClient } from "@/lib/supabase/browser";
 
 /** Filet de sécurité : relecture complète même si le temps réel est coupé. */
 const POLL_INTERVAL = 20_000;
+
+/** Rappel sonore tant qu'une commande reste « Nouvelle » ou qu'un appel attend. */
+const REMINDER_INTERVAL = 60_000;
+
+/** Durée du son « nouvelle commande », avant de jouer celui d'un appel. */
+const ORDER_SOUND_MS = 2200;
 
 /** Applique tout de suite un changement à l'écran, avant la confirmation de la base. */
 function applyLocally(data: BarOrders, orderId: string, change: Partial<BarOrder>): BarOrders {
@@ -37,15 +43,22 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
   const [data, setData] = useState<BarOrders | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState(false);
-  const [soundOn, setSoundOn] = useState(false);
+  /** « lost » : l'appareil a coupé le son (mise en veille…), il faut toucher l'écran. */
+  const [sound, setSound] = useState<"off" | "on" | "lost">("off");
   const [view, setView] = useState<"active" | "history">("active");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [now, setNow] = useState(0);
   const clockOffset = useRef(0);
   const seenIds = useRef<Set<string> | null>(null);
   const seenCallIds = useRef<Set<string> | null>(null);
-  const audio = useRef<AudioContext | null>(null);
+  const sounds = useRef<BarSounds | null>(null);
+  const dataRef = useRef<BarOrders | null>(null);
   const refreshTimeout = useRef<number | undefined>(undefined);
+
+  const ring = useCallback(async (name: SoundName) => {
+    if (!sounds.current) return;
+    if (!(await playSound(sounds.current, name))) setSound("lost");
+  }, []);
 
   const refresh = useCallback(async () => {
     const { data: result, error: rpcError } = await supabase.rpc("get_bar_orders", { p_venue_id: venue.id });
@@ -67,19 +80,18 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
     const orders: BarOrders = { ...raw, orders_paused: raw.orders_paused ?? false, calls: raw.calls ?? [] };
     clockOffset.current = Date.parse(orders.server_time) - Date.now();
     // Signal sonore pour chaque commande ou appel jamais vu (pas au premier chargement).
-    if (seenIds.current && seenCallIds.current && audio.current) {
-      const context = audio.current;
+    if (seenIds.current && seenCallIds.current) {
       const orderArrived = orders.active.some((order) => !seenIds.current?.has(order.id));
       const callArrived = orders.calls.some((call) => !seenCallIds.current?.has(call.id));
-      if (orderArrived) playChime(context);
-      if (callArrived) window.setTimeout(() => playCallChime(context), orderArrived ? 1500 : 0);
+      if (orderArrived) ring("commande");
+      if (callArrived) window.setTimeout(() => ring("appel"), orderArrived ? ORDER_SOUND_MS : 0);
     }
     seenIds.current = new Set([...orders.active, ...orders.history].map((order) => order.id));
     seenCallIds.current = new Set(orders.calls.map((call) => call.id));
     setData(orders);
     setError(null);
     setNow(Date.now() + clockOffset.current);
-  }, [router, supabase, venue.id]);
+  }, [ring, router, supabase, venue.id]);
 
   /** Plusieurs changements rapprochés → une seule relecture. */
   const scheduleRefresh = useCallback(() => {
@@ -95,7 +107,7 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       scheduleRefresh();
-      if (audio.current) keepScreenOn();
+      if (sounds.current) keepScreenOn();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -137,20 +149,40 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
     };
   }, [supabase, venue.id, scheduleRefresh]);
 
+  useEffect(() => {
+    loadSounds();
+  }, []);
+
+  // Rappel sonore : commande toujours « Nouvelle » ou appel non traité depuis 1 minute.
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const current = dataRef.current;
+      if (!current) return;
+      const at = Date.now() + clockOffset.current;
+      const forgotten = (iso: string | null) => iso !== null && at - Date.parse(iso) >= REMINDER_INTERVAL;
+      if (current.active.some((order) => order.status === "received" && forgotten(order.received_at))) ring("commande");
+      else if (current.calls.some((call) => forgotten(call.created_at))) ring("appel");
+    }, REMINDER_INTERVAL);
+    return () => window.clearInterval(timer);
+  }, [ring]);
+
   // Nombre de nouvelles commandes et d'appels dans l'onglet du navigateur.
   const newCount = (data?.active.filter((order) => order.status === "received").length ?? 0) + (data?.calls.length ?? 0);
   useEffect(() => {
     document.title = newCount > 0 ? `(${newCount}) Bar · ${venue.name}` : `Bar · ${venue.name}`;
   }, [newCount, venue.name]);
 
+  /** Appui sur « Activer le son » : débloque les sons et joue le « ding-dong » pour tester. */
   async function enableSound() {
     try {
-      audio.current = await unlockAudio(audio.current);
-      playChime(audio.current);
-      setSoundOn(true);
+      sounds.current = await unlockSounds();
+      setSound("on");
       keepScreenOn();
     } catch {
-      setError("Le son ne peut pas être activé sur cet appareil.");
+      setError("Le son n'a pas pu démarrer. Touchez à nouveau « Activer le son ».");
     }
   }
 
@@ -210,9 +242,10 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
             <button
               type="button"
               onClick={enableSound}
+              title="Toucher pour tester le son"
               className="h-11 rounded-xl bg-stone-700 px-4 font-semibold active:bg-stone-600"
             >
-              {soundOn ? "🔔 Son activé" : "🔇 Activer le son"}
+              {sound === "on" ? "🔔 Son activé" : "🔇 Activer le son"}
             </button>
             {venue.role === "owner" && (
               <Link href="/admin" className="flex h-11 items-center rounded-xl px-3 font-semibold text-stone-300 underline">
@@ -242,13 +275,15 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
         </p>
       )}
 
-      {!soundOn && (
+      {sound !== "on" && (
         <button
           type="button"
           onClick={enableSound}
           className="block w-full bg-amber-400 px-4 py-4 text-lg font-bold text-stone-900 active:bg-amber-500"
         >
-          🔔 Touchez ici pour activer le son des nouvelles commandes et des appels
+          {sound === "lost"
+            ? "🔇 L'appareil a coupé le son : touchez ici pour le réactiver"
+            : "🔔 Touchez ici pour activer le son des nouvelles commandes et des appels"}
         </button>
       )}
 

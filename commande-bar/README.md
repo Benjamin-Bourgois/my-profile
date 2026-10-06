@@ -211,8 +211,15 @@ Le mode test ne demande ni SIRET ni compte bancaire ; aucun argent réel ne circ
 
 ### L'écran du bar (tablette)
 
-- Ouvre `/bar`, connecte-toi, touche **« Activer le son »** (obligatoire à chaque
-  ouverture : les navigateurs bloquent le son sans un premier appui).
+- Ouvre `/bar`, connecte-toi, touche **« Activer le son »** : un « ding-dong » doit
+  retentir (obligatoire à chaque ouverture : les navigateurs bloquent le son sans un
+  premier appui). Sur iPhone / iPad, le son passe même en mode silencieux.
+- Si l'appareil coupe le son (mise en veille, autre application ouverte), le bandeau
+  **« L'appareil a coupé le son »** apparaît : touche-le pour le réactiver.
+- **Rappel sonore** toutes les minutes tant qu'une commande reste « Nouvelle » (touche
+  **En préparation** pour l'arrêter) ou qu'un appel n'est pas marqué **✓ Fait**
+  (réglable : `REMINDER_INTERVAL` dans `src/components/bar/BarScreen.tsx`). Les sons
+  sont dans `public/sons/` (à refaire avec `node scripts/generer-sons.mjs`).
 - Tablette : **verrouillage automatique → Jamais**, volume au maximum ; « Partager →
   Sur l'écran d'accueil » pour l'ouvrir en plein écran comme une application.
 - Les commandes arrivent **sans recharger** (« ● En direct »), avec un signal sonore.
@@ -312,7 +319,7 @@ l'écran revient à l'état réel.
 | « Payer maintenant » n'apparaît pas | `STRIPE_SECRET_KEY` ou `STRIPE_WEBHOOK_SECRET` manquante, ou pas redéployé. |
 | Paiement accepté mais rien au bar (« Paiement en cours… » qui dure) | Webhook : Stripe → Webhooks → ta destination → envois en échec. Vérifie l'URL `…/api/stripe/webhook` et le secret `whsec_…` de **cette** destination. Vercel → Logs : « Webhook Stripe refusé ». |
 | « Le paiement en ligne est momentanément indisponible » | Clé Stripe incorrecte, ou clé restreinte sans « Checkout Sessions : écriture ». |
-| Pas de son à l'écran du bar | Touche « Activer le son » ; iPad : volume, mode silencieux. |
+| Pas de son à l'écran du bar | Touche « Activer le son » : un « ding-dong » doit retentir. Sinon, monte le volume **pendant** le son (volume « média », pas celui de la sonnerie) et vérifie qu'aucune enceinte ou écouteur Bluetooth n'est connecté. L'écran du bar doit rester **affiché au premier plan** : un onglet en arrière-plan ou un téléphone verrouillé ne sonne pas. |
 | « ○ Actualisation auto » au lieu de « ● En direct » | Les commandes arrivent quand même (20 s max). Recharge la page ; vérifie la connexion internet de la tablette. |
 
 Le détail des erreurs serveur est dans Vercel → ton projet → **Logs**.
