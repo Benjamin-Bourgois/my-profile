@@ -8,7 +8,7 @@ import { useCart } from "@/lib/cart";
 import { formatPrice } from "@/lib/format";
 import { FINAL_STATUSES, type CustomerOrder, type OrderStatus } from "@/lib/order-types";
 
-const POLL_INTERVAL = 4000;
+const POLL_INTERVAL = 3000;
 /** Au-delà, on prévient le client que la confirmation du paiement tarde. */
 const SLOW_PAYMENT_CONFIRMATION = 45_000;
 

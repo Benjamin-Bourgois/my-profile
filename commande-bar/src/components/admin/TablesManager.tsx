@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useOptimistic, useState } from "react";
 
-import { IconButton, SmallButton } from "@/components/admin/MenuManager";
+import { IconButton, SavingIndicator, SmallButton } from "@/components/admin/MenuManager";
 import { inputClass } from "@/components/admin/ProductForm";
+import { tablesReducer, type TablesAction } from "@/lib/admin-reducers";
 import type { TableWithLink } from "@/lib/admin-types";
-import { useAdminRpc } from "@/lib/use-admin-rpc";
+import { useAdminAction } from "@/lib/use-admin-action";
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -25,24 +26,46 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 /** Tables du bar et leurs cartes NFC / QR codes. */
-export function TablesManager({ venueId, tables }: { venueId: string; tables: TableWithLink[] }) {
-  const { call, busy, error } = useAdminRpc();
+export function TablesManager({ venueId, tables: serverTables }: { venueId: string; tables: TableWithLink[] }) {
+  const { run, pending, error } = useAdminAction();
+  // Tables affichées = tables du serveur + changements en cours d'enregistrement
+  const [tables, applyOptimistic] = useOptimistic(serverTables, tablesReducer);
   const [newLabel, setNewLabel] = useState("");
+  const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+
+  /** Modification avec mise à jour immédiate de l'écran. */
+  const act = (fn: string, args: Record<string, unknown>, action: TablesAction) => run(fn, args, () => applyOptimistic(action));
 
   async function addTable(event: React.FormEvent) {
     event.preventDefault();
-    const result = await call("admin_save_table", { p_venue_id: venueId, p_table_id: null, p_label: newLabel });
+    setAdding(true);
+    const result = await run("admin_save_table", { p_venue_id: venueId, p_table_id: null, p_label: newLabel });
+    setAdding(false);
     if (result.ok) setNewLabel("");
   }
 
-  async function rename(event: React.FormEvent) {
+  function rename(event: React.FormEvent) {
     event.preventDefault();
     if (!renaming) return;
-    const result = await call("admin_save_table", { p_venue_id: venueId, p_table_id: renaming.id, p_label: renaming.label });
-    if (result.ok) setRenaming(null);
+    act("admin_save_table", { p_venue_id: venueId, p_table_id: renaming.id, p_label: renaming.label }, {
+      type: "rename",
+      tableId: renaming.id,
+      label: renaming.label,
+    });
+    setRenaming(null);
   }
+
+  async function regenerate(table: TableWithLink) {
+    setRegeneratingId(table.id);
+    await run("regenerate_table_token", { p_table_id: table.id });
+    setRegeneratingId(null);
+  }
+
+  const move = (id: string, direction: -1 | 1) =>
+    act("admin_move", { p_kind: "table", p_id: id, p_direction: direction }, { type: "move", tableId: id, direction });
 
   async function copy(table: TableWithLink) {
     if (await copyText(table.url)) {
@@ -58,6 +81,7 @@ export function TablesManager({ venueId, tables }: { venueId: string; tables: Ta
           <h2 className="text-2xl font-bold">Tables & cartes NFC</h2>
           <p className="text-stone-600">Une table = un lien secret = une carte NFC (et son QR code de secours).</p>
         </div>
+        <SavingIndicator pending={pending} />
         <Link href="/admin/tables/imprimer" className="flex h-11 items-center rounded-xl bg-white px-4 font-semibold ring-1 ring-stone-300">
           🖨️ Imprimer les QR codes
         </Link>
@@ -104,9 +128,7 @@ export function TablesManager({ venueId, tables }: { venueId: string; tables: Ta
                     aria-label="Nouveau nom de la table"
                     className="h-10 min-w-0 flex-1 rounded-xl border border-stone-300 px-3"
                   />
-                  <SmallButton type="submit" disabled={busy}>
-                    OK
-                  </SmallButton>
+                  <SmallButton type="submit">OK</SmallButton>
                   <SmallButton onClick={() => setRenaming(null)}>✕</SmallButton>
                 </form>
               ) : (
@@ -126,39 +148,46 @@ export function TablesManager({ venueId, tables }: { venueId: string; tables: Ta
                 </a>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                <IconButton label={`Monter ${table.label}`} disabled={busy || index === 0} onClick={() => call("admin_move", { p_kind: "table", p_id: table.id, p_direction: -1 })}>
+                <IconButton label={`Monter ${table.label}`} disabled={index === 0} onClick={() => move(table.id, -1)}>
                   ↑
                 </IconButton>
                 <IconButton
                   label={`Descendre ${table.label}`}
-                  disabled={busy || index === tables.length - 1}
-                  onClick={() => call("admin_move", { p_kind: "table", p_id: table.id, p_direction: 1 })}
+                  disabled={index === tables.length - 1}
+                  onClick={() => move(table.id, 1)}
                 >
                   ↓
                 </IconButton>
                 <SmallButton onClick={() => setRenaming({ id: table.id, label: table.label })}>Renommer</SmallButton>
-                <SmallButton disabled={busy} onClick={() => call("admin_set_table_active", { p_table_id: table.id, p_active: !table.is_active })}>
+                <SmallButton
+                  onClick={() =>
+                    act(
+                      "admin_set_table_active",
+                      { p_table_id: table.id, p_active: !table.is_active },
+                      { type: "active", tableId: table.id, value: !table.is_active },
+                    )
+                  }
+                >
                   {table.is_active ? "Désactiver" : "Réactiver"}
                 </SmallButton>
                 <SmallButton
-                  disabled={busy}
+                  disabled={regeneratingId === table.id}
                   onClick={() => {
                     if (
                       window.confirm(
                         `Créer un nouveau lien pour « ${table.label} » ?\n\nL'ancienne carte NFC et l'ancien QR code ne fonctionneront plus : il faudra reprogrammer la carte et réimprimer le QR code.`,
                       )
                     ) {
-                      call("regenerate_table_token", { p_table_id: table.id });
+                      regenerate(table);
                     }
                   }}
                 >
-                  Nouveau lien
+                  {regeneratingId === table.id ? "Nouveau lien…" : "Nouveau lien"}
                 </SmallButton>
                 <SmallButton
-                  disabled={busy}
                   onClick={() => {
                     if (window.confirm(`Supprimer « ${table.label} » ? Sa carte NFC ne fonctionnera plus. L'historique des commandes est conservé.`)) {
-                      call("admin_delete_table", { p_table_id: table.id });
+                      act("admin_delete_table", { p_table_id: table.id }, { type: "delete", tableId: table.id });
                     }
                   }}
                 >
@@ -175,8 +204,8 @@ export function TablesManager({ venueId, tables }: { venueId: string; tables: Ta
           <span className="text-sm font-semibold text-stone-700">Nouvelle table</span>
           <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} maxLength={40} placeholder="Ex. : Table 11, Terrasse 2, Comptoir" className={inputClass} />
         </label>
-        <button type="submit" disabled={busy || !newLabel.trim()} className="h-12 rounded-xl bg-stone-900 px-5 font-bold text-white disabled:opacity-50">
-          Ajouter la table
+        <button type="submit" disabled={adding || !newLabel.trim()} className="h-12 rounded-xl bg-stone-900 px-5 font-bold text-white disabled:opacity-50">
+          {adding ? "Ajout…" : "Ajouter la table"}
         </button>
       </form>
     </div>

@@ -126,6 +126,11 @@ Vercel publie la branche principale (`main`) du dépôt GitHub : le code doit do
 4. **Deploy** → 1 à 2 minutes → l'adresse du site s'affiche dans **Domains**
    (par exemple `commande-bar.vercel.app`).
 
+Le fichier `vercel.json` place le site à **Paris** (`cdg1`), à côté de la base Supabase
+(région *West EU (Paris)*) : chaque clic évite un aller-retour transatlantique. Si ton
+projet Supabase est dans une autre région, choisis la région Vercel la plus proche dans ce
+fichier (ex. `fra1` pour Francfort, `dub1` pour Dublin).
+
 Ensuite, chaque modification fusionnée dans `main` sur GitHub est mise en ligne
 automatiquement. Si tu changes une variable d'environnement : **Deployments** → menu
 `⋯` du dernier déploiement → **Redeploy**.

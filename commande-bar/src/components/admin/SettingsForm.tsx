@@ -6,10 +6,11 @@ import { ImageField } from "@/components/admin/ImageField";
 import { Field, inputClass } from "@/components/admin/ProductForm";
 import { Toggle } from "@/components/admin/Toggle";
 import type { AdminSettings } from "@/lib/admin-types";
-import { useAdminRpc } from "@/lib/use-admin-rpc";
+import { useAdminAction } from "@/lib/use-admin-action";
 
 export function SettingsForm({ settings, stripeConfigured }: { settings: AdminSettings; stripeConfigured: boolean }) {
-  const { call, busy, error } = useAdminRpc();
+  const { run, error } = useAdminAction();
+  const [saving, setSaving] = useState(false);
   const [name, setName] = useState(settings.name);
   const [logoUrl, setLogoUrl] = useState<string | null>(settings.logo_url);
   const [payToStaff, setPayToStaff] = useState(settings.pay_to_staff_enabled);
@@ -21,10 +22,12 @@ export function SettingsForm({ settings, stripeConfigured }: { settings: AdminSe
   async function save(event: React.FormEvent) {
     event.preventDefault();
     setSaved(false);
-    const result = await call("admin_update_settings", {
+    setSaving(true);
+    const result = await run("admin_update_settings", {
       p_venue_id: settings.id,
       p_settings: { name, logo_url: logoUrl, pay_to_staff_enabled: payToStaff, online_payment_enabled: online },
     });
+    setSaving(false);
     if (result.ok) setSaved(true);
   }
 
@@ -82,8 +85,8 @@ export function SettingsForm({ settings, stripeConfigured }: { settings: AdminSe
 
       {error && <p role="alert" className="rounded-xl bg-red-100 px-4 py-3 text-red-900">{error}</p>}
       <div className="flex items-center gap-4">
-        <button type="submit" disabled={busy} className="h-12 rounded-xl bg-stone-900 px-6 font-bold text-white disabled:opacity-50">
-          {busy ? "Enregistrement…" : "Enregistrer"}
+        <button type="submit" disabled={saving} className="h-12 rounded-xl bg-stone-900 px-6 font-bold text-white disabled:opacity-50">
+          {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
         {saved && <span className="font-semibold text-green-700">✓ Enregistré</span>}
       </div>
