@@ -29,7 +29,7 @@ export function MenuOrder({
 }: {
   menu: Menu;
   token: string;
-  payment: { staff: boolean; online: boolean; staffOptions: StaffPaymentOptions | null };
+  payment: { staff: boolean; online: boolean; demo: boolean; staffOptions: StaffPaymentOptions | null };
   suggestions: Suggestions | null;
   /** Ouvrir le panier dès l'arrivée (« Une autre tournée ? » depuis le suivi). */
   openCart?: boolean;
@@ -153,8 +153,8 @@ export function MenuOrder({
 
     setRecentOrders((current) => [{ id: body.id, number: body.order_number, at: Date.now() }, ...current].slice(0, 5));
     if (typeof body.checkout_url === "string") {
-      // Paiement en ligne : page sécurisée de Stripe. Le panier est gardé
-      // jusqu'au paiement (le client peut annuler et revenir).
+      // Paiement en ligne : page sécurisée de Stripe (ou page de démonstration).
+      // Le panier est gardé jusqu'au paiement (le client peut annuler et revenir).
       window.location.assign(body.checkout_url);
       return null;
     }

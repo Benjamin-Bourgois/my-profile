@@ -29,6 +29,7 @@ arrive aussitôt sur l'écran du bar avec le numéro de table, et le serveur la 
 |---|---|---|
 | `/t/<lien-secret>` | Le client (adresse écrite dans la puce NFC / le QR code) | Nom du bar, « Table X », carte par catégories, produits épuisés grisés, panier avec suggestions « Souvent pris avec », commentaire, paiement en ligne ou au serveur (espèces, carte ou les deux), pourboire, boutons « Appeler un serveur » / « L'addition », mention sur l'alcool |
 | `/t/<lien-secret>/commande/<n°>` | Le client | Numéro de commande, statut mis à jour toutes les 3 s (Reçue → En préparation → Servie), « Une autre tournée ? » un quart d'heure après le service, « Commander à nouveau », appel du serveur |
+| `/t/<lien-secret>/paiement-demo/<n°>` | Le client d'un bar marqué « Démo » | Page de paiement simulée (aucun argent débité), tant que Stripe n'est pas connecté |
 | `/bar` | Le personnel (tablette) | Commandes et appels des tables en temps réel avec signal sonore, numéro de table en très grand, boutons En préparation / Servie / Encaissé, pause des commandes |
 | `/bar/commande` | Les serveurs (téléphone ou tablette) | Prise de commande pour un client : table ou comptoir, articles, commentaire, « À encaisser » ou « Déjà encaissé », espèces ou carte |
 | `/stocks` | Le personnel et le gérant | Stock de chaque article, alertes, livraisons, pertes, inventaires, historique, **bon de livraison lu par l'IA à partir d'une photo** ; le gérant crée les articles |
@@ -105,6 +106,9 @@ une tablette (le « bar »). Durée : 5 minutes.
 2. **Commander** — Ajoute 2 Mojitos et une Pinte, écris « sans glace », ouvre le panier.
 3. **Payer** — Choisis **« Payer maintenant »**, un pourboire de **10 %** → page Stripe → carte `4242 4242 4242 4242`
    (ou Apple Pay / Google Pay). La page de suivi s'affiche : *Commande reçue · Payé en ligne*.
+   Sans Stripe, dans un bar marqué **« Démo »** (espace agence) : une page de paiement
+   **simulée** s'affiche (aucun argent débité) → **Payer** ; la suite est identique, avec
+   « Payé en ligne · démo ».
    (Variante : **« Payer au serveur »** puis **Espèces**, **Carte** ou **Les deux** : la
    commande arrive « À encaisser · Carte », le serveur sait quoi apporter.)
 4. **Voir la commande au bar** — La tablette sonne : **numéro de table en très grand**,
@@ -186,8 +190,10 @@ Tout se fait dans le navigateur, rien à installer sur l'ordinateur.
    [`supabase/10-suggestions.sql`](supabase/10-suggestions.sql)
    (suggestions aux clients, ventes générées par l'application) et
    [`supabase/11-reglement-au-serveur.sql`](supabase/11-reglement-au-serveur.sql)
-   (règlement au serveur : espèces, carte ou les deux).
-   Les scripts 3 à 11 peuvent être relancés sans risque (dans l'ordre : après avoir
+   (règlement au serveur : espèces, carte ou les deux) et
+   [`supabase/12-paiement-demo.sql`](supabase/12-paiement-demo.sql)
+   (paiement en ligne simulé pour les bars de démonstration).
+   Les scripts 3 à 12 peuvent être relancés sans risque (dans l'ordre : après avoir
    relancé un script, relance aussi les suivants).
 7. **Authentication → Sign In / Providers** : désactive **Allow new users to sign up**
    (seuls les comptes que tu crées peuvent se connecter).
@@ -249,6 +255,13 @@ Le mode test ne demande ni SIRET ni compte bancaire ; aucun argent réel ne circ
    - copie le **secret de signature** `whsec_…`.
 4. Ajoute `STRIPE_SECRET_KEY` et `STRIPE_WEBHOOK_SECRET` dans Vercel (type **Secret**),
    puis redéploie. Le choix **« Payer maintenant »** apparaît dans le panier.
+
+**En attendant Stripe** : marque ton bar de démonstration **« Démo »** (espace agence →
+le bar → **Démonstration** → **Activer la démonstration**). Ses clients voient quand
+même **« Payer maintenant »** : une page de paiement simulée s'ouvre (« aucun argent
+n'est débité »), puis la commande arrive au bar **« Payé en ligne · démo »**. Le bar
+« Le Comptoir de Démo » est marqué « Démo » d'office. Dès que les clés Stripe sont dans
+Vercel, tous les paiements en ligne passent par Stripe, y compris dans les bars « Démo ».
 
 ### 4.5 Claude (lecture des bons de livraison, facultatif)
 
@@ -398,6 +411,11 @@ suivante. Rien ne change dans le stock tant que personne n'a appuyé sur **Ajout
     écran du bar, prise de commande, stocks) et sa dernière connexion. Changer le rôle,
     **Nouveau mot de passe** (affiché une fois), **Retirer l'accès**. **Donner un
     accès** : nouvel email (compte créé) ou email existant (il garde son mot de passe).
+  - **Démonstration** : **Activer la démonstration** pour un bar qui sert à montrer
+    l'application (badge doré « Démo ») : sans Stripe, ses clients peuvent « Payer
+    maintenant » sur une page simulée, sans être débités. ⚠️ Jamais pour un vrai bar :
+    un client pourrait se faire servir sans payer. Désactiver annule les paiements
+    simulés en cours.
   - **Abonnement** : **Suspendre le bar** (avec une raison, visible par toi seul) quand
     un client arrête son abonnement ou ne paie plus ; **Réactiver le bar** pour tout
     rétablir.
@@ -489,6 +507,10 @@ l'écran revient à l'état réel.
   50 articles par commande ; 10 appels du serveur maximum par table toutes les
   10 minutes, un seul appel du même type en attente. Pourboire vérifié par la base
   (paiement en ligne uniquement, au plus le montant de la commande et 100 €).
+- **Paiement simulé** (bars « Démo ») : seul un compte agence peut marquer un bar
+  « Démo » ; ailleurs, aucune commande ne peut être payée ainsi (vérifié par la base).
+  Il ne sert que tant que Stripe n'est pas connecté, et les commandes concernées restent
+  marquées « démo » (écran du bar, suivi, export).
 - **Règlement au serveur** vérifié par la base : le client ne peut choisir qu'un moyen
   accepté par le bar, une seule fois, juste après sa commande ; seul le personnel du
   bar peut le corriger ensuite.
@@ -571,7 +593,8 @@ l'écran revient à l'état réel.
 | Un produit est « Épuisé » alors qu'il en reste | Son stock (ou celui d'un de ses ingrédients) est à 0 dans **Stocks** : fais un **Inventaire** ou une **Livraison**. |
 | Après une mise à jour, plus aucune commande ne passe (« Petit souci technique ») ou l'écran du bar reste vide | Le dernier script SQL n'a pas été exécuté : lance le dernier script du dossier `supabase/` dans Supabase. Vercel → Logs : « Could not find the function ». |
 | « Envoi impossible » en ajoutant une photo | Stockage des images absent : relance la fin de `1-structure.sql` ou crée un bucket public `images` dans Supabase → Storage. |
-| « Payer maintenant » n'apparaît pas | `STRIPE_SECRET_KEY` ou `STRIPE_WEBHOOK_SECRET` manquante, ou pas redéployé. |
+| « Payer maintenant » n'apparaît pas | `STRIPE_SECRET_KEY` ou `STRIPE_WEBHOOK_SECRET` manquante, ou pas redéployé. En attendant Stripe : marque le bar « Démo » dans l'espace agence (script `supabase/12-paiement-demo.sql` exécuté), et vérifie **Réglages → Paiement en ligne**. |
+| **Espace agence**, carte « Démonstration » : « Exécutez … 12-paiement-demo.sql » | Exécute `supabase/12-paiement-demo.sql` dans Supabase. |
 | Paiement accepté mais rien au bar (« Paiement en cours… » qui dure) | Webhook : Stripe → Webhooks → ta destination → envois en échec. Vérifie l'URL `…/api/stripe/webhook` et le secret `whsec_…` de **cette** destination. Vercel → Logs : « Webhook Stripe refusé ». |
 | « Le paiement en ligne est momentanément indisponible » | Clé Stripe incorrecte, ou clé restreinte sans « Checkout Sessions : écriture ». |
 | Pas de son à l'écran du bar | Touche « Activer le son » : un « ding-dong » doit retentir. Sinon, monte le volume **pendant** le son (volume « média », pas celui de la sonnerie) et vérifie qu'aucune enceinte ou écouteur Bluetooth n'est connecté. L'écran du bar doit rester **affiché au premier plan** : un onglet en arrière-plan ou un téléphone verrouillé ne sonne pas. |
@@ -609,7 +632,7 @@ Organisation du code :
 | `src/app/agence/`, `src/components/agency/` | Espace agence (bars, accès, suspension, IA) |
 | `src/app/api/` | Commandes, webhook Stripe, QR codes, lecture des bons (`stocks/scan`) |
 | `src/lib/` | Accès Supabase, Stripe et Claude (`delivery-scan-ai.ts`), suggestions (`suggestions.ts`), types, formatage, configuration |
-| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison et espace agence (8), gestion des bars et suspension (9), suggestions et ventes générées (10), règlement au serveur en espèces ou carte (11) |
+| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison et espace agence (8), gestion des bars et suspension (9), suggestions et ventes générées (10), règlement au serveur en espèces ou carte (11), paiement en ligne de démonstration (12) |
 
 **Charte graphique Tapigo « Chic & Élégant »** : fond sable, cartes blanches, titres en
 *Cormorant Garamond*, texte en *Manrope*, boutons noir mat en pilule, doré en touche.

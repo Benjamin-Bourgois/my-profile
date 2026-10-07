@@ -66,6 +66,13 @@ export async function getStaffPaymentOptions(token: string): Promise<StaffPaymen
   return error ? null : ((data as StaffPaymentOptions | null) ?? null);
 }
 
+/** Bar marqué « Démo » par l'agence : paiement en ligne simulé tant que Stripe n'est pas connecté. */
+export async function getDemoPayment(token: string): Promise<boolean> {
+  if (!TOKEN_PATTERN.test(token)) return false;
+  const { data, error } = await getAdminClient().rpc("get_demo_payment", { p_token: token });
+  return !error && data === true;
+}
+
 /** Suggestions pour cette table (null : base sans le script 10, ou lien inconnu). */
 export async function getSuggestions(token: string): Promise<Suggestions | null> {
   if (!TOKEN_PATTERN.test(token)) return null;

@@ -14,9 +14,12 @@ export function SettingsForm({
   settings,
   stripeConfigured,
   paymentOptions,
+  demoPayment,
 }: {
   settings: AdminSettings;
   stripeConfigured: boolean;
+  /** Bar marqué « Démo » par l'agence : paiement en ligne simulé sans Stripe */
+  demoPayment: boolean;
   /** Espèces / carte acceptées au serveur (null : base sans le script 11) */
   paymentOptions: StaffPaymentOptions | null;
 }) {
@@ -30,7 +33,7 @@ export function SettingsForm({
   const [card, setCard] = useState(paymentOptions?.card ?? true);
   const [saved, setSaved] = useState(false);
 
-  const customersCanOrder = payToStaff || (online && stripeConfigured);
+  const customersCanOrder = payToStaff || (online && (stripeConfigured || demoPayment));
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -118,7 +121,9 @@ export function SettingsForm({
           text={
             stripeConfigured
               ? "Le client paie sur la page sécurisée Stripe ; la commande arrive au bar « Payé en ligne »."
-              : "Stripe n'est pas encore configuré (voir le README) : cette option n'est pas proposée aux clients pour l'instant."
+              : demoPayment
+                ? "Démonstration (bar marqué « Démo » par l'agence) : le client passe par une page de paiement simulée, aucun argent n'est débité ; la commande arrive au bar « Payé en ligne · démo »."
+                : "Stripe n'est pas encore configuré (voir le README) : cette option n'est pas proposée aux clients pour l'instant."
           }
           checked={online}
           onChange={setOnline}

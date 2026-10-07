@@ -3,11 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AddMemberForm, MemberRow } from "@/components/agency/Accounts";
+import { DemoCard } from "@/components/agency/DemoCard";
 import { OpenVenueButtons } from "@/components/agency/OpenVenueButtons";
 import { SuspendCard } from "@/components/agency/SuspendCard";
 import { ErreurTechnique } from "@/components/ErreurTechnique";
 import { Icon } from "@/components/Icon";
 import { agencyErrorMessage, type AgencyVenueDetail } from "@/lib/agency";
+import { isStripeConfigured } from "@/lib/env";
 import { formatPrice } from "@/lib/format";
 import { UUID_PATTERN } from "@/lib/order-types";
 import { newPassword } from "@/lib/password";
@@ -24,9 +26,10 @@ export default async function AgencyBarPage(props: PageProps<"/agence/bars/[id]"
   const { id } = await props.params;
   if (!UUID_PATTERN.test(id)) notFound();
   const supabase = await getServerClient();
-  const [{ data, error }, { data: appSalesData }] = await Promise.all([
+  const [{ data, error }, { data: appSalesData }, { data: demoVenues }] = await Promise.all([
     supabase.rpc("agency_get_venue", { p_venue_id: id }),
     supabase.rpc("agency_get_app_sales"), // absent si le script 10 n'a pas été exécuté
+    supabase.rpc("agency_get_demo_venues"), // absent si le script 12 n'a pas été exécuté
   ]);
   if (error?.message === "INTROUVABLE") notFound();
   if (error) return <ErreurTechnique hint={agencyErrorMessage(error)} />;
@@ -46,6 +49,7 @@ export default async function AgencyBarPage(props: PageProps<"/agence/bars/[id]"
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h2 className="break-words text-[30px]">{venue.name}</h2>
           {venue.suspended_at ? <span className="badge badge--danger">Suspendu</span> : <span className="badge badge--ok">Actif</span>}
+          {((demoVenues ?? []) as string[]).includes(venue.id) && <span className="badge badge--gold">Démo</span>}
         </div>
         <p className="text-[14px] text-muted">
           Client depuis le {dateFormat.format(new Date(venue.created_at))} · {formatInteger(venue.tables)} table
@@ -110,6 +114,14 @@ export default async function AgencyBarPage(props: PageProps<"/agence/bars/[id]"
           <AddMemberForm venueId={venue.id} loginUrl={loginUrl} initialPassword={newPassword()} />
         </div>
       </section>
+
+      <DemoCard
+        venueId={venue.id}
+        venueName={venue.name}
+        enabled={((demoVenues ?? []) as string[]).includes(venue.id)}
+        available={demoVenues != null}
+        stripeConfigured={isStripeConfigured()}
+      />
 
       <SuspendCard venueId={venue.id} venueName={venue.name} suspendedAt={venue.suspended_at} note={venue.suspended_note} />
     </div>

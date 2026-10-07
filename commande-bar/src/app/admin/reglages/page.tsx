@@ -21,9 +21,10 @@ export default async function AdminSettingsPage() {
   }
   // Absent si le script 10 n'a pas été exécuté
   const supabase = await getServerClient();
-  const [{ data: suggestions }, { data: paymentOptions }] = await Promise.all([
+  const [{ data: suggestions }, { data: paymentOptions }, { data: demoPayment }] = await Promise.all([
     supabase.rpc("admin_get_suggestions", { p_venue_id: venue.id }),
     supabase.rpc("admin_get_payment_options", { p_venue_id: venue.id }), // absent avant le script 11
+    supabase.rpc("admin_get_demo_payment", { p_venue_id: venue.id }), // absent avant le script 12
   ]);
   return (
     <div className="space-y-5">
@@ -31,6 +32,7 @@ export default async function AdminSettingsPage() {
         settings={data.venue}
         stripeConfigured={isStripeConfigured()}
         paymentOptions={(paymentOptions as StaffPaymentOptions | null) ?? null}
+        demoPayment={demoPayment === true}
       />
       {suggestions && <SuggestionsSetting venueId={venue.id} enabled={(suggestions as { enabled: boolean }).enabled} />}
     </div>

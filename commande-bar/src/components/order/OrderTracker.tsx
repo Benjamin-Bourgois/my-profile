@@ -271,7 +271,8 @@ export function OrderTracker({
 
 function paymentState(order: CustomerOrder, paymentCancelled: boolean): { label: string; className: string; paid: boolean } {
   if (order.payment_status === "paid") {
-    return { label: order.payment_method === "online" ? "Payé en ligne" : "Réglé", className: "badge--ok", paid: true };
+    const label = order.payment_method === "online" ? (order.demo_payment ? "Payé en ligne · démo" : "Payé en ligne") : "Réglé";
+    return { label, className: "badge--ok", paid: true };
   }
   if (paymentCancelled || order.status === "cancelled") return { label: "Non payé", className: "", paid: false };
   if (order.payment_method === "online") return { label: "Paiement en attente", className: "badge--warn", paid: false };

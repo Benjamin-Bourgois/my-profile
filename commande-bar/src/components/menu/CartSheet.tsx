@@ -54,7 +54,8 @@ export function CartSheet({
   tableLabel: string;
   lines: CartLine[];
   total: number;
-  payment: { staff: boolean; online: boolean; staffOptions: StaffPaymentOptions | null };
+  /** demo : paiement en ligne simulé (bar de démonstration, Stripe pas connecté) */
+  payment: { staff: boolean; online: boolean; demo: boolean; staffOptions: StaffPaymentOptions | null };
   /** Le bar a mis les commandes en pause. */
   paused: boolean;
   /** « Souvent pris avec » : produits à proposer avec ce panier. */
@@ -308,9 +309,12 @@ export function CartSheet({
                     ? staffPayment
                       ? STAFF_HINT[staffPayment]
                       : "Vous réglerez auprès du serveur."
-                    : withTip && !!tipCents && !tipError
-                      ? `Dont ${formatPrice(tipCents)} de pourboire. Merci !`
-                      : "Paiement sécurisé par Stripe."}
+                    : [
+                        withTip && !!tipCents && !tipError ? `Dont ${formatPrice(tipCents)} de pourboire. Merci !` : null,
+                        payment.demo ? "Démonstration : aucun argent ne sera débité." : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" ") || "Paiement sécurisé par Stripe."}
                 </p>
               </>
             ) : (
