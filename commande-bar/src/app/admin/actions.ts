@@ -21,6 +21,7 @@ const ADMIN_FUNCTIONS = new Set([
   "set_orders_paused",
   "admin_set_suggestions_enabled",
   "admin_set_product_pairings",
+  "admin_set_payment_options",
 ]);
 
 export type AdminActionResult = { error?: string; data?: unknown };

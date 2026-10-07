@@ -14,7 +14,7 @@ import { useCart, useRecentOrders } from "@/lib/cart";
 import { formatPrice } from "@/lib/format";
 import type { Menu } from "@/lib/menu";
 import { GENERIC_ORDER_ERROR, MENU_CHANGED_CODES } from "@/lib/order-errors";
-import { MAX_QUANTITY_PER_LINE, type PaymentMethod } from "@/lib/order-types";
+import { MAX_QUANTITY_PER_LINE, type PaymentMethod, type StaffPayment, type StaffPaymentOptions } from "@/lib/order-types";
 import { pickSuggestions, useOrigins, type Suggestions } from "@/lib/suggestions";
 
 const PAUSED_REFRESH_INTERVAL = 30_000;
@@ -29,7 +29,7 @@ export function MenuOrder({
 }: {
   menu: Menu;
   token: string;
-  payment: { staff: boolean; online: boolean };
+  payment: { staff: boolean; online: boolean; staffOptions: StaffPaymentOptions | null };
   suggestions: Suggestions | null;
   /** Ouvrir le panier dès l'arrivée (« Une autre tournée ? » depuis le suivi). */
   openCart?: boolean;
@@ -119,10 +119,12 @@ export function MenuOrder({
   async function sendOrder({
     comment,
     paymentMethod,
+    staffPayment,
     tipCents,
   }: {
     comment: string;
     paymentMethod: PaymentMethod;
+    staffPayment: StaffPayment | null;
     tipCents: number;
   }) {
     let response: Response;
@@ -135,6 +137,7 @@ export function MenuOrder({
           items: lines.map(({ product, quantity }) => ({ product_id: product.id, quantity, suggestion: origins[product.id] })),
           comment: comment.trim() || null,
           payment_method: paymentMethod,
+          staff_payment: paymentMethod === "staff" ? staffPayment : null,
           tip_cents: tipCents,
         }),
       });

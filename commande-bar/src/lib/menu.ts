@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import type { StaffPaymentOptions } from "@/lib/order-types";
 import type { ReorderOffer, Suggestions } from "@/lib/suggestions";
 import { getAdminClient } from "@/lib/supabase/admin";
 
@@ -56,6 +57,13 @@ export async function isTableVenueSuspended(token: string): Promise<boolean> {
   const { data, error } = await getAdminClient().rpc("get_table_venue_suspended", { p_token: token });
   // Base sans le script 9 : pas de suspension possible
   return !error && data === true;
+}
+
+/** Moyens acceptés au serveur par ce bar (null : base sans le script 11, ou lien inconnu). */
+export async function getStaffPaymentOptions(token: string): Promise<StaffPaymentOptions | null> {
+  if (!TOKEN_PATTERN.test(token)) return null;
+  const { data, error } = await getAdminClient().rpc("get_staff_payment_options", { p_token: token });
+  return error ? null : ((data as StaffPaymentOptions | null) ?? null);
 }
 
 /** Suggestions pour cette table (null : base sans le script 10, ou lien inconnu). */

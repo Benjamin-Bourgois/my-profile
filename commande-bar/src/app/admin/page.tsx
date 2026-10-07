@@ -8,7 +8,7 @@ import type { DayData } from "@/lib/admin-types";
 import { adminErrorMessage } from "@/lib/admin-errors";
 import type { AppSales } from "@/lib/app-sales";
 import { formatPrice, formatTime } from "@/lib/format";
-import { paymentLabel, type OrderStatus } from "@/lib/order-types";
+import { paymentLabel, STAFF_PAYMENT_LABEL, type OrderStatus, type StaffPayment } from "@/lib/order-types";
 import { getServerClient } from "@/lib/supabase/server";
 
 const STATUS_LABEL: Record<OrderStatus, { label: string; className: string }> = {
@@ -45,6 +45,13 @@ export default async function AdminDayPage(props: PageProps<"/admin">) {
   if (error) return <ErreurTechnique hint={adminErrorMessage(error)} />;
   const day = data as DayData;
   const isToday = day.business_date === day.today;
+  // Règlements au serveur du jour : espèces, carte, les deux (pour la caisse)
+  const staffOrders = day.orders.filter((o) => o.payment_method === "staff" && o.status !== "cancelled");
+  const byKind = (kind: StaffPayment | null) =>
+    staffOrders.filter((o) => (o.staff_payment ?? null) === kind).reduce((sum, o) => sum + o.total_cents, 0);
+  const staffSplit = ([...(Object.keys(STAFF_PAYMENT_LABEL) as StaffPayment[]), null] as const)
+    .map((kind) => ({ label: kind ? STAFF_PAYMENT_LABEL[kind] : "non précisé", cents: byKind(kind) }))
+    .filter((part) => part.cents > 0);
 
   return (
     <div className="space-y-6">
@@ -85,6 +92,12 @@ export default async function AdminDayPage(props: PageProps<"/admin">) {
         />
         <Tile label="Pourboires" value={formatPrice(day.totals.tips_cents)} />
       </section>
+      {staffSplit.length > 0 && day.orders.some((o) => o.staff_payment) && (
+        <p className="rounded-md border border-line bg-card px-4 py-3 text-[14px] text-ink-2">
+          <strong className="text-ink">Au serveur :</strong>{" "}
+          {staffSplit.map((part) => `${part.label} ${formatPrice(part.cents)}`).join(" · ")}
+        </p>
+      )}
       <p className="text-[13px] text-muted">
         Une journée va de 5 h à 5 h du matin. Les commandes annulées ({day.totals.cancelled_count}) ne sont pas comptées.
         Les pourboires ne sont pas inclus dans le chiffre d&apos;affaires.

@@ -3,6 +3,26 @@
 export type OrderStatus = "pending_payment" | "received" | "preparing" | "served" | "cancelled";
 export type PaymentMethod = "online" | "staff";
 export type PaymentStatus = "unpaid" | "paid";
+/** Règlement au serveur : espèces, carte, ou les deux (une partie de chaque). */
+export type StaffPayment = "cash" | "card" | "mixed";
+
+export const STAFF_PAYMENT_LABEL: Record<StaffPayment, string> = {
+  cash: "Espèces",
+  card: "Carte",
+  mixed: "Espèces + carte",
+};
+
+/** Moyens acceptés au serveur par le bar (réglages du gérant). */
+export type StaffPaymentOptions = { cash: boolean; card: boolean };
+
+/** Choix possibles pour le client, selon ce que le bar accepte. */
+export function staffPaymentChoices(options: StaffPaymentOptions): StaffPayment[] {
+  return [
+    ...(options.cash ? (["cash"] as const) : []),
+    ...(options.card ? (["card"] as const) : []),
+    ...(options.cash && options.card ? (["mixed"] as const) : []),
+  ];
+}
 
 export type OrderItem = {
   name: string;
@@ -17,6 +37,8 @@ export type CustomerOrder = {
   status: OrderStatus;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
+  /** Règlement au serveur choisi (absent avant le script 11) */
+  staff_payment?: StaffPayment | null;
   total_cents: number;
   tip_cents: number;
   comment: string | null;
@@ -33,6 +55,8 @@ export type BarOrder = {
   status: OrderStatus;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
+  /** Règlement au serveur (espèces, carte, les deux) */
+  staff_payment?: StaffPayment | null;
   total_cents: number;
   tip_cents: number;
   comment: string | null;
@@ -67,10 +91,11 @@ export type BarOrders = {
   stock_alerts?: number;
 };
 
-/** Libellé du paiement, tel qu'affiché au bar. */
-export function paymentLabel(order: Pick<BarOrder, "payment_method" | "payment_status">): string {
+/** Libellé du paiement, tel qu'affiché au bar : « À encaisser · Carte ». */
+export function paymentLabel(order: Pick<BarOrder, "payment_method" | "payment_status" | "staff_payment">): string {
   if (order.payment_method === "online") return order.payment_status === "paid" ? "Payé en ligne" : "Paiement en cours";
-  return order.payment_status === "paid" ? "Encaissé" : "À encaisser";
+  const how = order.staff_payment ? ` · ${STAFF_PAYMENT_LABEL[order.staff_payment]}` : "";
+  return `${order.payment_status === "paid" ? "Encaissé" : "À encaisser"}${how}`;
 }
 
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

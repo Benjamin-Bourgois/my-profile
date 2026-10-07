@@ -17,6 +17,7 @@ const MESSAGES: Record<string, string> = {
   MOUVEMENT_INVALIDE: "Opération inconnue.",
   NOTE_TROP_LONGUE: "La note est trop longue (200 caractères maximum).",
   SUGGESTION_INVALIDE: "Suggestions : 3 produits au plus, de votre carte.",
+  REGLEMENT_INVALIDE: "Au serveur, acceptez au moins un moyen de règlement : espèces ou carte.",
 };
 
 export function adminErrorMessage(error: { message?: string; code?: string } | null | undefined): string {
@@ -24,7 +25,7 @@ export function adminErrorMessage(error: { message?: string; code?: string } | n
   if (code in MESSAGES) return MESSAGES[code];
   if (/jwt|token/i.test(`${error?.code} ${code}`)) return "Session expirée : reconnectez-vous.";
   if (/could not find the function/i.test(code)) {
-    return "Base incomplète : exécutez dans Supabase (SQL Editor) le dernier script du dossier supabase (10-suggestions.sql), et les précédents s'ils ne l'ont pas été.";
+    return "Base incomplète : exécutez dans Supabase (SQL Editor) le dernier script du dossier supabase (11-reglement-au-serveur.sql), et les précédents s'ils ne l'ont pas été.";
   }
   return "La modification n'a pas pu être enregistrée. Réessayez.";
 }

@@ -27,10 +27,10 @@ arrive aussitôt sur l'écran du bar avec le numéro de table, et le serveur la 
 
 | Adresse | Pour qui | Contenu |
 |---|---|---|
-| `/t/<lien-secret>` | Le client (adresse écrite dans la puce NFC / le QR code) | Nom du bar, « Table X », carte par catégories, produits épuisés grisés, panier avec suggestions « Souvent pris avec », commentaire, paiement, pourboire, boutons « Appeler un serveur » / « L'addition », mention sur l'alcool |
+| `/t/<lien-secret>` | Le client (adresse écrite dans la puce NFC / le QR code) | Nom du bar, « Table X », carte par catégories, produits épuisés grisés, panier avec suggestions « Souvent pris avec », commentaire, paiement en ligne ou au serveur (espèces, carte ou les deux), pourboire, boutons « Appeler un serveur » / « L'addition », mention sur l'alcool |
 | `/t/<lien-secret>/commande/<n°>` | Le client | Numéro de commande, statut mis à jour toutes les 3 s (Reçue → En préparation → Servie), « Une autre tournée ? » un quart d'heure après le service, « Commander à nouveau », appel du serveur |
 | `/bar` | Le personnel (tablette) | Commandes et appels des tables en temps réel avec signal sonore, numéro de table en très grand, boutons En préparation / Servie / Encaissé, pause des commandes |
-| `/bar/commande` | Les serveurs (téléphone ou tablette) | Prise de commande pour un client : table ou comptoir, articles, commentaire, « À encaisser » ou « Déjà encaissé » |
+| `/bar/commande` | Les serveurs (téléphone ou tablette) | Prise de commande pour un client : table ou comptoir, articles, commentaire, « À encaisser » ou « Déjà encaissé », espèces ou carte |
 | `/stocks` | Le personnel et le gérant | Stock de chaque article, alertes, livraisons, pertes, inventaires, historique, **bon de livraison lu par l'IA à partir d'une photo** ; le gérant crée les articles |
 | `/admin` | Le gérant | Commandes du jour et totaux (dont pourboires), carte, tables et cartes NFC, QR codes, réglages, pause des commandes |
 | `/agence` | L'agence (Tapigo) | Tous les bars : création, comptes et mots de passe, suspension de l'abonnement, accès à l'espace gérant et à l'écran de chaque bar ; lecture des bons par l'IA (activation, coût par bar) |
@@ -105,7 +105,8 @@ une tablette (le « bar »). Durée : 5 minutes.
 2. **Commander** — Ajoute 2 Mojitos et une Pinte, écris « sans glace », ouvre le panier.
 3. **Payer** — Choisis **« Payer maintenant »**, un pourboire de **10 %** → page Stripe → carte `4242 4242 4242 4242`
    (ou Apple Pay / Google Pay). La page de suivi s'affiche : *Commande reçue · Payé en ligne*.
-   (Variante : **« Payer au serveur »**, la commande arrive « À encaisser ».)
+   (Variante : **« Payer au serveur »** puis **Espèces**, **Carte** ou **Les deux** : la
+   commande arrive « À encaisser · Carte », le serveur sait quoi apporter.)
 4. **Voir la commande au bar** — La tablette sonne : **numéro de table en très grand**,
    articles, commentaire en jaune, « ✓ Payé en ligne », « 🙏 Pourboire ».
 5. **Préparer puis servir** — Touche **En préparation** : le téléphone affiche
@@ -183,8 +184,10 @@ Tout se fait dans le navigateur, rien à installer sur l'ordinateur.
    [`supabase/9-gestion-des-bars.sql`](supabase/9-gestion-des-bars.sql)
    (gestion des bars par l'agence, suspension) et
    [`supabase/10-suggestions.sql`](supabase/10-suggestions.sql)
-   (suggestions aux clients, ventes générées par l'application).
-   Les scripts 3 à 10 peuvent être relancés sans risque (dans l'ordre : après avoir
+   (suggestions aux clients, ventes générées par l'application) et
+   [`supabase/11-reglement-au-serveur.sql`](supabase/11-reglement-au-serveur.sql)
+   (règlement au serveur : espèces, carte ou les deux).
+   Les scripts 3 à 11 peuvent être relancés sans risque (dans l'ordre : après avoir
    relancé un script, relance aussi les suivants).
 7. **Authentication → Sign In / Providers** : désactive **Allow new users to sign up**
    (seuls les comptes que tu crées peuvent se connecter).
@@ -311,6 +314,10 @@ Pour retirer un compte agence : `delete from private.platform_admins where user_
   (« ○ Actualisation auto »).
 - Seules les commandes **payées en ligne** ou **« Payer au serveur »** apparaissent :
   un paiement en ligne non terminé n'arrive jamais au bar.
+- **Règlement au serveur** : le client qui choisit « Payer au serveur » indique
+  **Espèces**, **Carte** ou **Les deux** ; la commande arrive avec le badge
+  « À encaisser · Carte » (ou « · Espèces », « · Espèces + carte ») : le serveur sait
+  s'il doit apporter le terminal de paiement ou la monnaie.
 - **En préparation → ✓ Servie**, **Encaissé** (commandes « À encaisser »),
   **Annuler** (commandes non payées), retour arrière possible.
 - La carte devient **orange après 5 min** d'attente, **rouge après 10 min**
@@ -329,7 +336,8 @@ Pour retirer un compte agence : `delete from private.platform_admins where user_
 - **+ Nouvelle commande** : un serveur prend la commande d'un client (sur la tablette ou
   sur son téléphone, en ouvrant `/bar/commande` avec le compte du personnel) : il choisit
   la table (ou « Comptoir »), les articles, ajoute un commentaire et indique si c'est
-  **À encaisser** ou **Déjà encaissé**. La commande arrive sur l'écran du bar avec le
+  **À encaisser** ou **Déjà encaissé**, et s'il le souhaite **Espèces**, **Carte** ou
+  **Les deux** (facultatif). La commande arrive sur l'écran du bar avec le
   badge « Serveur ». Possible même quand les commandes des clients sont en pause ; le
   stock restant est affiché pour chaque produit.
 
@@ -424,7 +432,8 @@ donne-leur-en un nouveau depuis leur fiche.
 ### L'espace gérant (`/admin`, compte gérant uniquement)
 
 - **Commandes du jour** : chiffre d'affaires, nombre de commandes, payé en ligne,
-  encaissé au bar, reste à encaisser, pourboires (en plus du chiffre d'affaires) ;
+  encaissé au bar, reste à encaisser, pourboires (en plus du chiffre d'affaires),
+  répartition du règlement au serveur (« Au serveur : Espèces … · Carte … ») ;
   jours précédents.
 - **Statistiques** sur 7 jours, 30 jours, 90 jours, 12 mois ou les dates de ton choix,
   comparées à la période précédente de même durée :
@@ -439,7 +448,8 @@ donne-leur-en un nouveau depuis leur fiche.
   - rapidité du service (moyenne, médiane, % servies en moins de 10 min, prise en
     charge) et appels des tables (nombre, temps de réponse) ;
   - **Exporter les commandes (CSV)** de la période, à ouvrir dans Excel ou à envoyer au
-    comptable (séparateur « ; », montants avec virgule).
+    comptable (séparateur « ; », montants avec virgule, colonne « Règlement au
+    serveur » : espèces, carte ou les deux).
 
   Survole (ou touche) une barre pour voir le détail ; « Voir les chiffres » sous chaque
   graphique affiche le tableau complet. Les commandes annulées et les paiements en ligne
@@ -451,7 +461,9 @@ donne-leur-en un nouveau depuis leur fiche.
   réduites à 800 px avant l'envoi (chargement rapide en 4G).
 - **Tables & cartes NFC** : lien à copier, QR code, **Renommer** (sans reprogrammer),
   **Désactiver**, **Nouveau lien**, **Supprimer**, planche de QR codes à imprimer.
-- **Réglages** : nom du bar, logo, « Payer au serveur » et « Paiement en ligne ».
+- **Réglages** : nom du bar, logo, « Payer au serveur » (avec **Espèces** et **Carte
+  bancaire** : décoche celui que le bar n'accepte pas, il disparaît chez les clients ;
+  au moins un des deux reste coché) et « Paiement en ligne ».
 
 Les boutons réagissent immédiatement ; l'enregistrement se fait en arrière-plan
 (« Enregistrement… » puis « ✓ À jour »). En cas d'échec, un message s'affiche et
@@ -477,6 +489,9 @@ l'écran revient à l'état réel.
   50 articles par commande ; 10 appels du serveur maximum par table toutes les
   10 minutes, un seul appel du même type en attente. Pourboire vérifié par la base
   (paiement en ligne uniquement, au plus le montant de la commande et 100 €).
+- **Règlement au serveur** vérifié par la base : le client ne peut choisir qu'un moyen
+  accepté par le bar, une seule fois, juste après sa commande ; seul le personnel du
+  bar peut le corriger ensuite.
 - **Pause des commandes** vérifiée par la base : une commande envoyée pendant la pause
   est refusée, même si la page du client n'est pas à jour.
 - **Stocks** décomptés par la base, dans la même opération que la commande : deux clients
@@ -545,6 +560,8 @@ l'écran revient à l'état réel.
 | Un client voit « Service indisponible », ou l'équipe « Accès suspendu » | Le bar est suspendu : Espace agence → le bar → **Réactiver le bar**. |
 | Pas de « Souvent pris avec » dans le panier | Exécute `supabase/10-suggestions.sql` ; vérifie **Réglages → Suggestions aux clients** ; il faut au moins un autre produit disponible à proposer. |
 | Pas de carte « Ce que l'application vous a rapporté » dans les Statistiques | Exécute `supabase/10-suggestions.sql`. Le montant se remplit au fil des commandes passées avec une suggestion. |
+| Le client ne voit pas « Espèces / Carte / Les deux », ou les Réglages affichent « Base incomplète » | Exécute `supabase/11-reglement-au-serveur.sql` dans Supabase. |
+| Le bouton du panier reste sur « Choisissez espèces ou carte » | Normal : le client doit toucher **Espèces**, **Carte** ou **Les deux** avant d'envoyer une commande payée au serveur. |
 | Un client a oublié son mot de passe | Espace agence → le bar → **Nouveau mot de passe** sur son compte, puis envoie-le-lui. |
 | **Scanner un bon** : « La clé ANTHROPIC_API_KEY est refusée » | Clé mal copiée ou supprimée : crée-en une nouvelle sur platform.claude.com, remplace-la dans Vercel, redéploie. |
 | **Scanner un bon** : « vérifiez le crédit du compte Anthropic » | Crédit épuisé ou limite mensuelle atteinte : platform.claude.com → **Billing**. |
@@ -592,7 +609,7 @@ Organisation du code :
 | `src/app/agence/`, `src/components/agency/` | Espace agence (bars, accès, suspension, IA) |
 | `src/app/api/` | Commandes, webhook Stripe, QR codes, lecture des bons (`stocks/scan`) |
 | `src/lib/` | Accès Supabase, Stripe et Claude (`delivery-scan-ai.ts`), suggestions (`suggestions.ts`), types, formatage, configuration |
-| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison et espace agence (8), gestion des bars et suspension (9), suggestions et ventes générées (10) |
+| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison et espace agence (8), gestion des bars et suspension (9), suggestions et ventes générées (10), règlement au serveur en espèces ou carte (11) |
 
 **Charte graphique Tapigo « Chic & Élégant »** : fond sable, cartes blanches, titres en
 *Cormorant Garamond*, texte en *Manrope*, boutons noir mat en pilule, doré en touche.

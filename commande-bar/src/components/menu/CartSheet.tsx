@@ -7,11 +7,31 @@ import { QuantityStepper } from "@/components/menu/QuantityStepper";
 import { Sheet, SheetBody, SheetFooter } from "@/components/Sheet";
 import { formatPrice, parsePrice } from "@/lib/format";
 import type { MenuProduct } from "@/lib/menu";
-import { MAX_COMMENT_LENGTH, MAX_QUANTITY_PER_LINE, MAX_TIP_CENTS, type PaymentMethod } from "@/lib/order-types";
+import {
+  MAX_COMMENT_LENGTH,
+  MAX_QUANTITY_PER_LINE,
+  MAX_TIP_CENTS,
+  staffPaymentChoices,
+  type PaymentMethod,
+  type StaffPayment,
+  type StaffPaymentOptions,
+} from "@/lib/order-types";
 
 export type CartLine = { product: MenuProduct; quantity: number };
 
 type TipChoice = 0 | 5 | 10 | "autre";
+
+const STAFF_CHOICE_LABEL: Record<StaffPayment, string> = { cash: "Espèces", card: "Carte", mixed: "Les deux" };
+const STAFF_ONLY_TEXT: Record<StaffPayment, string> = {
+  cash: "Au serveur, le règlement se fait en espèces uniquement.",
+  card: "Au serveur, le règlement se fait par carte uniquement.",
+  mixed: "",
+};
+const STAFF_HINT: Record<StaffPayment, string> = {
+  cash: "Vous réglerez en espèces auprès du serveur.",
+  card: "Vous réglerez par carte auprès du serveur.",
+  mixed: "Vous réglerez auprès du serveur, en espèces et par carte.",
+};
 const TIP_RATES = [5, 10] as const;
 
 /** 5 % de 9,00 € → 0,50 € (arrondi aux 10 centimes). */
@@ -34,7 +54,7 @@ export function CartSheet({
   tableLabel: string;
   lines: CartLine[];
   total: number;
-  payment: { staff: boolean; online: boolean };
+  payment: { staff: boolean; online: boolean; staffOptions: StaffPaymentOptions | null };
   /** Le bar a mis les commandes en pause. */
   paused: boolean;
   /** « Souvent pris avec » : produits à proposer avec ce panier. */
@@ -43,10 +63,19 @@ export function CartSheet({
   onClose: () => void;
   onChangeQuantity: (productId: string, quantity: number) => void;
   /** Renvoie un message d'erreur, ou null si la commande est partie. */
-  onSubmit: (order: { comment: string; paymentMethod: PaymentMethod; tipCents: number }) => Promise<string | null>;
+  onSubmit: (order: {
+    comment: string;
+    paymentMethod: PaymentMethod;
+    staffPayment: StaffPayment | null;
+    tipCents: number;
+  }) => Promise<string | null>;
 }) {
   const [comment, setComment] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(payment.online ? "online" : "staff");
+  // Au serveur : espèces, carte ou les deux (selon ce que le bar accepte)
+  const staffChoices = payment.staffOptions ? staffPaymentChoices(payment.staffOptions) : [];
+  const [staffPayment, setStaffPayment] = useState<StaffPayment | null>(staffChoices.length === 1 ? staffChoices[0] : null);
+  const staffChoiceMissing = paymentMethod === "staff" && staffChoices.length > 1 && staffPayment === null;
   const [tipChoice, setTipChoice] = useState<TipChoice>(0);
   const [customTip, setCustomTip] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -69,10 +98,10 @@ export function CartSheet({
         : null;
 
   async function submit() {
-    if (tipError || tipCents === null) return;
+    if (tipError || tipCents === null || staffChoiceMissing) return;
     setSubmitting(true);
     setError(null);
-    const message = await onSubmit({ comment, paymentMethod, tipCents });
+    const message = await onSubmit({ comment, paymentMethod, staffPayment: paymentMethod === "staff" ? staffPayment : null, tipCents });
     if (message) {
       setError(message);
       setSubmitting(false);
@@ -186,6 +215,32 @@ export function CartSheet({
               </fieldset>
             )}
 
+            {canOrder && paymentMethod === "staff" && staffChoices.length > 0 && (
+              <fieldset className="mt-5">
+                <legend className="field-label">Au serveur, vous réglerez…</legend>
+                {staffChoices.length > 1 ? (
+                  <div className="mt-1.5 grid grid-cols-3 gap-2">
+                    {staffChoices.map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        aria-pressed={staffPayment === choice}
+                        onClick={() => setStaffPayment(choice)}
+                        className="chip chip--tag h-12 justify-center !px-2"
+                      >
+                        {STAFF_CHOICE_LABEL[choice]}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1.5 rounded-md bg-sand-2 px-4 py-3 text-[14px] text-ink-2">{STAFF_ONLY_TEXT[staffChoices[0]]}</p>
+                )}
+                {staffPayment === "mixed" && (
+                  <p className="mt-2 text-[13px] text-muted">Une partie en espèces, le reste par carte : le serveur apporte le terminal.</p>
+                )}
+              </fieldset>
+            )}
+
             {canOrder && withTip && (
               <fieldset className="mt-5">
                 <legend className="field-label">Un pourboire pour l&apos;équipe ? (facultatif)</legend>
@@ -239,16 +294,20 @@ export function CartSheet({
                 <button
                   type="button"
                   onClick={submit}
-                  disabled={submitting || tipError !== null}
+                  disabled={submitting || tipError !== null || staffChoiceMissing}
                   className="btn btn--primary btn--block"
                 >
                   {submitting
                     ? "Envoi…"
-                    : `${paymentMethod === "online" ? "Payer" : "Commander"} · ${formatPrice(toPay)}`}
+                    : staffChoiceMissing
+                      ? "Choisissez espèces ou carte"
+                      : `${paymentMethod === "online" ? "Payer" : "Commander"} · ${formatPrice(toPay)}`}
                 </button>
                 <p className="mt-2 text-center text-[13px] text-muted">
                   {paymentMethod === "staff"
-                    ? "Vous réglerez auprès du serveur."
+                    ? staffPayment
+                      ? STAFF_HINT[staffPayment]
+                      : "Vous réglerez auprès du serveur."
                     : withTip && !!tipCents && !tipError
                       ? `Dont ${formatPrice(tipCents)} de pourboire. Merci !`
                       : "Paiement sécurisé par Stripe."}

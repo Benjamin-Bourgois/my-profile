@@ -7,15 +7,27 @@ import { Field, inputClass } from "@/components/admin/ProductForm";
 import { Toggle } from "@/components/admin/Toggle";
 import { Icon } from "@/components/Icon";
 import type { AdminSettings } from "@/lib/admin-types";
+import type { StaffPaymentOptions } from "@/lib/order-types";
 import { useAdminAction } from "@/lib/use-admin-action";
 
-export function SettingsForm({ settings, stripeConfigured }: { settings: AdminSettings; stripeConfigured: boolean }) {
-  const { run, error } = useAdminAction();
+export function SettingsForm({
+  settings,
+  stripeConfigured,
+  paymentOptions,
+}: {
+  settings: AdminSettings;
+  stripeConfigured: boolean;
+  /** Espèces / carte acceptées au serveur (null : base sans le script 11) */
+  paymentOptions: StaffPaymentOptions | null;
+}) {
+  const { run, error, setError } = useAdminAction();
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(settings.name);
   const [logoUrl, setLogoUrl] = useState<string | null>(settings.logo_url);
   const [payToStaff, setPayToStaff] = useState(settings.pay_to_staff_enabled);
   const [online, setOnline] = useState(settings.online_payment_enabled);
+  const [cash, setCash] = useState(paymentOptions?.cash ?? true);
+  const [card, setCard] = useState(paymentOptions?.card ?? true);
   const [saved, setSaved] = useState(false);
 
   const customersCanOrder = payToStaff || (online && stripeConfigured);
@@ -23,11 +35,21 @@ export function SettingsForm({ settings, stripeConfigured }: { settings: AdminSe
   async function save(event: React.FormEvent) {
     event.preventDefault();
     setSaved(false);
+    if (paymentOptions && payToStaff && !cash && !card) {
+      setError("Au serveur, acceptez au moins un moyen de règlement : espèces ou carte.");
+      return;
+    }
     setSaving(true);
     const result = await run("admin_update_settings", {
       p_venue_id: settings.id,
       p_settings: { name, logo_url: logoUrl, pay_to_staff_enabled: payToStaff, online_payment_enabled: online },
     });
+    if (result.ok && paymentOptions && (cash !== paymentOptions.cash || card !== paymentOptions.card) && (cash || card)) {
+      const options = await run("admin_set_payment_options", { p_venue_id: settings.id, p_cash: cash, p_card: card });
+      setSaving(false);
+      if (options.ok) setSaved(true);
+      return;
+    }
     setSaving(false);
     if (result.ok) setSaved(true);
   }
@@ -65,6 +87,32 @@ export function SettingsForm({ settings, stripeConfigured }: { settings: AdminSe
           checked={payToStaff}
           onChange={setPayToStaff}
         />
+        {paymentOptions && payToStaff && (
+          <div className="ml-1 grid gap-1 border-l-2 border-line pl-4">
+            <p className="text-[13px] text-ink-2">
+              Au serveur, vous acceptez… Le client indique comment il réglera (espèces, carte, ou les deux si vous acceptez les
+              deux) : le serveur sait s&apos;il doit apporter le terminal ou de la monnaie.
+            </p>
+            <Setting
+              title="Espèces"
+              text="Le client paie en liquide au serveur."
+              checked={cash}
+              onChange={(value) => {
+                setCash(value);
+                setError(null);
+              }}
+            />
+            <Setting
+              title="Carte bancaire"
+              text="Le serveur apporte le terminal de paiement à la table."
+              checked={card}
+              onChange={(value) => {
+                setCard(value);
+                setError(null);
+              }}
+            />
+          </div>
+        )}
         <Setting
           title="Paiement en ligne (carte, Apple Pay, Google Pay)"
           text={

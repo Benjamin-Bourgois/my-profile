@@ -1,3 +1,4 @@
+import { STAFF_PAYMENT_LABEL } from "@/lib/order-types";
 import { currentVenue, getStaffSession } from "@/lib/staff";
 import { getServerClient } from "@/lib/supabase/server";
 
@@ -11,6 +12,7 @@ type ExportedOrder = {
   tip_cents: number;
   payment_method: "online" | "staff";
   payment_status: "paid" | "unpaid";
+  staff_payment?: "cash" | "card" | "mixed" | null;
   status: string;
   comment: string | null;
 };
@@ -60,7 +62,7 @@ export async function GET(request: Request) {
 
   const orders = (data ?? []) as ExportedOrder[];
   const lines = [
-    ["Date", "Heure", "N°", "Table", "Articles", "Total (€)", "Pourboire (€)", "Paiement", "Payée", "Statut", "Commentaire"],
+    ["Date", "Heure", "N°", "Table", "Articles", "Total (€)", "Pourboire (€)", "Paiement", "Règlement au serveur", "Payée", "Statut", "Commentaire"],
     ...orders.map((o) => [
       o.business_date,
       o.time,
@@ -70,6 +72,7 @@ export async function GET(request: Request) {
       euros(o.total_cents),
       euros(o.tip_cents),
       o.payment_method === "online" ? "En ligne" : "Au bar",
+      o.staff_payment ? STAFF_PAYMENT_LABEL[o.staff_payment] : "",
       o.payment_status === "paid" ? "Oui" : "Non",
       STATUS[o.status] ?? o.status,
       o.comment,
