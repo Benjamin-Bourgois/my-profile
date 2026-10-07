@@ -10,7 +10,7 @@ import { Sheet, SheetBody, SheetFooter } from "@/components/Sheet";
 import { VenueMark } from "@/components/VenueMark";
 import { formatPrice } from "@/lib/format";
 import { GENERIC_ORDER_ERROR, isKnownOrderError, orderError } from "@/lib/order-errors";
-import { MAX_COMMENT_LENGTH, MAX_QUANTITY_PER_LINE } from "@/lib/order-types";
+import { MAX_COMMENT_LENGTH, MAX_QUANTITY_PER_LINE, STAFF_PAYMENT_LABEL, type StaffPayment } from "@/lib/order-types";
 import type { StaffVenue } from "@/lib/staff";
 import { getBrowserClient } from "@/lib/supabase/browser";
 
@@ -43,6 +43,7 @@ export function StaffOrder({ venue, initialMenu }: { venue: StaffVenue; initialM
   const [cart, setCart] = useState<Record<string, number>>({});
   const [comment, setComment] = useState("");
   const [paid, setPaid] = useState(false);
+  const [staffPayment, setStaffPayment] = useState<StaffPayment | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,12 +96,18 @@ export function StaffOrder({ venue, initialMenu }: { venue: StaffVenue; initialM
       reloadMenu();
       return;
     }
-    const created = data as { order_number: number };
+    const created = data as { id: string; order_number: number };
+    if (staffPayment) {
+      // Espèces / carte : noté sur la commande (sans bloquer l'envoi si la base n'a pas le script 11)
+      const { error: paymentError } = await supabase.rpc("staff_set_order_payment", { p_order_id: created.id, p_kind: staffPayment });
+      if (paymentError) console.error("Règlement non noté", paymentError);
+    }
     setToast(`Commande n° ${created.order_number} (${tableLabel}) envoyée au bar.`);
     window.setTimeout(() => setToast(null), TOAST_MS);
     setCart({});
     setComment("");
     setPaid(false);
+    setStaffPayment(null);
     setTable(null);
     setReviewing(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -255,6 +262,20 @@ export function StaffOrder({ venue, initialMenu }: { venue: StaffVenue; initialM
                 <button type="button" className="chip h-12 justify-center" aria-pressed={paid} onClick={() => setPaid(true)}>
                   Déjà encaissé
                 </button>
+              </div>
+              <p className="mt-3 text-[13px] font-semibold text-ink-2">Règlement (facultatif)</p>
+              <div className="mt-1.5 grid grid-cols-3 gap-2">
+                {(Object.keys(STAFF_PAYMENT_LABEL) as StaffPayment[]).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    className="chip h-11 justify-center !px-2"
+                    aria-pressed={staffPayment === kind}
+                    onClick={() => setStaffPayment((current) => (current === kind ? null : kind))}
+                  >
+                    {STAFF_PAYMENT_LABEL[kind]}
+                  </button>
+                ))}
               </div>
             </fieldset>
           </SheetBody>

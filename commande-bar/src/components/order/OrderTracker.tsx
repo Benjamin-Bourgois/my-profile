@@ -275,5 +275,10 @@ function paymentState(order: CustomerOrder, paymentCancelled: boolean): { label:
   }
   if (paymentCancelled || order.status === "cancelled") return { label: "Non payé", className: "", paid: false };
   if (order.payment_method === "online") return { label: "Paiement en attente", className: "badge--warn", paid: false };
-  return { label: "À régler auprès du serveur", className: "badge--warn", paid: false };
+  const how = { cash: " · en espèces", card: " · par carte", mixed: " · espèces + carte" } as const;
+  return {
+    label: `À régler auprès du serveur${order.staff_payment ? how[order.staff_payment] : ""}`,
+    className: "badge--warn",
+    paid: false,
+  };
 }

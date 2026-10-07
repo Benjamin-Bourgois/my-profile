@@ -7,7 +7,8 @@ import { MessageScreen } from "@/components/MessageScreen";
 import { MenuOrder } from "@/components/menu/MenuOrder";
 import { diagnose } from "@/lib/diagnose";
 import { isStripeConfigured, missingConfig } from "@/lib/env";
-import { getMenu, getSuggestions, isTableVenueSuspended, type Menu } from "@/lib/menu";
+import { getMenu, getStaffPaymentOptions, getSuggestions, isTableVenueSuspended, type Menu } from "@/lib/menu";
+import type { StaffPaymentOptions } from "@/lib/order-types";
 import type { Suggestions } from "@/lib/suggestions";
 
 // La carte doit toujours être à jour (produits indisponibles, table désactivée…).
@@ -32,8 +33,14 @@ export default async function TablePage(props: PageProps<"/t/[token]">) {
   let menu: Menu | null;
   let suspended: boolean;
   let suggestions: Suggestions | null;
+  let staffOptions: StaffPaymentOptions | null;
   try {
-    [menu, suspended, suggestions] = await Promise.all([getMenu(token), isTableVenueSuspended(token), getSuggestions(token)]);
+    [menu, suspended, suggestions, staffOptions] = await Promise.all([
+      getMenu(token),
+      isTableVenueSuspended(token),
+      getSuggestions(token),
+      getStaffPaymentOptions(token),
+    ]);
   } catch (error) {
     console.error("Lecture de la carte impossible", error);
     return <ErreurTechnique hint={diagnose(error)} />;
@@ -50,6 +57,8 @@ export default async function TablePage(props: PageProps<"/t/[token]">) {
   const payment = {
     staff: menu.venue.pay_to_staff_enabled,
     online: menu.venue.online_payment_enabled && isStripeConfigured(),
+    // Espèces / carte au serveur (null : pas de choix à faire)
+    staffOptions,
   };
   return <MenuOrder menu={menu} token={token} payment={payment} suggestions={suggestions} openCart={panier === "1"} />;
 }

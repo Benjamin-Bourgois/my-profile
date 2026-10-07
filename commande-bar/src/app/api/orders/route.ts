@@ -3,7 +3,14 @@ import { NextResponse } from "next/server";
 import { cancelUnstartedCheckout, startCheckout } from "@/lib/checkout";
 import { isStripeConfigured } from "@/lib/env";
 import { GENERIC_ORDER_ERROR, isKnownOrderError, orderError } from "@/lib/order-errors";
-import { MAX_COMMENT_LENGTH, MAX_QUANTITY_PER_LINE, MAX_TIP_CENTS, UUID_PATTERN, type PaymentMethod } from "@/lib/order-types";
+import {
+  MAX_COMMENT_LENGTH,
+  MAX_QUANTITY_PER_LINE,
+  MAX_TIP_CENTS,
+  UUID_PATTERN,
+  type PaymentMethod,
+  type StaffPayment,
+} from "@/lib/order-types";
 import { getMenu, TOKEN_PATTERN } from "@/lib/menu";
 import { getCustomerOrder } from "@/lib/orders";
 import { getAdminClient } from "@/lib/supabase/admin";
@@ -14,13 +21,15 @@ type OrderRequest = {
   items: { product_id: string; quantity: number; suggestion?: "pairing" | "reorder" }[];
   comment: string | null;
   payment_method: PaymentMethod;
+  /** Au serveur : espèces, carte ou les deux */
+  staff_payment: StaffPayment | null;
   tip_cents: number;
 };
 
 /** Vérifie la forme de la demande. Les prix ne sont jamais lus : la base les recalcule. */
 function parse(body: unknown): OrderRequest | null {
   if (!body || typeof body !== "object") return null;
-  const { token, items, comment, payment_method, tip_cents = 0 } = body as Record<string, unknown>;
+  const { token, items, comment, payment_method, staff_payment, tip_cents = 0 } = body as Record<string, unknown>;
   if (typeof token !== "string" || !TOKEN_PATTERN.test(token)) return null;
   if (payment_method !== "staff" && payment_method !== "online") return null;
   if (comment != null && (typeof comment !== "string" || comment.length > MAX_COMMENT_LENGTH)) return null;
@@ -48,6 +57,8 @@ function parse(body: unknown): OrderRequest | null {
     items: lines as OrderRequest["items"],
     comment: typeof comment === "string" && comment.trim() ? comment.trim() : null,
     payment_method,
+    staff_payment:
+      payment_method === "staff" && (staff_payment === "cash" || staff_payment === "card" || staff_payment === "mixed") ? staff_payment : null,
     // Pourboire : seulement avec le paiement en ligne (la base le vérifie aussi)
     tip_cents: payment_method === "online" ? (tip_cents as number) : 0,
   };
@@ -80,6 +91,16 @@ export async function POST(request: Request) {
 
   const created = data as { id: string; order_number: number } | null;
   if (!created) return NextResponse.json({ error: GENERIC_ORDER_ERROR, code: "ERREUR" }, { status: 500 });
+
+  // Règlement au serveur choisi (espèces, carte, les deux) : la base vérifie que le bar l'accepte.
+  if (order.staff_payment) {
+    const { error: paymentError } = await getAdminClient().rpc("set_order_staff_payment", {
+      p_token: order.token,
+      p_order_id: created.id,
+      p_kind: order.staff_payment,
+    });
+    if (paymentError) console.error("Règlement au serveur non enregistré", paymentError);
+  }
 
   // Ventes générées par l'appli : sans incidence sur la commande si l'enregistrement échoue.
   const suggested = order.items.flatMap((item) => (item.suggestion ? [{ product_id: item.product_id, kind: item.suggestion }] : []));

@@ -66,6 +66,9 @@ declare
   s_idx      int[];
   v_snack    int;
   v_conv     boolean := to_regclass('public.suggestion_conversions') is not null;
+  -- règlement au serveur : espèces, carte, les deux (script 11)
+  v_pay_col  boolean := exists (select 1 from information_schema.columns
+                                where table_schema = 'public' and table_name = 'orders' and column_name = 'staff_payment');
 begin
   -- Vérifications
   if not exists (select 1 from information_schema.columns
@@ -166,6 +169,11 @@ begin
               0, 0, case when random() < 0.1 then c_comments[1 + floor(random() * array_length(c_comments, 1))::int] end,
               c_marker, v_at, v_at, case when v_cancel then v_at + interval '4 minutes' end)
       returning id into v_order;
+
+      if v_pay_col and v_method = 'staff' then
+        execute 'update public.orders set staff_payment = $1 where id = $2'
+          using (case when random() < 0.5 then 'card' when random() < 0.8 then 'cash' else 'mixed' end), v_order;
+      end if;
 
       -- Articles : 1 à 4 produits différents
       v_total := 0;
