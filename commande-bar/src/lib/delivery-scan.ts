@@ -8,6 +8,17 @@ export const SCAN_MAX_BYTES = 4 * 1024 * 1024;
 /** Taille des photos après réduction dans le navigateur (bord le plus long, en pixels). */
 export const SCAN_PHOTO_SIZE = 2000;
 
+/**
+ * Tarif du modèle utilisé (claude-opus-5-5, voir delivery-scan-ai.ts), en dollars par
+ * million de jetons : sert à estimer le coût des lectures dans l'espace agence.
+ */
+export const SCAN_PRICE_PER_MILLION = { input: 4, output: 20 } as const;
+
+/** Coût estimé en dollars d'après les jetons envoyés et produits. */
+export function scanCostDollars(inputTokens: number, outputTokens: number): number {
+  return (inputTokens * SCAN_PRICE_PER_MILLION.input + outputTokens * SCAN_PRICE_PER_MILLION.output) / 1_000_000;
+}
+
 export type ScanLine = {
   /** Texte tel qu'il est écrit sur le bon */
   label: string;
@@ -33,8 +44,7 @@ export type ScanResult = {
 };
 
 export const SCAN_ERRORS = {
-  SCAN_NON_CONFIGURE:
-    "La lecture des bons n'est pas encore activée : le gérant doit ajouter la clé ANTHROPIC_API_KEY dans Vercel (voir le mode d'emploi).",
+  SCAN_NON_CONFIGURE: "La lecture des bons n'est pas encore activée sur ce site.",
   FICHIERS_INVALIDES: `Ajoutez 1 à ${SCAN_MAX_FILES} photos du bon de livraison (ou un PDF).`,
   FORMAT_NON_SUPPORTE: "Format non reconnu : envoyez une photo (JPEG, PNG, WebP) ou un PDF.",
   TROP_LOURD: "Fichiers trop lourds (4 Mo en tout). Pour un PDF, gardez seulement les pages utiles.",

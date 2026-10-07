@@ -9,7 +9,7 @@ import { ErreurTechnique } from "@/components/ErreurTechnique";
 import { MessageScreen } from "@/components/MessageScreen";
 import { diagnose } from "@/lib/diagnose";
 import { missingConfig } from "@/lib/env";
-import { getStaffSession, type StaffVenue } from "@/lib/staff";
+import { getStaffSession, isAgency, type StaffVenue } from "@/lib/staff";
 
 /**
  * Pages du personnel (écran du bar, prise de commande, stocks) : configuration,
@@ -31,6 +31,7 @@ export async function staffPageGuard(path: string): Promise<{ venue: StaffVenue 
   // Un compte peut appartenir à plusieurs bars ; pour l'instant on affiche le premier.
   const venue = session.venues[0];
   if (!venue) {
+    if (await isAgency()) redirect("/agence");
     return {
       screen: (
         <MessageScreen icon="lock" title="Aucun bar associé">

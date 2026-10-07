@@ -40,14 +40,12 @@ export function ScanSheet({
   venueId,
   items,
   isOwner,
-  enabled,
   onClose,
   onDone,
 }: {
   venueId: string;
   items: StockItem[];
   isOwner: boolean;
-  enabled: boolean;
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
@@ -194,24 +192,6 @@ export function ScanSheet({
   function close() {
     if (step === "review" && !saving && !window.confirm("Fermer sans enregistrer la livraison ?")) return;
     onClose();
-  }
-
-  if (!enabled) {
-    return (
-      <Sheet title="Scanner un bon" eyebrow="Stocks" onClose={onClose}>
-        <SheetBody>
-          <p className="text-ink-2">
-            Avec cette fonction, on prend en photo le bon de livraison ou la facture du fournisseur : l&apos;IA lit les produits et
-            propose les quantités, il ne reste qu&apos;à vérifier.
-          </p>
-          <p className="mt-4 rounded-md bg-warn-soft px-4 py-3 text-warn-ink">
-            {isOwner
-              ? "Pas encore activée : ajoutez votre clé Anthropic (ANTHROPIC_API_KEY) dans Vercel → Settings → Environment Variables, puis redéployez. Le mode d'emploi (README) détaille chaque étape."
-              : "Pas encore activée : demandez au gérant de l'activer."}
-          </p>
-        </SheetBody>
-      </Sheet>
-    );
   }
 
   return (

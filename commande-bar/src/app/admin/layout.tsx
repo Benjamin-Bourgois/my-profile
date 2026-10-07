@@ -12,7 +12,7 @@ import { MessageScreen } from "@/components/MessageScreen";
 import { VenueMark } from "@/components/VenueMark";
 import { diagnose } from "@/lib/diagnose";
 import { missingConfig } from "@/lib/env";
-import { getStaffSession } from "@/lib/staff";
+import { getStaffSession, isAgency } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +33,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
 
   const venue = session.venues.find((v) => v.role === "owner");
   if (!venue) {
+    if (session.venues.length === 0 && (await isAgency())) redirect("/agence");
     return (
       <MessageScreen icon="lock" title="Réservé au gérant">
         <p>Le compte {session.user.email} a accès à l&apos;écran du bar, mais pas à l&apos;espace gérant.</p>

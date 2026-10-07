@@ -154,7 +154,7 @@ export function StockManager({ venue, initial, scanEnabled }: { venue: StaffVenu
             <p className="text-ink-2">Le stock baisse tout seul à chaque commande et remonte si elle est annulée.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {data.items.length > 0 && (scanEnabled || data.is_owner) && (
+            {scanEnabled && data.items.length > 0 && (
               <button type="button" onClick={() => setPanel({ type: "scan" })} className="btn btn--primary btn--sm">
                 <Icon name="camera" size={16} />
                 Scanner un bon
@@ -244,14 +244,7 @@ export function StockManager({ venue, initial, scanEnabled }: { venue: StaffVenu
       {panel?.type === "history" && <HistorySheet item={panel.item} timeZone={venue.timezone} onClose={closePanel} />}
       {panel?.type === "edit" && <EditSheet venueId={venue.id} item={panel.item} onClose={closePanel} onDone={done} />}
       {panel?.type === "scan" && (
-        <ScanSheet
-          venueId={venue.id}
-          items={data.items}
-          isOwner={data.is_owner}
-          enabled={scanEnabled}
-          onClose={closePanel}
-          onDone={done}
-        />
+        <ScanSheet venueId={venue.id} items={data.items} isOwner={data.is_owner} onClose={closePanel} onDone={done} />
       )}
 
       {toast && (

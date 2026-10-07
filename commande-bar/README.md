@@ -33,6 +33,7 @@ arrive aussitôt sur l'écran du bar avec le numéro de table, et le serveur la 
 | `/bar/commande` | Les serveurs (téléphone ou tablette) | Prise de commande pour un client : table ou comptoir, articles, commentaire, « À encaisser » ou « Déjà encaissé » |
 | `/stocks` | Le personnel et le gérant | Stock de chaque article, alertes, livraisons, pertes, inventaires, historique, **bon de livraison lu par l'IA à partir d'une photo** ; le gérant crée les articles |
 | `/admin` | Le gérant | Commandes du jour et totaux (dont pourboires), carte, tables et cartes NFC, QR codes, réglages, pause des commandes |
+| `/agence` | L'agence (Tapigo) | Activation de l'IA, lectures de bons et coût estimé par bar et par mois |
 | `/connexion` | Personnel et gérant | Email + mot de passe |
 | `/` | Prospects | Page de présentation |
 
@@ -172,7 +173,7 @@ Tout se fait dans le navigateur, rien à installer sur l'ordinateur.
    [`supabase/7-stocks-et-commandes-serveur.sql`](supabase/7-stocks-et-commandes-serveur.sql)
    (stocks, commandes prises par les serveurs), et
    [`supabase/8-bons-de-livraison.sql`](supabase/8-bons-de-livraison.sql)
-   (bons de livraison lus par l'IA).
+   (bons de livraison lus par l'IA, espace agence).
    Les scripts 3 à 8 peuvent être relancés sans risque.
 7. **Authentication → Sign In / Providers** : désactive **Allow new users to sign up**
    (seuls les comptes que tu crées peuvent se connecter).
@@ -237,7 +238,9 @@ Le mode test ne demande ni SIRET ni compte bancaire ; aucun argent réel ne circ
 
 ### 4.5 Claude (lecture des bons de livraison, facultatif)
 
-Sans cette clé, tout fonctionne, sauf le bouton **« Scanner un bon »** de la page Stocks.
+**Une seule clé, celle de l'agence, pour tous les bars** : les bars n'ont aucun compte à
+créer, et c'est l'agence qui paie l'usage. Sans cette clé, tout fonctionne ; le bouton
+**« Scanner un bon »** n'apparaît simplement pas dans la page Stocks des bars.
 
 1. Crée un compte sur la console d'Anthropic : <https://platform.claude.com>.
 2. **Billing** : ajoute une carte et achète un petit crédit (par exemple 10 $ : plusieurs
@@ -247,11 +250,36 @@ Sans cette clé, tout fonctionne, sauf le bouton **« Scanner un bon »** de la 
    s'affiche qu'une fois). ⚠️ Ne la colle nulle part ailleurs que dans Vercel.
 4. Vercel → **Settings → Environment Variables** → `ANTHROPIC_API_KEY` = la clé, type
    **Secret** → **Save**, puis **Deployments → ⋯ → Redeploy**.
-5. Page **Stocks** : le bouton **« Scanner un bon »** apparaît pour toute l'équipe.
+5. Page **Stocks** : le bouton **« Scanner un bon »** apparaît pour toute l'équipe de
+   chaque bar. L'**espace agence** (4.6) affiche « Activée ».
 
 Coût : quelques centimes par bon (environ 0,05 à 0,15 € par page), payés à Anthropic.
 Pour éviter les abus : 8 lectures par personne toutes les 10 minutes et 40 par bar et
 par jour au maximum (réglable dans `supabase/8-bons-de-livraison.sql`).
+
+### 4.6 L'espace agence (`/agence`)
+
+Une page réservée à l'agence : état de la lecture des bons par l'IA (activée ou non,
+avec les étapes pour l'activer) et, pour chaque mois, le nombre de lectures et leur
+coût estimé, bar par bar. Elle ne montre rien d'autre des bars (ni commandes ni chiffre
+d'affaires).
+
+1. Supabase → **Authentication → Users → Add user** : ton email d'agence et un mot de
+   passe, coche **Auto Confirm User**.
+2. **SQL Editor → New query** (remplace l'email par le tien) → **Run** :
+
+```sql
+insert into private.platform_admins (user_id)
+select id from auth.users where email = 'ton-email@agence.fr'
+on conflict do nothing;
+```
+
+3. Connecte-toi sur `/connexion` avec ce compte : tu arrives sur l'**Espace agence**
+   (ou ouvre directement `/agence`).
+
+Le coût affiché est une estimation d'après le tarif de Claude ; la facture d'Anthropic
+fait foi. Pour retirer l'accès : `delete from private.platform_admins where user_id =
+(select id from auth.users where email = '…');`.
 
 ---
 
@@ -411,6 +439,9 @@ l'écran revient à l'état réel.
   document est traité comme une donnée, jamais comme une instruction. Seules les
   vraies photos et les PDF sont acceptés (4 Mo au maximum), avec des limites d'usage
   (8 lectures par personne en 10 minutes, 40 par bar et par jour).
+- **Comptes agence** : déclarés dans une table privée de la base, inaccessible depuis le
+  site ; ils ne voient que les compteurs de lectures de chaque bar (ni commandes, ni
+  chiffre d'affaires, ni personnel).
 - **Liens de table** : 12 caractères aléatoires (générateur cryptographique), pages
   exclues des moteurs de recherche.
 - **Clés secrètes** (Supabase, Stripe, Anthropic) uniquement dans les variables Vercel,
@@ -445,7 +476,9 @@ l'écran revient à l'état réel.
 | « Base incomplète : exécutez… » | Exécute dans Supabase le dernier script du dossier `supabase/` (et les précédents s'ils manquent). |
 | Page **Statistiques** : « Base incomplète », ou l'export CSV renvoie « Export impossible » | Exécute `supabase/6-statistiques.sql` dans Supabase. |
 | Pages **Stocks** ou **Nouvelle commande** : « Base incomplète » | Exécute `supabase/7-stocks-et-commandes-serveur.sql` dans Supabase. |
-| **Scanner un bon** : « Pas encore activée » | Ajoute `ANTHROPIC_API_KEY` dans Vercel (voir 4.5), puis **Redeploy**. |
+| Le bouton **Scanner un bon** n'apparaît pas | Normal tant que `ANTHROPIC_API_KEY` n'est pas dans Vercel (voir 4.5, puis **Redeploy**). L'espace agence indique « Pas encore activée ». Le bouton n'apparaît pas non plus dans un bar qui n'a encore aucun article de stock. |
+| **Espace agence** : « Réservé à l'agence » | Le compte n'est pas déclaré comme compte agence : voir 4.6, étape 2. |
+| **Espace agence** : « Base incomplète » | Exécute `supabase/8-bons-de-livraison.sql` dans Supabase. |
 | **Scanner un bon** : « La clé ANTHROPIC_API_KEY est refusée » | Clé mal copiée ou supprimée : crée-en une nouvelle sur platform.claude.com, remplace-la dans Vercel, redéploie. |
 | **Scanner un bon** : « vérifiez le crédit du compte Anthropic » | Crédit épuisé ou limite mensuelle atteinte : platform.claude.com → **Billing**. |
 | **Scanner un bon** : « Base incomplète » | Exécute `supabase/8-bons-de-livraison.sql` dans Supabase. |
@@ -489,9 +522,10 @@ Organisation du code :
 | `src/app/admin/`, `src/components/admin/` | Espace gérant |
 | `src/app/bar/commande/`, `src/components/staff/` | Prise de commande par un serveur |
 | `src/app/stocks/`, `src/components/stock/` | Stocks |
+| `src/app/agence/` | Espace agence |
 | `src/app/api/` | Commandes, webhook Stripe, QR codes, lecture des bons (`stocks/scan`) |
 | `src/lib/` | Accès Supabase, Stripe et Claude (`delivery-scan-ai.ts`), types, formatage, configuration |
-| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison (8) |
+| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison et espace agence (8) |
 
 **Charte graphique Tapigo « Chic & Élégant »** : fond sable, cartes blanches, titres en
 *Cormorant Garamond*, texte en *Manrope*, boutons noir mat en pilule, doré en touche.

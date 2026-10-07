@@ -1,5 +1,5 @@
 -- =====================================================================
---  COMMANDE À TABLE — 8 : LECTURE DES BONS DE LIVRAISON PAR L'IA
+--  COMMANDE À TABLE — 8 : BONS DE LIVRAISON LUS PAR L'IA, ESPACE AGENCE
 --
 --  À exécuter une fois, APRÈS les scripts 1 à 7 :
 --  SQL Editor → New query → coller TOUT ce fichier → « Run ».
@@ -10,6 +10,9 @@
 --  l'IA propose les quantités reçues ; la personne vérifie, corrige,
 --  puis enregistre toute la livraison en une fois.
 --  Les photos ne sont pas conservées : seul le résultat est noté ici.
+--
+--  Espace agence (/agence) : les comptes de l'agence voient, pour chaque
+--  bar, le nombre de lectures et leur coût estimé. Rien d'autre.
 -- =====================================================================
 
 begin;
@@ -187,8 +190,115 @@ $$;
 
 
 -- ---------------------------------------------------------------------
+-- Espace agence : comptes de l'agence et usage de l'IA par bar
+-- ---------------------------------------------------------------------
+
+-- Ajouter un compte agence (après l'avoir créé dans Authentication → Users) :
+--   insert into private.platform_admins (user_id)
+--   select id from auth.users where email = 'email-du-compte-agence' on conflict do nothing;
+create table if not exists private.platform_admins (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+revoke all on private.platform_admins from public, anon, authenticated;
+
+create or replace function private.is_agency()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (select 1 from private.platform_admins where user_id = (select auth.uid()));
+$$;
+
+-- La personne connectée est-elle un compte agence ?
+create or replace function public.is_agency()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select private.is_agency();
+$$;
+
+-- Lectures de bons par bar pour un mois (heure de Paris), et mois disponibles
+create or replace function public.agency_get_usage(p_month date default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_current date := date_trunc('month', now() at time zone 'Europe/Paris')::date;
+  v_month   date := coalesce(date_trunc('month', p_month)::date, v_current);
+  v_from    timestamptz := v_month::timestamp at time zone 'Europe/Paris';
+  v_to      timestamptz := (v_month + interval '1 month')::timestamp at time zone 'Europe/Paris';
+begin
+  if not private.is_agency() then
+    raise exception 'ACCES_REFUSE';
+  end if;
+  return jsonb_build_object(
+    'month', v_month,
+    'current_month', v_current,
+    -- Mois avec des lectures, plus le mois en cours (12 au maximum, le plus récent d'abord)
+    'months', (
+      select jsonb_agg(m order by m desc)
+      from (
+        select m from (
+          select v_current as m
+          union
+          select date_trunc('month', created_at at time zone 'Europe/Paris')::date from public.stock_scans
+        ) x
+        order by m desc
+        limit 12
+      ) y
+    ),
+    'venues', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', v.id,
+        'name', v.name,
+        'scans', coalesce(u.scans, 0),
+        'read', coalesce(u.read, 0),
+        'applied', coalesce(u.applied, 0),
+        'failed', coalesce(u.failed, 0),
+        'pages', coalesce(u.pages, 0),
+        'input_tokens', coalesce(u.input_tokens, 0),
+        'output_tokens', coalesce(u.output_tokens, 0),
+        'last_scan_at', u.last_scan_at
+      ) order by coalesce(u.output_tokens, 0) * 5 + coalesce(u.input_tokens, 0) desc, lower(v.name))
+      from public.venues v
+      left join (
+        select s.venue_id,
+               count(*)                                              as scans,
+               count(*) filter (where s.status in ('read', 'applied')) as read,
+               count(*) filter (where s.status = 'applied')          as applied,
+               count(*) filter (where s.status = 'failed')           as failed,
+               sum(s.pages)                                          as pages,
+               sum(coalesce(s.input_tokens, 0))                      as input_tokens,
+               sum(coalesce(s.output_tokens, 0))                     as output_tokens,
+               max(s.created_at)                                     as last_scan_at
+        from public.stock_scans s
+        where s.created_at >= v_from and s.created_at < v_to
+        group by s.venue_id
+      ) u on u.venue_id = v.id
+    ), '[]'::jsonb)
+  );
+end;
+$$;
+
+
+-- ---------------------------------------------------------------------
 -- Droits
 -- ---------------------------------------------------------------------
+revoke execute on function private.is_agency()                                            from public, anon;
+revoke execute on function public.is_agency()                                             from public, anon;
+revoke execute on function public.agency_get_usage(date)                                  from public, anon;
+grant  execute on function private.is_agency()                                            to authenticated, service_role;
+grant  execute on function public.is_agency()                                             to authenticated, service_role;
+grant  execute on function public.agency_get_usage(date)                                  to authenticated, service_role;
 revoke execute on function public.stock_scan_begin(uuid, int)                              from public, anon;
 revoke execute on function public.stock_scan_finish(uuid, boolean, text, text, int, int, int) from public, anon;
 revoke execute on function public.stock_apply_delivery(uuid, jsonb, text)                  from public, anon;
