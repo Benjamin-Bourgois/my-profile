@@ -31,8 +31,9 @@ arrive aussitôt sur l'écran du bar avec le numéro de table, et le serveur la 
 | `/t/<lien-secret>/commande/<n°>` | Le client | Numéro de commande, statut mis à jour toutes les 3 s (Reçue → En préparation → Servie), « Commander à nouveau », appel du serveur |
 | `/bar` | Le personnel (tablette) | Commandes et appels des tables en temps réel avec signal sonore, numéro de table en très grand, boutons En préparation / Servie / Encaissé, pause des commandes |
 | `/bar/commande` | Les serveurs (téléphone ou tablette) | Prise de commande pour un client : table ou comptoir, articles, commentaire, « À encaisser » ou « Déjà encaissé » |
-| `/stocks` | Le personnel et le gérant | Stock de chaque article, alertes, livraisons, pertes, inventaires, historique ; le gérant crée les articles |
+| `/stocks` | Le personnel et le gérant | Stock de chaque article, alertes, livraisons, pertes, inventaires, historique, **bon de livraison lu par l'IA à partir d'une photo** ; le gérant crée les articles |
 | `/admin` | Le gérant | Commandes du jour et totaux (dont pourboires), carte, tables et cartes NFC, QR codes, réglages, pause des commandes |
+| `/agence` | L'agence (Tapigo) | Activation de l'IA, lectures de bons et coût estimé par bar et par mois |
 | `/connexion` | Personnel et gérant | Email + mot de passe |
 | `/` | Prospects | Page de présentation |
 
@@ -44,6 +45,7 @@ arrive aussitôt sur l'écran du bar avec le numéro de table, et le serveur la 
 | **Supabase** | Base de données, comptes du personnel, temps réel, photos | gratuit (pause après 7 jours sans visite : un clic pour réveiller) |
 | **Vercel** | Mise en ligne automatique à chaque mise à jour sur GitHub | gratuit (non commercial) |
 | **Stripe** | Paiement carte / Apple Pay / Google Pay | gratuit en test, commission sur les vrais paiements |
+| **Claude (Anthropic)** *(facultatif)* | Lecture des bons de livraison en photo | payé à l'usage : quelques centimes par bon (environ 0,05 à 0,15 € par page) |
 
 ### Les liens des cartes NFC
 
@@ -121,6 +123,11 @@ une tablette (le « bar »). Durée : 5 minutes.
 10. **Les stocks** — **« Stocks »** : le rhum, les citrons et la menthe ont baissé tout
     seuls. Note une **Livraison** de menthe. Les Olives (stock à 0) sont « Épuisé » sur
     la carte du client.
+11. **Le bon de livraison en photo** *(si la clé Claude est installée, voir 4.5)* —
+    **« Scanner un bon »**, photo d'une facture de fournisseur → **Lire le bon** : en
+    quelques secondes chaque produit est retrouvé dans le stock, les quantités converties
+    (« 6 bouteilles × 70 cl = 420 cl »), les lignes douteuses signalées « À vérifier ».
+    Corrige une quantité, puis **Ajouter au stock** : tout est enregistré en une fois.
 
 **Pour finir, l'espace gérant** (`/admin`)
 - Passe un produit en **Épuisé** : il est grisé sur le téléphone.
@@ -164,8 +171,10 @@ Tout se fait dans le navigateur, rien à installer sur l'ordinateur.
    [`supabase/5-ajouts.sql`](supabase/5-ajouts.sql) (appel du serveur, pourboire, pause),
    [`supabase/6-statistiques.sql`](supabase/6-statistiques.sql) (statistiques du gérant) et
    [`supabase/7-stocks-et-commandes-serveur.sql`](supabase/7-stocks-et-commandes-serveur.sql)
-   (stocks, commandes prises par les serveurs).
-   Les scripts 3 à 7 peuvent être relancés sans risque.
+   (stocks, commandes prises par les serveurs), et
+   [`supabase/8-bons-de-livraison.sql`](supabase/8-bons-de-livraison.sql)
+   (bons de livraison lus par l'IA, espace agence).
+   Les scripts 3 à 8 peuvent être relancés sans risque.
 7. **Authentication → Sign In / Providers** : désactive **Allow new users to sign up**
    (seuls les comptes que tu crées peuvent se connecter).
 8. Récupère 3 valeurs pour Vercel :
@@ -188,6 +197,7 @@ Tout se fait dans le navigateur, rien à installer sur l'ordinateur.
    | `SUPABASE_SECRET_KEY` | secret key | **Secret** |
    | `STRIPE_SECRET_KEY` | clé Stripe (voir 4.4) | **Secret** |
    | `STRIPE_WEBHOOK_SECRET` | secret du webhook Stripe (voir 4.4) | **Secret** |
+   | `ANTHROPIC_API_KEY` *(facultatif)* | clé Claude pour lire les bons de livraison (voir 4.5) | **Secret** |
    | `SITE_URL` *(facultatif)* | ton nom de domaine, ex. `https://commande.mon-bar.fr` | **Config** |
 
    ⚠️ Les variables `NEXT_PUBLIC_…` doivent être en **Config** (elles sont publiques par
@@ -225,6 +235,51 @@ Le mode test ne demande ni SIRET ni compte bancaire ; aucun argent réel ne circ
    - copie le **secret de signature** `whsec_…`.
 4. Ajoute `STRIPE_SECRET_KEY` et `STRIPE_WEBHOOK_SECRET` dans Vercel (type **Secret**),
    puis redéploie. Le choix **« Payer maintenant »** apparaît dans le panier.
+
+### 4.5 Claude (lecture des bons de livraison, facultatif)
+
+**Une seule clé, celle de l'agence, pour tous les bars** : les bars n'ont aucun compte à
+créer, et c'est l'agence qui paie l'usage. Sans cette clé, tout fonctionne ; le bouton
+**« Scanner un bon »** n'apparaît simplement pas dans la page Stocks des bars.
+
+1. Crée un compte sur la console d'Anthropic : <https://platform.claude.com>.
+2. **Billing** : ajoute une carte et achète un petit crédit (par exemple 10 $ : plusieurs
+   centaines de bons). Dans les réglages des **limites**, fixe une dépense maximale par
+   mois (par exemple 20 $) : jamais de mauvaise surprise.
+3. **API Keys → Create Key**, nom `commande-bar` → copie la clé `sk-ant-…` (elle ne
+   s'affiche qu'une fois). ⚠️ Ne la colle nulle part ailleurs que dans Vercel.
+4. Vercel → **Settings → Environment Variables** → `ANTHROPIC_API_KEY` = la clé, type
+   **Secret** → **Save**, puis **Deployments → ⋯ → Redeploy**.
+5. Page **Stocks** : le bouton **« Scanner un bon »** apparaît pour toute l'équipe de
+   chaque bar. L'**espace agence** (4.6) affiche « Activée ».
+
+Coût : quelques centimes par bon (environ 0,05 à 0,15 € par page), payés à Anthropic.
+Pour éviter les abus : 8 lectures par personne toutes les 10 minutes et 40 par bar et
+par jour au maximum (réglable dans `supabase/8-bons-de-livraison.sql`).
+
+### 4.6 L'espace agence (`/agence`)
+
+Une page réservée à l'agence : état de la lecture des bons par l'IA (activée ou non,
+avec les étapes pour l'activer) et, pour chaque mois, le nombre de lectures et leur
+coût estimé, bar par bar. Elle ne montre rien d'autre des bars (ni commandes ni chiffre
+d'affaires).
+
+1. Supabase → **Authentication → Users → Add user** : ton email d'agence et un mot de
+   passe, coche **Auto Confirm User**.
+2. **SQL Editor → New query** (remplace l'email par le tien) → **Run** :
+
+```sql
+insert into private.platform_admins (user_id)
+select id from auth.users where email = 'ton-email@agence.fr'
+on conflict do nothing;
+```
+
+3. Connecte-toi sur `/connexion` avec ce compte : tu arrives sur l'**Espace agence**
+   (ou ouvre directement `/agence`).
+
+Le coût affiché est une estimation d'après le tarif de Claude ; la facture d'Anthropic
+fait foi. Pour retirer l'accès : `delete from private.platform_admins where user_id =
+(select id from auth.users where email = '…');`.
 
 ---
 
@@ -291,6 +346,27 @@ Le mode test ne demande ni SIRET ni compte bancaire ; aucun argent réel ne circ
 - **Le gérant** crée, modifie et supprime les articles (bouton **Nouvel article**,
   crayon ✏️). Le bar de démo est livré avec 16 articles déjà reliés à la carte.
 
+### Scanner un bon de livraison (`/stocks` → « Scanner un bon »)
+
+1. **Prendre une photo** du bon ou de la facture (une photo par page, 4 au maximum), ou
+   **Choisir une photo ou un PDF** (la facture reçue par e-mail).
+2. **Lire le bon** : en 15 à 40 secondes, l'IA relève chaque produit livré, retrouve
+   l'article du stock correspondant et convertit la quantité dans son unité
+   (6 bouteilles de 70 cl → 420 cl ; 1 carton de 24 → 24 canettes). Elle ignore les
+   consignes, remises, frais de port et totaux.
+3. **Vérifier** : chaque ligne montre ce qui est écrit sur le bon, l'article proposé, la
+   quantité, le calcul et le stock obtenu. Les lignes **« À vérifier »** (conversion
+   incertaine, chiffre douteux, produit non trouvé) sont encadrées : corrige la
+   quantité ou l'article, ou choisis **« Ne pas ajouter »** (serviettes, produits
+   d'entretien…).
+4. **Ajouter au stock** : toute la livraison est enregistrée en une fois, dans
+   l'historique de chaque article (« 📸 Bon de livraison · DistriBoissons · n° F-123 »). Un même
+   bon ne peut pas être enregistré deux fois.
+
+Conseils : document à plat, bien éclairé, en entier dans la photo. Un produit souvent
+« non trouvé » ? Le gérant le crée avec **Nouvel article**, il sera reconnu la fois
+suivante. Rien ne change dans le stock tant que personne n'a appuyé sur **Ajouter au stock**.
+
 ### L'espace gérant (`/admin`, compte gérant uniquement)
 
 - **Commandes du jour** : chiffre d'affaires, nombre de commandes, payé en ligne,
@@ -355,10 +431,21 @@ l'écran revient à l'état réel.
   personnel saisit les mouvements ; seul le gérant crée ou supprime des articles.
 - **Commandes des serveurs** : réservées aux comptes du personnel du bar, prix toujours
   recalculés par la base, auteur enregistré.
+- **Bons de livraison lus par l'IA** : réservé au personnel connecté. La photo est
+  envoyée à Claude (Anthropic) uniquement pour la lecture ; l'application ne la
+  conserve pas. L'IA ne fait que **proposer** : rien ne change dans le stock avant la
+  validation par une personne, et la base revérifie chaque ligne (article de ce bar,
+  quantité raisonnable) et refuse d'enregistrer deux fois le même bon. Le texte du
+  document est traité comme une donnée, jamais comme une instruction. Seules les
+  vraies photos et les PDF sont acceptés (4 Mo au maximum), avec des limites d'usage
+  (8 lectures par personne en 10 minutes, 40 par bar et par jour).
+- **Comptes agence** : déclarés dans une table privée de la base, inaccessible depuis le
+  site ; ils ne voient que les compteurs de lectures de chaque bar (ni commandes, ni
+  chiffre d'affaires, ni personnel).
 - **Liens de table** : 12 caractères aléatoires (générateur cryptographique), pages
   exclues des moteurs de recherche.
-- **Clés secrètes** uniquement dans les variables Vercel, jamais dans le code ni dans
-  ce qui est envoyé aux téléphones (vérifié).
+- **Clés secrètes** (Supabase, Stripe, Anthropic) uniquement dans les variables Vercel,
+  jamais dans le code ni dans ce qui est envoyé aux téléphones (vérifié).
 - **En-têtes de sécurité** : politique de contenu (CSP : scripts du site uniquement,
   connexions limitées au site et à Supabase), interdiction d'afficher le site dans une
   autre page, etc. (`next.config.ts`). Si tu ajoutes un outil externe (statistiques,
@@ -389,6 +476,14 @@ l'écran revient à l'état réel.
 | « Base incomplète : exécutez… » | Exécute dans Supabase le dernier script du dossier `supabase/` (et les précédents s'ils manquent). |
 | Page **Statistiques** : « Base incomplète », ou l'export CSV renvoie « Export impossible » | Exécute `supabase/6-statistiques.sql` dans Supabase. |
 | Pages **Stocks** ou **Nouvelle commande** : « Base incomplète » | Exécute `supabase/7-stocks-et-commandes-serveur.sql` dans Supabase. |
+| Le bouton **Scanner un bon** n'apparaît pas | Normal tant que `ANTHROPIC_API_KEY` n'est pas dans Vercel (voir 4.5, puis **Redeploy**). L'espace agence indique « Pas encore activée ». Le bouton n'apparaît pas non plus dans un bar qui n'a encore aucun article de stock. |
+| **Espace agence** : « Réservé à l'agence » | Le compte n'est pas déclaré comme compte agence : voir 4.6, étape 2. |
+| **Espace agence** : « Base incomplète » | Exécute `supabase/8-bons-de-livraison.sql` dans Supabase. |
+| **Scanner un bon** : « La clé ANTHROPIC_API_KEY est refusée » | Clé mal copiée ou supprimée : crée-en une nouvelle sur platform.claude.com, remplace-la dans Vercel, redéploie. |
+| **Scanner un bon** : « vérifiez le crédit du compte Anthropic » | Crédit épuisé ou limite mensuelle atteinte : platform.claude.com → **Billing**. |
+| **Scanner un bon** : « Base incomplète » | Exécute `supabase/8-bons-de-livraison.sql` dans Supabase. |
+| **Scanner un bon** : lecture fausse ou incomplète | Reprends la photo plus nette, à plat, une page par photo ; corrige les lignes avant d'ajouter au stock. |
+| Le déploiement Vercel échoue en parlant de `maxDuration` | Vercel → **Settings → Functions** : active **Fluid Compute** (la lecture d'un bon peut durer plus de 60 s). |
 | Un produit est « Épuisé » alors qu'il en reste | Son stock (ou celui d'un de ses ingrédients) est à 0 dans **Stocks** : fais un **Inventaire** ou une **Livraison**. |
 | Après une mise à jour, plus aucune commande ne passe (« Petit souci technique ») ou l'écran du bar reste vide | Le dernier script SQL n'a pas été exécuté : lance le dernier script du dossier `supabase/` dans Supabase. Vercel → Logs : « Could not find the function ». |
 | « Envoi impossible » en ajoutant une photo | Stockage des images absent : relance la fin de `1-structure.sql` ou crée un bucket public `images` dans Supabase → Storage. |
@@ -427,9 +522,10 @@ Organisation du code :
 | `src/app/admin/`, `src/components/admin/` | Espace gérant |
 | `src/app/bar/commande/`, `src/components/staff/` | Prise de commande par un serveur |
 | `src/app/stocks/`, `src/components/stock/` | Stocks |
-| `src/app/api/` | Commandes, webhook Stripe, QR codes |
-| `src/lib/` | Accès Supabase et Stripe, types, formatage, configuration |
-| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7) |
+| `src/app/agence/` | Espace agence |
+| `src/app/api/` | Commandes, webhook Stripe, QR codes, lecture des bons (`stocks/scan`) |
+| `src/lib/` | Accès Supabase, Stripe et Claude (`delivery-scan-ai.ts`), types, formatage, configuration |
+| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison et espace agence (8) |
 
 **Charte graphique Tapigo « Chic & Élégant »** : fond sable, cartes blanches, titres en
 *Cormorant Garamond*, texte en *Manrope*, boutons noir mat en pilule, doré en touche.
@@ -481,4 +577,7 @@ where v.slug = 'nom-du-bar' and u.email = 'gerant@nom-du-bar.fr';
 - [ ] Mentions légales, CGV/CGU et politique de confidentialité (RGPD) sur le site.
 - [ ] Pourboires : vérifier avec le comptable du bar comment les reverser à l'équipe
       (ils sont encaissés avec la commande).
+- [ ] Lecture des bons : compte Anthropic au nom de Tapigo avec une limite de dépense
+      mensuelle ; coût à inclure dans l'abonnement du bar ; indiquer dans la politique
+      de confidentialité que les photos de bons sont envoyées à Anthropic pour lecture.
 - [ ] Tester le scénario de démonstration sur place, avec le wifi / la 4G du bar.

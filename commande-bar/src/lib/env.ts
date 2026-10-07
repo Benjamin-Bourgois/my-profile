@@ -71,3 +71,16 @@ export function stripeWebhookSecret(): string {
 export function isStripeConfigured(): boolean {
   return stripeSecretKey().length > 0 && stripeWebhookSecret().length > 0;
 }
+
+/**
+ * Clé API Anthropic (sk-ant-…), uniquement côté serveur : lecture des bons de
+ * livraison par l'IA. Facultative : sans elle, le reste du site fonctionne.
+ */
+export function anthropicApiKey(): string {
+  return clean(process.env.ANTHROPIC_API_KEY);
+}
+
+/** Lecture des bons de livraison disponible ? */
+export function isScanConfigured(): boolean {
+  return anthropicApiKey().length > 0;
+}

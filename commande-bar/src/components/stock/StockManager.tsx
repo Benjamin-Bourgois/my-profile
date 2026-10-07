@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { signOut } from "@/app/connexion/actions";
 import { Icon, type IconName } from "@/components/Icon";
 import { Sheet, SheetBody, SheetFooter } from "@/components/Sheet";
+import { ScanSheet } from "@/components/stock/ScanSheet";
 import { VenueMark } from "@/components/VenueMark";
 import { adminErrorMessage } from "@/lib/admin-errors";
 import type { StaffVenue } from "@/lib/staff";
@@ -30,7 +31,8 @@ type Move = "delivery" | "loss" | "count";
 type Panel =
   | { type: "move"; item: StockItem; kind: Move }
   | { type: "history"; item: StockItem }
-  | { type: "edit"; item: StockItem | null };
+  | { type: "edit"; item: StockItem | null }
+  | { type: "scan" };
 
 const TOAST_MS = 2600;
 
@@ -68,7 +70,7 @@ const UNIT_HINT: Partial<Record<StockUnit, string>> = {
 };
 
 /** Page « Stocks » : tout le personnel saisit livraisons, pertes et inventaires ; le gérant gère les articles. */
-export function StockManager({ venue, initial }: { venue: StaffVenue; initial: StockData }) {
+export function StockManager({ venue, initial, scanEnabled }: { venue: StaffVenue; initial: StockData; scanEnabled: boolean }) {
   const router = useRouter();
   const supabase = useMemo(() => getBrowserClient(), []);
   const [data, setData] = useState(initial);
@@ -151,12 +153,20 @@ export function StockManager({ venue, initial }: { venue: StaffVenue; initial: S
             <h2 className="text-[30px]">Stocks</h2>
             <p className="text-ink-2">Le stock baisse tout seul à chaque commande et remonte si elle est annulée.</p>
           </div>
-          {data.is_owner && (
-            <button type="button" onClick={() => setPanel({ type: "edit", item: null })} className="btn btn--primary btn--sm">
-              <Icon name="plus" size={16} />
-              Nouvel article
-            </button>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {scanEnabled && data.items.length > 0 && (
+              <button type="button" onClick={() => setPanel({ type: "scan" })} className="btn btn--primary btn--sm">
+                <Icon name="camera" size={16} />
+                Scanner un bon
+              </button>
+            )}
+            {data.is_owner && (
+              <button type="button" onClick={() => setPanel({ type: "edit", item: null })} className="btn btn--ghost btn--sm">
+                <Icon name="plus" size={16} />
+                Nouvel article
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -222,6 +232,10 @@ export function StockManager({ venue, initial }: { venue: StaffVenue; initial: S
               <strong className="text-ink">Livraison</strong> ajoute au stock, <strong className="text-ink">Perte</strong> le retire,{" "}
               <strong className="text-ink">Inventaire</strong> le remplace par la quantité comptée. Tout est noté dans l&apos;historique.
             </li>
+            <li>
+              <strong className="text-ink">Scanner un bon</strong> : prenez en photo le bon de livraison ou la facture, l&apos;IA propose
+              les quantités de chaque article ; vous vérifiez, puis toute la livraison est ajoutée en une fois.
+            </li>
           </ul>
         </details>
       </main>
@@ -229,6 +243,9 @@ export function StockManager({ venue, initial }: { venue: StaffVenue; initial: S
       {panel?.type === "move" && <MoveSheet item={panel.item} kind={panel.kind} onClose={closePanel} onDone={done} />}
       {panel?.type === "history" && <HistorySheet item={panel.item} timeZone={venue.timezone} onClose={closePanel} />}
       {panel?.type === "edit" && <EditSheet venueId={venue.id} item={panel.item} onClose={closePanel} onDone={done} />}
+      {panel?.type === "scan" && (
+        <ScanSheet venueId={venue.id} items={data.items} isOwner={data.is_owner} onClose={closePanel} onDone={done} />
+      )}
 
       {toast && (
         <div role="status" className="toast">

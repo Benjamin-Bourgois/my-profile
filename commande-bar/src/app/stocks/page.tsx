@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { ErreurTechnique } from "@/components/ErreurTechnique";
 import { StockManager } from "@/components/stock/StockManager";
 import { adminErrorMessage } from "@/lib/admin-errors";
+import { isScanConfigured } from "@/lib/env";
 import type { StockData } from "@/lib/stock";
 import { staffPageGuard } from "@/lib/staff-page";
 import { getServerClient } from "@/lib/supabase/server";
@@ -19,5 +20,5 @@ export default async function StocksPage() {
   const supabase = await getServerClient();
   const { data, error } = await supabase.rpc("get_stock", { p_venue_id: guard.venue.id });
   if (error) return <ErreurTechnique hint={adminErrorMessage(error)} />;
-  return <StockManager venue={guard.venue} initial={data as StockData} />;
+  return <StockManager venue={guard.venue} initial={data as StockData} scanEnabled={isScanConfigured()} />;
 }

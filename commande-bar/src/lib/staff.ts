@@ -21,6 +21,13 @@ export type StaffUser = { id: string; email: string | null };
  * La session est vérifiée localement (signature du jeton), sans aller-retour
  * vers Supabase Auth : les pages s'affichent plus vite.
  */
+/** La personne connectée est-elle un compte de l'agence (espace /agence) ? */
+export const isAgency = cache(async (): Promise<boolean> => {
+  const supabase = await getServerClient();
+  const { data, error } = await supabase.rpc("is_agency");
+  return !error && data === true;
+});
+
 export const getStaffSession = cache(async (): Promise<{ user: StaffUser; venues: StaffVenue[] } | null> => {
   const supabase = await getServerClient();
   const { data, error } = await supabase.auth.getClaims();
