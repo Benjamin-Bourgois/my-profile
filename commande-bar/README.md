@@ -117,7 +117,8 @@ une tablette (le « bar »). Durée : 5 minutes.
 **Pour finir, l'espace gérant** (`/admin`)
 - Passe un produit en **Épuisé** : il est grisé sur le téléphone.
 - Renomme la table de la carte : le nouveau nom s'affiche, **sans reprogrammer la carte**.
-- Montre les **Commandes du jour** et le chiffre d'affaires, puis la **planche de QR codes**.
+- Montre les **Commandes du jour** et le chiffre d'affaires, puis les **Statistiques**
+  (heures de pointe, meilleures ventes, tables, rapidité du service) et la **planche de QR codes**.
 
 Points forts à souligner : pas d'application, pas d'attente pour commander, le serveur
 ne fait plus d'allers-retours pour prendre la commande, paiement sécurisé par Stripe,
@@ -143,8 +144,9 @@ Tout se fait dans le navigateur, rien à installer sur l'ordinateur.
    (bar de démo, affiche les 10 liens de tables), puis
    [`supabase/3-etape-2.sql`](supabase/3-etape-2.sql) (écran du bar),
    [`supabase/4-etape-4.sql`](supabase/4-etape-4.sql) (espace gérant) et
-   [`supabase/5-ajouts.sql`](supabase/5-ajouts.sql) (appel du serveur, pourboire, pause).
-   Les scripts 3, 4 et 5 peuvent être relancés sans risque.
+   [`supabase/5-ajouts.sql`](supabase/5-ajouts.sql) (appel du serveur, pourboire, pause) et
+   [`supabase/6-statistiques.sql`](supabase/6-statistiques.sql) (statistiques du gérant).
+   Les scripts 3 à 6 peuvent être relancés sans risque.
 7. **Authentication → Sign In / Providers** : désactive **Allow new users to sign up**
    (seuls les comptes que tu crées peuvent se connecter).
 8. Récupère 3 valeurs pour Vercel :
@@ -248,6 +250,25 @@ Le mode test ne demande ni SIRET ni compte bancaire ; aucun argent réel ne circ
 - **Commandes du jour** : chiffre d'affaires, nombre de commandes, payé en ligne,
   encaissé au bar, reste à encaisser, pourboires (en plus du chiffre d'affaires) ;
   jours précédents.
+- **Statistiques** sur 7 jours, 30 jours, 90 jours, 12 mois ou les dates de ton choix,
+  comparées à la période précédente de même durée :
+  - chiffre d'affaires, commandes, panier moyen, articles vendus, pourboires, temps de
+    service moyen (avec l'évolution en %) ;
+  - points clés : jour le plus rentable, heure de pointe, produit star, table la plus
+    rentable, chiffre d'affaires par jour d'ouverture ;
+  - chiffre d'affaires par jour (par semaine sur 90 jours, par mois sur 12 mois) ;
+  - affluence par heure, par jour de la semaine, et carte de chaleur jour × heure ;
+  - meilleures ventes, part de chaque catégorie, produits jamais commandés ;
+  - classement des tables, répartition payé en ligne / au bar, pourboires ;
+  - rapidité du service (moyenne, médiane, % servies en moins de 10 min, prise en
+    charge) et appels des tables (nombre, temps de réponse) ;
+  - **Exporter les commandes (CSV)** de la période, à ouvrir dans Excel ou à envoyer au
+    comptable (séparateur « ; », montants avec virgule).
+
+  Survole (ou touche) une barre pour voir le détail ; « Voir les chiffres » sous chaque
+  graphique affiche le tableau complet. Les commandes annulées et les paiements en ligne
+  abandonnés ne sont pas comptés ; un temps de service de plus de 3 h (oubli de clic
+  « Servie ») est ignoré.
 - **⏸️ Pause des commandes** en haut de chaque page, comme sur l'écran du bar.
 - **Carte** : catégories et produits (nom, description, prix, photo, ordre),
   interrupteur **Disponible / Épuisé** immédiat chez les clients. Les photos sont
@@ -313,7 +334,8 @@ l'écran revient à l'état réel.
 | « La base n'est pas installée » | Exécute `supabase/1-structure.sql`. |
 | « Supabase est injoignable » / « Cette adresse Supabase n'existe pas » | `NEXT_PUBLIC_SUPABASE_URL` incorrecte ou en type *Secret* au lieu de *Config*, ou projet Supabase en pause (réactive-le sur supabase.com). Puis redéploie. |
 | « Carte non reconnue » | Lien incomplet, table désactivée ou lien régénéré. |
-| « Base incomplète : exécutez les scripts… » | Exécute `supabase/4-etape-4.sql` puis `supabase/5-ajouts.sql` dans Supabase. |
+| « Base incomplète : exécutez… » | Exécute dans Supabase le dernier script du dossier `supabase/` (et les précédents s'ils manquent). |
+| Page **Statistiques** : « Base incomplète », ou l'export CSV renvoie « Export impossible » | Exécute `supabase/6-statistiques.sql` dans Supabase. |
 | Après une mise à jour, plus aucune commande ne passe (« Petit souci technique ») ou l'écran du bar reste vide | Le dernier script SQL n'a pas été exécuté : lance `supabase/5-ajouts.sql` dans Supabase. Vercel → Logs : « Could not find the function ». |
 | « Envoi impossible » en ajoutant une photo | Stockage des images absent : relance la fin de `1-structure.sql` ou crée un bucket public `images` dans Supabase → Storage. |
 | « Payer maintenant » n'apparaît pas | `STRIPE_SECRET_KEY` ou `STRIPE_WEBHOOK_SECRET` manquante, ou pas redéployé. |
@@ -351,7 +373,7 @@ Organisation du code :
 | `src/app/admin/`, `src/components/admin/` | Espace gérant |
 | `src/app/api/` | Commandes, webhook Stripe, QR codes |
 | `src/lib/` | Accès Supabase et Stripe, types, formatage, configuration |
-| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5) |
+| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6) |
 
 **Charte graphique Tapigo « Chic & Élégant »** : fond sable, cartes blanches, titres en
 *Cormorant Garamond*, texte en *Manrope*, boutons noir mat en pilule, doré en touche.

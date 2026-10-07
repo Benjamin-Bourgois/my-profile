@@ -80,6 +80,7 @@
   --color-danger-soft: var(--danger-soft);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
+  --color-chart: var(--chart);
 
   --font-serif: var(--serif);
   --font-sans: var(--sans);
