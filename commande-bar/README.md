@@ -33,7 +33,7 @@ arrive aussitôt sur l'écran du bar avec le numéro de table, et le serveur la 
 | `/bar/commande` | Les serveurs (téléphone ou tablette) | Prise de commande pour un client : table ou comptoir, articles, commentaire, « À encaisser » ou « Déjà encaissé » |
 | `/stocks` | Le personnel et le gérant | Stock de chaque article, alertes, livraisons, pertes, inventaires, historique, **bon de livraison lu par l'IA à partir d'une photo** ; le gérant crée les articles |
 | `/admin` | Le gérant | Commandes du jour et totaux (dont pourboires), carte, tables et cartes NFC, QR codes, réglages, pause des commandes |
-| `/agence` | L'agence (Tapigo) | Activation de l'IA, lectures de bons et coût estimé par bar et par mois |
+| `/agence` | L'agence (Tapigo) | Tous les bars : création, comptes et mots de passe, suspension de l'abonnement, accès à l'espace gérant et à l'écran de chaque bar ; lecture des bons par l'IA (activation, coût par bar) |
 | `/connexion` | Personnel et gérant | Email + mot de passe |
 | `/` | Prospects | Page de présentation |
 
@@ -173,8 +173,11 @@ Tout se fait dans le navigateur, rien à installer sur l'ordinateur.
    [`supabase/7-stocks-et-commandes-serveur.sql`](supabase/7-stocks-et-commandes-serveur.sql)
    (stocks, commandes prises par les serveurs), et
    [`supabase/8-bons-de-livraison.sql`](supabase/8-bons-de-livraison.sql)
-   (bons de livraison lus par l'IA, espace agence).
-   Les scripts 3 à 8 peuvent être relancés sans risque.
+   (bons de livraison lus par l'IA, espace agence) et
+   [`supabase/9-gestion-des-bars.sql`](supabase/9-gestion-des-bars.sql)
+   (gestion des bars par l'agence, suspension).
+   Les scripts 3 à 9 peuvent être relancés sans risque (dans l'ordre : après avoir
+   relancé un script, relance aussi les suivants).
 7. **Authentication → Sign In / Providers** : désactive **Allow new users to sign up**
    (seuls les comptes que tu crées peuvent se connecter).
 8. Récupère 3 valeurs pour Vercel :
@@ -259,10 +262,8 @@ par jour au maximum (réglable dans `supabase/8-bons-de-livraison.sql`).
 
 ### 4.6 L'espace agence (`/agence`)
 
-Une page réservée à l'agence : état de la lecture des bons par l'IA (activée ou non,
-avec les étapes pour l'activer) et, pour chaque mois, le nombre de lectures et leur
-coût estimé, bar par bar. Elle ne montre rien d'autre des bars (ni commandes ni chiffre
-d'affaires).
+Ton poste de pilotage : un compte agence a accès à **tous les bars** (voir 5, « L'espace
+agence »). Pour créer ton compte agence :
 
 1. Supabase → **Authentication → Users → Add user** : ton email d'agence et un mot de
    passe, coche **Auto Confirm User**.
@@ -277,8 +278,7 @@ on conflict do nothing;
 3. Connecte-toi sur `/connexion` avec ce compte : tu arrives sur l'**Espace agence**
    (ou ouvre directement `/agence`).
 
-Le coût affiché est une estimation d'après le tarif de Claude ; la facture d'Anthropic
-fait foi. Pour retirer l'accès : `delete from private.platform_admins where user_id =
+Pour retirer un compte agence : `delete from private.platform_admins where user_id =
 (select id from auth.users where email = '…');`.
 
 ---
@@ -367,6 +367,34 @@ Conseils : document à plat, bien éclairé, en entier dans la photo. Un produit
 « non trouvé » ? Le gérant le crée avec **Nouvel article**, il sera reconnu la fois
 suivante. Rien ne change dans le stock tant que personne n'a appuyé sur **Ajouter au stock**.
 
+### L'espace agence (`/agence`, comptes agence uniquement)
+
+- **Bars et accès** : tous les bars avec leur état (Actif, En pause, Suspendu), leur
+  gérant, leurs commandes et leur chiffre d'affaires des 30 derniers jours.
+- **Nouveau bar** : le nom du bar et, si tu veux, l'email de son gérant. Le compte est
+  créé avec un **mot de passe provisoire** (proposé, modifiable) ; les identifiants
+  s'affichent une seule fois avec un bouton **Copier**, prêts à envoyer au client.
+- **Fiche d'un bar** (« Accès et abonnement ») :
+  - **Ouvrir ce bar** : **Espace gérant**, **Écran du bar** ou **Stocks**, exactement
+    comme le gérant (carte, tables, cartes NFC, réglages…). Un bandeau noir « Espace
+    agence » permet de revenir ; un menu en haut de l'espace gérant change de bar.
+  - **Accès** : chaque compte avec son rôle (**Gérant** : tout le bar ; **Équipe** :
+    écran du bar, prise de commande, stocks) et sa dernière connexion. Changer le rôle,
+    **Nouveau mot de passe** (affiché une fois), **Retirer l'accès**. **Donner un
+    accès** : nouvel email (compte créé) ou email existant (il garde son mot de passe).
+  - **Abonnement** : **Suspendre le bar** (avec une raison, visible par toi seul) quand
+    un client arrête son abonnement ou ne paie plus ; **Réactiver le bar** pour tout
+    rétablir.
+- **Ce que fait la suspension** : les clients qui scannent une table voient « Service
+  indisponible » et ne peuvent plus commander ni appeler ; l'équipe et le gérant voient
+  « Accès suspendu, contactez Tapigo » sur l'écran du bar, l'espace gérant et les
+  stocks. **Toutes les données sont conservées** et toi tu gardes l'accès complet.
+- **Lecture des bons (IA)** : activation de l'IA et, mois par mois, lectures et coût
+  estimé par bar (estimation d'après le tarif de Claude ; la facture d'Anthropic fait foi).
+
+Les clients ne peuvent pas changer eux-mêmes leur mot de passe : s'ils l'oublient,
+donne-leur-en un nouveau depuis leur fiche.
+
 ### L'espace gérant (`/admin`, compte gérant uniquement)
 
 - **Commandes du jour** : chiffre d'affaires, nombre de commandes, payé en ligne,
@@ -440,8 +468,13 @@ l'écran revient à l'état réel.
   vraies photos et les PDF sont acceptés (4 Mo au maximum), avec des limites d'usage
   (8 lectures par personne en 10 minutes, 40 par bar et par jour).
 - **Comptes agence** : déclarés dans une table privée de la base, inaccessible depuis le
-  site ; ils ne voient que les compteurs de lectures de chaque bar (ni commandes, ni
-  chiffre d'affaires, ni personnel).
+  site. Ils ont accès à tous les bars ; chaque action de l'espace agence est revérifiée
+  par la base. La création des comptes et les mots de passe passent par le serveur
+  (clé secrète Supabase), jamais par le navigateur ; un mot de passe n'est affiché
+  qu'une fois et l'espace agence ne peut pas modifier un autre compte agence.
+- **Suspension** appliquée par la base elle-même : plus aucune commande ni aucun appel
+  n'est accepté pour un bar suspendu (quel que soit le chemin), et son équipe perd
+  l'accès à toutes ses données. Seule l'agence peut suspendre ou réactiver.
 - **Liens de table** : 12 caractères aléatoires (générateur cryptographique), pages
   exclues des moteurs de recherche.
 - **Clés secrètes** (Supabase, Stripe, Anthropic) uniquement dans les variables Vercel,
@@ -478,7 +511,9 @@ l'écran revient à l'état réel.
 | Pages **Stocks** ou **Nouvelle commande** : « Base incomplète » | Exécute `supabase/7-stocks-et-commandes-serveur.sql` dans Supabase. |
 | Le bouton **Scanner un bon** n'apparaît pas | Normal tant que `ANTHROPIC_API_KEY` n'est pas dans Vercel (voir 4.5, puis **Redeploy**). L'espace agence indique « Pas encore activée ». Le bouton n'apparaît pas non plus dans un bar qui n'a encore aucun article de stock. |
 | **Espace agence** : « Réservé à l'agence » | Le compte n'est pas déclaré comme compte agence : voir 4.6, étape 2. |
-| **Espace agence** : « Base incomplète » | Exécute `supabase/8-bons-de-livraison.sql` dans Supabase. |
+| **Espace agence** : « Base incomplète » | Exécute `supabase/8-bons-de-livraison.sql` puis `supabase/9-gestion-des-bars.sql` dans Supabase. |
+| Un client voit « Service indisponible », ou l'équipe « Accès suspendu » | Le bar est suspendu : Espace agence → le bar → **Réactiver le bar**. |
+| Un client a oublié son mot de passe | Espace agence → le bar → **Nouveau mot de passe** sur son compte, puis envoie-le-lui. |
 | **Scanner un bon** : « La clé ANTHROPIC_API_KEY est refusée » | Clé mal copiée ou supprimée : crée-en une nouvelle sur platform.claude.com, remplace-la dans Vercel, redéploie. |
 | **Scanner un bon** : « vérifiez le crédit du compte Anthropic » | Crédit épuisé ou limite mensuelle atteinte : platform.claude.com → **Billing**. |
 | **Scanner un bon** : « Base incomplète » | Exécute `supabase/8-bons-de-livraison.sql` dans Supabase. |
@@ -522,10 +557,10 @@ Organisation du code :
 | `src/app/admin/`, `src/components/admin/` | Espace gérant |
 | `src/app/bar/commande/`, `src/components/staff/` | Prise de commande par un serveur |
 | `src/app/stocks/`, `src/components/stock/` | Stocks |
-| `src/app/agence/` | Espace agence |
+| `src/app/agence/`, `src/components/agency/` | Espace agence (bars, accès, suspension, IA) |
 | `src/app/api/` | Commandes, webhook Stripe, QR codes, lecture des bons (`stocks/scan`) |
 | `src/lib/` | Accès Supabase, Stripe et Claude (`delivery-scan-ai.ts`), types, formatage, configuration |
-| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison et espace agence (8) |
+| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison et espace agence (8), gestion des bars et suspension (9) |
 
 **Charte graphique Tapigo « Chic & Élégant »** : fond sable, cartes blanches, titres en
 *Cormorant Garamond*, texte en *Manrope*, boutons noir mat en pilule, doré en touche.
@@ -542,6 +577,13 @@ Organisation du code :
 ## 9. Ajouter un nouveau bar
 
 Chaque bar est totalement isolé des autres (tables, carte, commandes, personnel).
+
+**Le plus simple : l'espace agence** → **Nouveau bar** (nom du bar et email du gérant),
+puis envoie au gérant les identifiants affichés. Il se connecte sur `/admin`, crée sa
+carte et ses tables, puis programme ses cartes NFC (tu peux aussi le faire pour lui :
+fiche du bar → **Espace gérant**).
+
+Sans espace agence, à la main dans Supabase :
 
 1. Supabase → **Authentication → Users → Add user** : compte du gérant (Auto Confirm),
    et éventuellement un compte pour le personnel.
@@ -577,6 +619,8 @@ where v.slug = 'nom-du-bar' and u.email = 'gerant@nom-du-bar.fr';
 - [ ] Mentions légales, CGV/CGU et politique de confidentialité (RGPD) sur le site.
 - [ ] Pourboires : vérifier avec le comptable du bar comment les reverser à l'équipe
       (ils sont encaissés avec la commande).
+- [ ] CGV : ce qui se passe à l'arrêt de l'abonnement (suspension du service, durée de
+      conservation des données, export des commandes avant la fin).
 - [ ] Lecture des bons : compte Anthropic au nom de Tapigo avec une limite de dépense
       mensuelle ; coût à inclure dans l'abonnement du bar ; indiquer dans la politique
       de confidentialité que les photos de bons sont envoyées à Anthropic pour lecture.

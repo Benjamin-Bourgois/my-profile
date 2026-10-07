@@ -23,7 +23,7 @@ export function adminErrorMessage(error: { message?: string; code?: string } | n
   if (code in MESSAGES) return MESSAGES[code];
   if (/jwt|token/i.test(`${error?.code} ${code}`)) return "Session expirée : reconnectez-vous.";
   if (/could not find the function/i.test(code)) {
-    return "Base incomplète : exécutez dans Supabase (SQL Editor) le dernier script du dossier supabase (8-bons-de-livraison.sql), et les précédents s'ils ne l'ont pas été.";
+    return "Base incomplète : exécutez dans Supabase (SQL Editor) le dernier script du dossier supabase (9-gestion-des-bars.sql), et les précédents s'ils ne l'ont pas été.";
   }
   return "La modification n'a pas pu être enregistrée. Réessayez.";
 }

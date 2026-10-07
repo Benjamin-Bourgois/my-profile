@@ -41,3 +41,60 @@ export function formatDollars(amount: number): string {
   if (amount > 0 && amount < 0.005) return "< 0,01 $";
   return `${dollars.format(amount)} $`;
 }
+
+/* ------------------------------------------------------------------ */
+/* Bars et comptes (agency_get_venues / agency_get_venue)              */
+/* ------------------------------------------------------------------ */
+
+export type AgencyVenue = {
+  id: string;
+  name: string;
+  created_at: string;
+  suspended_at: string | null;
+  suspended_note: string | null;
+  orders_paused: boolean;
+  tables: number;
+  members: number;
+  owners: string[];
+  orders_30d: number;
+  revenue_30d_cents: number;
+  last_order_at: string | null;
+};
+
+export type AgencyMember = {
+  user_id: string;
+  email: string;
+  role: "owner" | "staff";
+  added_at: string;
+  last_sign_in_at: string | null;
+};
+
+export type AgencyVenueDetail = Omit<AgencyVenue, "orders_paused" | "members" | "owners"> & { members: AgencyMember[] };
+
+export const ROLE_LABEL: Record<AgencyMember["role"], string> = { owner: "Gérant", staff: "Équipe" };
+
+/** Résultat d'une action de l'espace agence (affiché sous le formulaire). */
+export type AgencyActionResult = {
+  error?: string;
+  done?: string;
+  venueId?: string;
+  /** Identifiants à transmettre (mot de passe affiché une seule fois) */
+  credentials?: { email: string; password: string; created: boolean };
+};
+
+const AGENCY_ERRORS: Record<string, string> = {
+  ACCES_REFUSE: "Réservé aux comptes de l'agence.",
+  INTROUVABLE: "Bar ou compte introuvable : la page a peut-être été modifiée entre-temps.",
+  NOM_INVALIDE: "Le nom du bar est obligatoire (80 caractères maximum).",
+  COMPTE_AGENCE: "Ce compte est un compte de l'agence : il a déjà accès à tous les bars.",
+};
+
+export function agencyErrorMessage(error: { message?: string; code?: string } | null | undefined): string {
+  const code = error?.message ?? "";
+  if (code in AGENCY_ERRORS) return AGENCY_ERRORS[code];
+  if (/could not find the function/i.test(code)) {
+    return "Base incomplète : exécutez dans Supabase (SQL Editor) le script supabase/9-gestion-des-bars.sql (après le 8).";
+  }
+  if (/jwt|token/i.test(`${error?.code} ${code}`)) return "Session expirée : reconnectez-vous.";
+  return "L'opération n'a pas pu être enregistrée. Réessayez.";
+}

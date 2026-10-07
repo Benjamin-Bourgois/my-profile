@@ -4,12 +4,13 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { signOut } from "@/app/connexion/actions";
+import { AccesSuspendu } from "@/components/AccesSuspendu";
 import { ConfigManquante } from "@/components/ConfigManquante";
 import { ErreurTechnique } from "@/components/ErreurTechnique";
 import { MessageScreen } from "@/components/MessageScreen";
 import { diagnose } from "@/lib/diagnose";
 import { missingConfig } from "@/lib/env";
-import { getStaffSession, isAgency, type StaffVenue } from "@/lib/staff";
+import { currentVenue, getStaffSession, isAgency, type StaffVenue } from "@/lib/staff";
 
 /**
  * Pages du personnel (écran du bar, prise de commande, stocks) : configuration,
@@ -28,8 +29,8 @@ export async function staffPageGuard(path: string): Promise<{ venue: StaffVenue 
   }
   if (!session) redirect(`/connexion?next=${path}`);
 
-  // Un compte peut appartenir à plusieurs bars ; pour l'instant on affiche le premier.
-  const venue = session.venues[0];
+  // Un compte peut avoir accès à plusieurs bars (l'agence : tous) : le bar ouvert en dernier.
+  const venue = await currentVenue(session.venues);
   if (!venue) {
     if (await isAgency()) redirect("/agence");
     return {
@@ -45,5 +46,6 @@ export async function staffPageGuard(path: string): Promise<{ venue: StaffVenue 
       ),
     };
   }
+  if (venue.suspended && !(await isAgency())) return { screen: <AccesSuspendu venueName={venue.name} /> };
   return { venue };
 }

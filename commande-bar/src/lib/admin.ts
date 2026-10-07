@@ -5,13 +5,13 @@ import { redirect } from "next/navigation";
 
 import type { AdminData, TableWithLink } from "@/lib/admin-types";
 import { siteUrl, tableUrl } from "@/lib/site-url";
-import { getStaffSession, type StaffVenue } from "@/lib/staff";
+import { currentVenue, getStaffSession, type StaffVenue } from "@/lib/staff";
 import { getServerClient } from "@/lib/supabase/server";
 
 /** Bar dont la personne connectée est gérante (le layout /admin a déjà vérifié l'accès). */
 export async function requireOwnerVenue(): Promise<StaffVenue> {
   const session = await getStaffSession();
-  const venue = session?.venues.find((v) => v.role === "owner");
+  const venue = session ? await currentVenue(session.venues, (v) => v.role === "owner") : undefined;
   if (!venue) redirect("/admin");
   return venue;
 }

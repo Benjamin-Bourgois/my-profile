@@ -28,12 +28,16 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
   MONTANT_TROP_FAIBLE: { status: 400, message: "Le paiement en ligne n'est possible qu'à partir de 0,50 €." },
   POURBOIRE_INVALIDE: { status: 400, message: "Le pourboire ne peut pas dépasser le montant de la commande." },
   TROP_D_APPELS: { status: 429, message: "Plusieurs appels viennent d'être envoyés. Un serveur va passer, merci de patienter." },
+  BAR_SUSPENDU: {
+    status: 403,
+    message: "La commande à table n'est pas disponible dans cet établissement pour le moment. Adressez-vous au personnel.",
+  },
 };
 
 export const GENERIC_ORDER_ERROR = "Petit souci technique, la commande n'est pas partie. Réessayez dans un instant.";
 
 /** Codes après lesquels la carte affichée doit être rechargée. */
-export const MENU_CHANGED_CODES = ["PRODUIT_INDISPONIBLE", "PRODUIT_INCONNU", "COMMANDES_EN_PAUSE", "STOCK_INSUFFISANT"];
+export const MENU_CHANGED_CODES = ["PRODUIT_INDISPONIBLE", "PRODUIT_INCONNU", "COMMANDES_EN_PAUSE", "STOCK_INSUFFISANT", "BAR_SUSPENDU"];
 
 /** `detail` : pour un manque de stock, le nom des produits concernés. */
 export function orderError(code: string, detail?: string | null): { status: number; message: string } {

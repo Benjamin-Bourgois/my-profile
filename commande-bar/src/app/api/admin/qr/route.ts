@@ -2,13 +2,13 @@ import QRCode from "qrcode";
 
 import { getAdminData } from "@/lib/admin";
 import { siteUrl, tableUrl } from "@/lib/site-url";
-import { getStaffSession } from "@/lib/staff";
+import { currentVenue, getStaffSession } from "@/lib/staff";
 
 /** QR code d'une table en PNG haute définition, à télécharger (réservé au gérant). */
 export async function GET(request: Request) {
   const tableId = new URL(request.url).searchParams.get("table") ?? "";
   const session = await getStaffSession().catch(() => null);
-  const venue = session?.venues.find((v) => v.role === "owner");
+  const venue = session ? await currentVenue(session.venues, (v) => v.role === "owner") : undefined;
   if (!venue) return new Response("Accès réservé au gérant", { status: 403 });
 
   const data = await getAdminData(venue.id).catch(() => null);
