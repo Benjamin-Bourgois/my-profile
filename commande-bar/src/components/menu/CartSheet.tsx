@@ -25,6 +25,8 @@ export function CartSheet({
   total,
   payment,
   paused,
+  suggestions,
+  onAddSuggestion,
   onClose,
   onChangeQuantity,
   onSubmit,
@@ -35,6 +37,9 @@ export function CartSheet({
   payment: { staff: boolean; online: boolean };
   /** Le bar a mis les commandes en pause. */
   paused: boolean;
+  /** « Souvent pris avec » : produits à proposer avec ce panier. */
+  suggestions: MenuProduct[];
+  onAddSuggestion: (productId: string) => void;
   onClose: () => void;
   onChangeQuantity: (productId: string, quantity: number) => void;
   /** Renvoie un message d'erreur, ou null si la commande est partie. */
@@ -118,6 +123,36 @@ export function CartSheet({
                 </li>
               ))}
             </ul>
+
+            {canOrder && suggestions.length > 0 && (
+              <section aria-labelledby="souvent-pris" className="mt-5">
+                <p id="souvent-pris" className="field-label">
+                  Souvent pris avec
+                </p>
+                <ul className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                  {suggestions.map((product) => (
+                    <li key={product.id} className="rise flex items-center gap-3 rounded-md border border-line bg-card p-3">
+                      {product.image_url && (
+                        <img src={product.image_url} alt="" className="h-12 w-12 shrink-0 rounded-sm object-cover" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold leading-snug">{product.name}</p>
+                        <p className="text-[13px] font-bold tabular-nums text-ink-2">{formatPrice(product.price_cents)}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onAddSuggestion(product.id)}
+                        aria-label={`Ajouter ${product.name}`}
+                        className="btn btn--soft btn--sm shrink-0"
+                      >
+                        <Icon name="plus" size={15} />
+                        Ajouter
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
             <label className="field mt-5">
               <span>Un commentaire ? (facultatif)</span>

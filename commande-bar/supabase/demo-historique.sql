@@ -60,6 +60,12 @@ declare
   v_table    int;
   v_product  int;
   v_used     int[];
+  -- ce qui se commande ensemble (bière → planche…) et suggestions de l'appli (script 10)
+  b_idx      int[];
+  c_idx      int[];
+  s_idx      int[];
+  v_snack    int;
+  v_conv     boolean := to_regclass('public.suggestion_conversions') is not null;
 begin
   -- Vérifications
   if not exists (select 1 from information_schema.columns
@@ -95,6 +101,11 @@ begin
     raise exception 'Le bar de démonstration doit avoir au moins un produit disponible et une table active.';
   end if;
   select sum(w) into p_total from unnest(p_weights) w;
+  select coalesce(array_agg(i) filter (where p_names[i] ~* 'pinte|demi|blanche|ipa|bi[eè]re'), '{}'),
+         coalesce(array_agg(i) filter (where p_names[i] ~* 'mojito|spritz|gin|cocktail'), '{}'),
+         coalesce(array_agg(i) filter (where p_names[i] ~* 'planche|olive|chips|frites'), '{}')
+    into b_idx, c_idx, s_idx
+  from generate_subscripts(p_ids, 1) i;
   select sum(w) into t_total from unnest(t_weights) w;
 
   -- L'ancien historique de démonstration est remplacé
@@ -176,6 +187,32 @@ begin
         v_total := v_total + v_qty * p_prices[v_product];
         v_items := v_items + v_qty;
       end loop;
+
+      -- À grignoter avec la bière ou les cocktails ; depuis 3 mois, souvent grâce à
+      -- « Souvent pris avec », et quelques tournées recommandées en un geste.
+      if cardinality(s_idx) > 0 and (
+           (v_used && b_idx and random() < 0.35) or (v_used && c_idx and random() < 0.25)) then
+        v_snack := s_idx[1 + floor(random() * cardinality(s_idx))::int];
+        if not v_snack = any (v_used) then
+          v_used := v_used || v_snack;
+          insert into public.order_items (order_id, venue_id, product_id, product_name, unit_price_cents, quantity, position)
+          values (v_order, v_venue.id, p_ids[v_snack], p_names[v_snack], p_prices[v_snack], 1, v_lines + 1);
+          v_total := v_total + p_prices[v_snack];
+          v_items := v_items + 1;
+          if v_conv and v_progress > 0.5 and random() < 0.6 then
+            execute 'insert into public.suggestion_conversions (order_id, venue_id, product_id, kind, quantity, amount_cents, created_at)
+                     values ($1, $2, $3, ''pairing'', 1, $4, $5) on conflict do nothing'
+              using v_order, v_venue.id, p_ids[v_snack], p_prices[v_snack], v_at;
+          end if;
+        end if;
+      end if;
+      if v_conv and v_progress > 0.5 and not v_cancel and random() < 0.06 then
+        execute 'insert into public.suggestion_conversions (order_id, venue_id, product_id, kind, quantity, amount_cents, created_at)
+                 select order_id, venue_id, product_id, ''reorder'', quantity, line_total_cents, $2
+                 from public.order_items where order_id = $1 and product_id is not null
+                 on conflict do nothing'
+          using v_order, v_at;
+      end if;
 
       -- Pourboire (paiement en ligne seulement)
       v_tip := 0;

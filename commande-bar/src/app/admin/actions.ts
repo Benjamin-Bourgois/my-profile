@@ -19,6 +19,8 @@ const ADMIN_FUNCTIONS = new Set([
   "admin_update_settings",
   "regenerate_table_token",
   "set_orders_paused",
+  "admin_set_suggestions_enabled",
+  "admin_set_product_pairings",
 ]);
 
 export type AdminActionResult = { error?: string; data?: unknown };

@@ -27,8 +27,8 @@ arrive aussitôt sur l'écran du bar avec le numéro de table, et le serveur la 
 
 | Adresse | Pour qui | Contenu |
 |---|---|---|
-| `/t/<lien-secret>` | Le client (adresse écrite dans la puce NFC / le QR code) | Nom du bar, « Table X », carte par catégories, produits épuisés grisés, panier, commentaire, paiement, pourboire, boutons « Appeler un serveur » / « L'addition », mention sur l'alcool |
-| `/t/<lien-secret>/commande/<n°>` | Le client | Numéro de commande, statut mis à jour toutes les 3 s (Reçue → En préparation → Servie), « Commander à nouveau », appel du serveur |
+| `/t/<lien-secret>` | Le client (adresse écrite dans la puce NFC / le QR code) | Nom du bar, « Table X », carte par catégories, produits épuisés grisés, panier avec suggestions « Souvent pris avec », commentaire, paiement, pourboire, boutons « Appeler un serveur » / « L'addition », mention sur l'alcool |
+| `/t/<lien-secret>/commande/<n°>` | Le client | Numéro de commande, statut mis à jour toutes les 3 s (Reçue → En préparation → Servie), « Une autre tournée ? » un quart d'heure après le service, « Commander à nouveau », appel du serveur |
 | `/bar` | Le personnel (tablette) | Commandes et appels des tables en temps réel avec signal sonore, numéro de table en très grand, boutons En préparation / Servie / Encaissé, pause des commandes |
 | `/bar/commande` | Les serveurs (téléphone ou tablette) | Prise de commande pour un client : table ou comptoir, articles, commentaire, « À encaisser » ou « Déjà encaissé » |
 | `/stocks` | Le personnel et le gérant | Stock de chaque article, alertes, livraisons, pertes, inventaires, historique, **bon de livraison lu par l'IA à partir d'une photo** ; le gérant crée les articles |
@@ -128,6 +128,10 @@ une tablette (le « bar »). Durée : 5 minutes.
     quelques secondes chaque produit est retrouvé dans le stock, les quantités converties
     (« 6 bouteilles × 70 cl = 420 cl »), les lignes douteuses signalées « À vérifier ».
     Corrige une quantité, puis **Ajouter au stock** : tout est enregistré en une fois.
+12. **Les suggestions** — Sur le téléphone, mets une **Pinte** dans le panier : « Souvent
+    pris avec » propose une planche ; **Ajouter** en un geste. Puis montre au patron la
+    carte noire **« Ce que l'application vous a rapporté »** en haut des **Statistiques** :
+    c'est l'argument qui fait signer.
 
 **Pour finir, l'espace gérant** (`/admin`)
 - Passe un produit en **Épuisé** : il est grisé sur le téléphone.
@@ -140,7 +144,9 @@ Pour montrer des statistiques parlantes, exécute une fois
 [`supabase/demo-historique.sql`](supabase/demo-historique.sql) dans Supabase (SQL Editor) :
 6 mois d'activité fictive mais réaliste pour **« Le Comptoir de Démo » uniquement**
 (soirées plus chargées le week-end, fermé le lundi, clientèle en hausse, pourboires,
-appels des tables). Les vraies commandes et les autres bars ne sont pas touchés ; on peut
+appels des tables, planches commandées avec la bière, et — si le script 10 est en
+place — les ventes dues aux suggestions des 3 derniers mois, pour le compteur
+« Ce que l'application vous a rapporté »). Les vraies commandes et les autres bars ne sont pas touchés ; on peut
 le relancer à tout moment (l'historique fictif est remplacé, toujours jusqu'à la veille).
 Pour l'effacer : [`supabase/demo-historique-effacer.sql`](supabase/demo-historique-effacer.sql).
 
@@ -175,8 +181,10 @@ Tout se fait dans le navigateur, rien à installer sur l'ordinateur.
    [`supabase/8-bons-de-livraison.sql`](supabase/8-bons-de-livraison.sql)
    (bons de livraison lus par l'IA, espace agence) et
    [`supabase/9-gestion-des-bars.sql`](supabase/9-gestion-des-bars.sql)
-   (gestion des bars par l'agence, suspension).
-   Les scripts 3 à 9 peuvent être relancés sans risque (dans l'ordre : après avoir
+   (gestion des bars par l'agence, suspension) et
+   [`supabase/10-suggestions.sql`](supabase/10-suggestions.sql)
+   (suggestions aux clients, ventes générées par l'application).
+   Les scripts 3 à 10 peuvent être relancés sans risque (dans l'ordre : après avoir
    relancé un script, relance aussi les suivants).
 7. **Authentication → Sign In / Providers** : désactive **Allow new users to sign up**
    (seuls les comptes que tu crées peuvent se connecter).
@@ -395,6 +403,24 @@ suivante. Rien ne change dans le stock tant que personne n'a appuyé sur **Ajout
 Les clients ne peuvent pas changer eux-mêmes leur mot de passe : s'ils l'oublient,
 donne-leur-en un nouveau depuis leur fiche.
 
+### Les suggestions : des ventes en plus, chiffrées
+
+- **« Souvent pris avec »** : dans le panier, le client voit 2 produits à ajouter en un
+  geste. Ils viennent des **vraies ventes du bar** (ce qui se commande ensemble ; une
+  bière appelle plutôt une planche qu'une autre bière). Le gérant peut imposer ses choix
+  pour un produit : Carte → Modifier → **Suggérer avec ce produit** (3 au plus, par
+  exemple pour pousser un cocktail maison). Un bar qui démarre, sans historique, se voit
+  proposer ses meilleures ventes d'une autre catégorie. Jamais de produit épuisé.
+- **« Une autre tournée ? »** : un quart d'heure après le service, la page de suivi
+  propose de reprendre la même chose ; le panier s'ouvre déjà rempli, le client vérifie
+  et envoie.
+- **Le compteur** : chaque article ajouté depuis une suggestion est noté. Le gérant voit
+  **« Ce que l'application vous a rapporté »** en haut des **Statistiques** (montant, part
+  du chiffre d'affaires, détail par type de suggestion) et un bandeau sur l'accueil
+  (« Ce mois-ci, l'application vous a rapporté … »). L'agence voit le même chiffre pour
+  chaque bar dans son espace. Seules les commandes servies ou payées comptent.
+- **Réglages → Suggestions aux clients** : un interrupteur pour tout désactiver.
+
 ### L'espace gérant (`/admin`, compte gérant uniquement)
 
 - **Commandes du jour** : chiffre d'affaires, nombre de commandes, payé en ligne,
@@ -472,6 +498,10 @@ l'écran revient à l'état réel.
   par la base. La création des comptes et les mots de passe passent par le serveur
   (clé secrète Supabase), jamais par le navigateur ; un mot de passe n'est affiché
   qu'une fois et l'espace agence ne peut pas modifier un autre compte agence.
+- **Suggestions** : calculées par la base à partir des ventes du bar uniquement ; les ventes
+  « grâce à l'appli » sont enregistrées par le serveur juste après la commande (10 minutes
+  au plus), seulement pour des produits réellement présents dans cette commande, avec
+  leur vrai prix.
 - **Suspension** appliquée par la base elle-même : plus aucune commande ni aucun appel
   n'est accepté pour un bar suspendu (quel que soit le chemin), et son équipe perd
   l'accès à toutes ses données. Seule l'agence peut suspendre ou réactiver.
@@ -513,6 +543,8 @@ l'écran revient à l'état réel.
 | **Espace agence** : « Réservé à l'agence » | Le compte n'est pas déclaré comme compte agence : voir 4.6, étape 2. |
 | **Espace agence** : « Base incomplète » | Exécute `supabase/8-bons-de-livraison.sql` puis `supabase/9-gestion-des-bars.sql` dans Supabase. |
 | Un client voit « Service indisponible », ou l'équipe « Accès suspendu » | Le bar est suspendu : Espace agence → le bar → **Réactiver le bar**. |
+| Pas de « Souvent pris avec » dans le panier | Exécute `supabase/10-suggestions.sql` ; vérifie **Réglages → Suggestions aux clients** ; il faut au moins un autre produit disponible à proposer. |
+| Pas de carte « Ce que l'application vous a rapporté » dans les Statistiques | Exécute `supabase/10-suggestions.sql`. Le montant se remplit au fil des commandes passées avec une suggestion. |
 | Un client a oublié son mot de passe | Espace agence → le bar → **Nouveau mot de passe** sur son compte, puis envoie-le-lui. |
 | **Scanner un bon** : « La clé ANTHROPIC_API_KEY est refusée » | Clé mal copiée ou supprimée : crée-en une nouvelle sur platform.claude.com, remplace-la dans Vercel, redéploie. |
 | **Scanner un bon** : « vérifiez le crédit du compte Anthropic » | Crédit épuisé ou limite mensuelle atteinte : platform.claude.com → **Billing**. |
@@ -559,8 +591,8 @@ Organisation du code :
 | `src/app/stocks/`, `src/components/stock/` | Stocks |
 | `src/app/agence/`, `src/components/agency/` | Espace agence (bars, accès, suspension, IA) |
 | `src/app/api/` | Commandes, webhook Stripe, QR codes, lecture des bons (`stocks/scan`) |
-| `src/lib/` | Accès Supabase, Stripe et Claude (`delivery-scan-ai.ts`), types, formatage, configuration |
-| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison et espace agence (8), gestion des bars et suspension (9) |
+| `src/lib/` | Accès Supabase, Stripe et Claude (`delivery-scan-ai.ts`), suggestions (`suggestions.ts`), types, formatage, configuration |
+| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7), bons de livraison et espace agence (8), gestion des bars et suspension (9), suggestions et ventes générées (10) |
 
 **Charte graphique Tapigo « Chic & Élégant »** : fond sable, cartes blanches, titres en
 *Cormorant Garamond*, texte en *Manrope*, boutons noir mat en pilule, doré en touche.

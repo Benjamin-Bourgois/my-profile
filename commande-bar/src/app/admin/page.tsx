@@ -1,10 +1,12 @@
 import Link from "next/link";
 
+import { AppSalesBanner } from "@/components/admin/AppSalesCard";
 import { ErreurTechnique } from "@/components/ErreurTechnique";
 import { Icon } from "@/components/Icon";
 import { requireOwnerVenue } from "@/lib/admin";
 import type { DayData } from "@/lib/admin-types";
 import { adminErrorMessage } from "@/lib/admin-errors";
+import type { AppSales } from "@/lib/app-sales";
 import { formatPrice, formatTime } from "@/lib/format";
 import { paymentLabel, type OrderStatus } from "@/lib/order-types";
 import { getServerClient } from "@/lib/supabase/server";
@@ -36,7 +38,10 @@ export default async function AdminDayPage(props: PageProps<"/admin">) {
   const date = typeof jour === "string" && /^\d{4}-\d{2}-\d{2}$/.test(jour) ? jour : null;
 
   const supabase = await getServerClient();
-  const { data, error } = await supabase.rpc("admin_get_day", { p_venue_id: venue.id, p_date: date });
+  const [{ data, error }, { data: appSales }] = await Promise.all([
+    supabase.rpc("admin_get_day", { p_venue_id: venue.id, p_date: date }),
+    supabase.rpc("admin_get_app_sales", { p_venue_id: venue.id, p_from: null, p_to: null }),
+  ]);
   if (error) return <ErreurTechnique hint={adminErrorMessage(error)} />;
   const day = data as DayData;
   const isToday = day.business_date === day.today;
@@ -64,6 +69,8 @@ export default async function AdminDayPage(props: PageProps<"/admin">) {
           </Link>
         </div>
       </div>
+
+      {isToday && appSales && <AppSalesBanner monthCents={(appSales as AppSales).month_cents} />}
 
       <section className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3" aria-label="Totaux">
         <Tile label="Chiffre d'affaires" value={formatPrice(day.totals.revenue_cents)} note="hors pourboires" />

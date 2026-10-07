@@ -4,9 +4,11 @@ import type { ReactNode } from "react";
 
 import { ErreurTechnique } from "@/components/ErreurTechnique";
 import { Icon, type IconName } from "@/components/Icon";
+import { AppSalesCard } from "@/components/admin/AppSalesCard";
 import { BarList, ChartCard, ColumnChart, DataTable, Heatmap, Meter } from "@/components/stats/Charts";
 import { requireOwnerVenue } from "@/lib/admin";
 import { adminErrorMessage } from "@/lib/admin-errors";
+import type { AppSales } from "@/lib/app-sales";
 import { formatPrice } from "@/lib/format";
 import {
   activeHours,
@@ -47,6 +49,8 @@ export default async function StatsPage(props: PageProps<"/admin/statistiques">)
   if (error) return <ErreurTechnique hint={adminErrorMessage(error)} />;
   const stats = data as StatsData;
   const { totals, previous, range } = stats;
+  // Ventes générées par les suggestions (absent si le script 10 n'a pas été exécuté)
+  const { data: appSales } = await supabase.rpc("admin_get_app_sales", { p_venue_id: venue.id, p_from: range.from, p_to: range.to });
   const exportHref = `/api/admin/export?du=${range.from}&au=${range.to}`;
 
   return (
@@ -63,6 +67,8 @@ export default async function StatsPage(props: PageProps<"/admin/statistiques">)
       </div>
 
       <PeriodFilter request={request} range={range} />
+
+      {appSales && <AppSalesCard sales={appSales as AppSales} />}
 
       {totals.orders === 0 ? (
         <p className="card !p-10 text-center text-ink-2">

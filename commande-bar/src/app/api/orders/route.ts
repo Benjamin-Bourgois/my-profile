@@ -10,7 +10,8 @@ import { getAdminClient } from "@/lib/supabase/admin";
 
 type OrderRequest = {
   token: string;
-  items: { product_id: string; quantity: number }[];
+  /** `suggestion` : article ajouté grâce à « Souvent pris avec » ou « Une autre tournée ? » */
+  items: { product_id: string; quantity: number; suggestion?: "pairing" | "reorder" }[];
   comment: string | null;
   payment_method: PaymentMethod;
   tip_cents: number;
@@ -25,10 +26,14 @@ function parse(body: unknown): OrderRequest | null {
   if (comment != null && (typeof comment !== "string" || comment.length > MAX_COMMENT_LENGTH)) return null;
   if (!Number.isInteger(tip_cents) || (tip_cents as number) < 0 || (tip_cents as number) > MAX_TIP_CENTS) return null;
   if (!Array.isArray(items) || items.length === 0 || items.length > 30) return null;
-  const lines = items.map((item) => ({
-    product_id: (item as Record<string, unknown>)?.product_id,
-    quantity: (item as Record<string, unknown>)?.quantity,
-  }));
+  const lines = items.map((item) => {
+    const suggestion = (item as Record<string, unknown>)?.suggestion;
+    return {
+      product_id: (item as Record<string, unknown>)?.product_id,
+      quantity: (item as Record<string, unknown>)?.quantity,
+      suggestion: suggestion === "pairing" || suggestion === "reorder" ? suggestion : undefined,
+    };
+  });
   const valid = lines.every(
     (line) =>
       typeof line.product_id === "string" &&
@@ -60,7 +65,7 @@ export async function POST(request: Request) {
 
   const { data, error } = await getAdminClient().rpc("create_order", {
     p_token: order.token,
-    p_items: order.items,
+    p_items: order.items.map(({ product_id, quantity }) => ({ product_id, quantity })),
     p_comment: order.comment,
     p_payment_method: order.payment_method,
     p_tip_cents: order.tip_cents,
@@ -75,6 +80,17 @@ export async function POST(request: Request) {
 
   const created = data as { id: string; order_number: number } | null;
   if (!created) return NextResponse.json({ error: GENERIC_ORDER_ERROR, code: "ERREUR" }, { status: 500 });
+
+  // Ventes générées par l'appli : sans incidence sur la commande si l'enregistrement échoue.
+  const suggested = order.items.flatMap((item) => (item.suggestion ? [{ product_id: item.product_id, kind: item.suggestion }] : []));
+  if (suggested.length) {
+    const { error: suggestionError } = await getAdminClient().rpc("record_suggestions", {
+      p_token: order.token,
+      p_order_id: created.id,
+      p_items: suggested,
+    });
+    if (suggestionError) console.error("Ventes des suggestions non enregistrées", suggestionError);
+  }
 
   if (order.payment_method === "online") {
     try {
