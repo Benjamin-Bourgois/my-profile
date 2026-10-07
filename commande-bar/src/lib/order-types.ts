@@ -39,6 +39,8 @@ export type CustomerOrder = {
   payment_status: PaymentStatus;
   /** Règlement au serveur choisi (absent avant le script 11) */
   staff_payment?: StaffPayment | null;
+  /** Payé en ligne par simulation, dans un bar de démonstration (script 12) */
+  demo_payment?: boolean;
   total_cents: number;
   tip_cents: number;
   comment: string | null;
@@ -57,6 +59,8 @@ export type BarOrder = {
   payment_status: PaymentStatus;
   /** Règlement au serveur (espèces, carte, les deux) */
   staff_payment?: StaffPayment | null;
+  /** Paiement en ligne simulé (bar de démonstration) */
+  demo_payment?: boolean;
   total_cents: number;
   tip_cents: number;
   comment: string | null;
@@ -91,9 +95,12 @@ export type BarOrders = {
   stock_alerts?: number;
 };
 
-/** Libellé du paiement, tel qu'affiché au bar : « À encaisser · Carte ». */
-export function paymentLabel(order: Pick<BarOrder, "payment_method" | "payment_status" | "staff_payment">): string {
-  if (order.payment_method === "online") return order.payment_status === "paid" ? "Payé en ligne" : "Paiement en cours";
+/** Libellé du paiement, tel qu'affiché au bar : « À encaisser · Carte », « Payé en ligne · démo ». */
+export function paymentLabel(order: Pick<BarOrder, "payment_method" | "payment_status" | "staff_payment" | "demo_payment">): string {
+  if (order.payment_method === "online") {
+    if (order.payment_status !== "paid") return "Paiement en cours";
+    return order.demo_payment ? "Payé en ligne · démo" : "Payé en ligne";
+  }
   const how = order.staff_payment ? ` · ${STAFF_PAYMENT_LABEL[order.staff_payment]}` : "";
   return `${order.payment_status === "paid" ? "Encaissé" : "À encaisser"}${how}`;
 }

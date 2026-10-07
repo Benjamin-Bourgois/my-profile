@@ -7,7 +7,7 @@ import { MessageScreen } from "@/components/MessageScreen";
 import { MenuOrder } from "@/components/menu/MenuOrder";
 import { diagnose } from "@/lib/diagnose";
 import { isStripeConfigured, missingConfig } from "@/lib/env";
-import { getMenu, getStaffPaymentOptions, getSuggestions, isTableVenueSuspended, type Menu } from "@/lib/menu";
+import { getDemoPayment, getMenu, getStaffPaymentOptions, getSuggestions, isTableVenueSuspended, type Menu } from "@/lib/menu";
 import type { StaffPaymentOptions } from "@/lib/order-types";
 import type { Suggestions } from "@/lib/suggestions";
 
@@ -34,12 +34,14 @@ export default async function TablePage(props: PageProps<"/t/[token]">) {
   let suspended: boolean;
   let suggestions: Suggestions | null;
   let staffOptions: StaffPaymentOptions | null;
+  let demoVenue: boolean;
   try {
-    [menu, suspended, suggestions, staffOptions] = await Promise.all([
+    [menu, suspended, suggestions, staffOptions, demoVenue] = await Promise.all([
       getMenu(token),
       isTableVenueSuspended(token),
       getSuggestions(token),
       getStaffPaymentOptions(token),
+      getDemoPayment(token),
     ]);
   } catch (error) {
     console.error("Lecture de la carte impossible", error);
@@ -54,9 +56,12 @@ export default async function TablePage(props: PageProps<"/t/[token]">) {
     );
   }
   if (!menu) return <CarteNonReconnue />;
+  // Sans Stripe, un bar de démonstration propose quand même le paiement en ligne (simulé)
+  const demo = demoVenue && !isStripeConfigured();
   const payment = {
     staff: menu.venue.pay_to_staff_enabled,
-    online: menu.venue.online_payment_enabled && isStripeConfigured(),
+    online: menu.venue.online_payment_enabled && (isStripeConfigured() || demo),
+    demo,
     // Espèces / carte au serveur (null : pas de choix à faire)
     staffOptions,
   };

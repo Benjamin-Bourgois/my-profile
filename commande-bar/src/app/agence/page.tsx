@@ -26,12 +26,14 @@ const plural = (n: number, word: string) => `${formatInteger(n)} ${word}${n > 1 
 export default async function AgencyBarsPage(props: PageProps<"/agence">) {
   const { filtre } = await props.searchParams;
   const supabase = await getServerClient();
-  const [{ data, error }, { data: appSalesData }] = await Promise.all([
+  const [{ data, error }, { data: appSalesData }, { data: demoData }] = await Promise.all([
     supabase.rpc("agency_get_venues"),
     supabase.rpc("agency_get_app_sales"), // absent si le script 10 n'a pas été exécuté
+    supabase.rpc("agency_get_demo_venues"), // absent si le script 12 n'a pas été exécuté
   ]);
   if (error) return <ErreurTechnique hint={agencyErrorMessage(error)} />;
   const appSales = (appSalesData ?? {}) as Record<string, number>;
+  const demoVenues = new Set((demoData ?? []) as string[]);
 
   const venues = data as AgencyVenue[];
   const active = venues.filter((v) => !v.suspended_at);
@@ -110,13 +112,16 @@ export default async function AgencyBarsPage(props: PageProps<"/agence">) {
                     {plural(venue.tables, "table")}
                   </p>
                 </div>
-                {venue.suspended_at ? (
-                  <span className="badge badge--danger shrink-0">Suspendu</span>
-                ) : venue.orders_paused ? (
-                  <span className="badge badge--warn shrink-0">En pause</span>
-                ) : (
-                  <span className="badge badge--ok shrink-0">Actif</span>
-                )}
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  {venue.suspended_at ? (
+                    <span className="badge badge--danger">Suspendu</span>
+                  ) : venue.orders_paused ? (
+                    <span className="badge badge--warn">En pause</span>
+                  ) : (
+                    <span className="badge badge--ok">Actif</span>
+                  )}
+                  {demoVenues.has(venue.id) && <span className="badge badge--gold">Démo</span>}
+                </div>
               </div>
               <p className="text-[14px] text-ink-2">
                 {venue.suspended_at ? (

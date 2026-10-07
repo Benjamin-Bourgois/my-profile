@@ -11,7 +11,7 @@ import {
   type PaymentMethod,
   type StaffPayment,
 } from "@/lib/order-types";
-import { getMenu, TOKEN_PATTERN } from "@/lib/menu";
+import { getDemoPayment, getMenu, TOKEN_PATTERN } from "@/lib/menu";
 import { getCustomerOrder } from "@/lib/orders";
 import { getAdminClient } from "@/lib/supabase/admin";
 
@@ -25,6 +25,8 @@ type OrderRequest = {
   staff_payment: StaffPayment | null;
   tip_cents: number;
 };
+
+const ONLINE_UNAVAILABLE = "Le paiement en ligne est momentanément indisponible. Choisissez « Payer au serveur » ou réessayez.";
 
 /** Vérifie la forme de la demande. Les prix ne sont jamais lus : la base les recalcule. */
 function parse(body: unknown): OrderRequest | null {
@@ -70,7 +72,9 @@ export async function POST(request: Request) {
   if (!order) {
     return NextResponse.json({ error: orderError("PANIER_INVALIDE").message, code: "PANIER_INVALIDE" }, { status: 400 });
   }
-  if (order.payment_method === "online" && !isStripeConfigured()) {
+  // Sans Stripe, seul un bar de démonstration accepte le paiement en ligne (simulé)
+  const demo = order.payment_method === "online" && !isStripeConfigured();
+  if (demo && !(await getDemoPayment(order.token))) {
     return NextResponse.json({ error: orderError("PAIEMENT_INDISPONIBLE").message, code: "PAIEMENT_INDISPONIBLE" }, { status: 400 });
   }
 
@@ -113,6 +117,23 @@ export async function POST(request: Request) {
     if (suggestionError) console.error("Ventes des suggestions non enregistrées", suggestionError);
   }
 
+  if (demo) {
+    const { data: started, error: demoError } = await getAdminClient().rpc("start_demo_payment", {
+      p_token: order.token,
+      p_order_id: created.id,
+    });
+    if (demoError || started !== true) {
+      console.error("Paiement de démonstration impossible", demoError);
+      await cancelUnstartedCheckout(created.id).catch(() => undefined);
+      return NextResponse.json({ error: ONLINE_UNAVAILABLE, code: "STRIPE" }, { status: 502 });
+    }
+    return NextResponse.json({
+      id: created.id,
+      order_number: created.order_number,
+      checkout_url: `/t/${order.token}/paiement-demo/${created.id}`,
+    });
+  }
+
   if (order.payment_method === "online") {
     try {
       const [savedOrder, menu] = await Promise.all([getCustomerOrder(created.id, order.token), getMenu(order.token)]);
@@ -127,10 +148,7 @@ export async function POST(request: Request) {
     } catch (checkoutError) {
       console.error("Ouverture du paiement Stripe impossible", checkoutError);
       await cancelUnstartedCheckout(created.id).catch(() => undefined);
-      return NextResponse.json(
-        { error: "Le paiement en ligne est momentanément indisponible. Choisissez « Payer au serveur » ou réessayez.", code: "STRIPE" },
-        { status: 502 },
-      );
+      return NextResponse.json({ error: ONLINE_UNAVAILABLE, code: "STRIPE" }, { status: 502 });
     }
   }
 

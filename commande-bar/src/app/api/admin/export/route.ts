@@ -13,6 +13,7 @@ type ExportedOrder = {
   payment_method: "online" | "staff";
   payment_status: "paid" | "unpaid";
   staff_payment?: "cash" | "card" | "mixed" | null;
+  demo_payment?: boolean;
   status: string;
   comment: string | null;
 };
@@ -71,7 +72,7 @@ export async function GET(request: Request) {
       o.items,
       euros(o.total_cents),
       euros(o.tip_cents),
-      o.payment_method === "online" ? "En ligne" : "Au bar",
+      o.payment_method === "online" ? (o.demo_payment ? "En ligne (démo)" : "En ligne") : "Au bar",
       o.staff_payment ? STAFF_PAYMENT_LABEL[o.staff_payment] : "",
       o.payment_status === "paid" ? "Oui" : "Non",
       STATUS[o.status] ?? o.status,

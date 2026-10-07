@@ -72,6 +72,24 @@ export async function createVenue(_previous: AgencyActionResult, formData: FormD
   };
 }
 
+/** Bar de démonstration : paiement en ligne simulé tant que Stripe n'est pas connecté. */
+export async function setDemoPayment(_previous: AgencyActionResult, formData: FormData): Promise<AgencyActionResult> {
+  const supabase = await agencyClient();
+  if (!supabase) return { error: agencyErrorMessage({ message: "ACCES_REFUSE" }) };
+  const venueId = field(formData, "venue_id");
+  const enabled = field(formData, "demo") === "1";
+  if (!UUID_PATTERN.test(venueId)) return { error: agencyErrorMessage({ message: "INTROUVABLE" }) };
+  const { error } = await supabase.rpc("agency_set_demo_payment", { p_venue_id: venueId, p_enabled: enabled });
+  if (error) {
+    if (/could not find the function/i.test(error.message)) {
+      return { error: "Base incomplète : exécutez dans Supabase (SQL Editor) le script supabase/12-paiement-demo.sql." };
+    }
+    return { error: agencyErrorMessage(error) };
+  }
+  revalidatePath("/agence", "layout");
+  return { done: enabled ? "Démonstration activée pour ce bar." : "Démonstration désactivée." };
+}
+
 /** Donne l'accès à un bar (nouveau compte ou compte existant). */
 export async function addMember(_previous: AgencyActionResult, formData: FormData): Promise<AgencyActionResult> {
   const supabase = await agencyClient();
