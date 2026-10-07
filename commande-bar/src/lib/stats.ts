@@ -214,15 +214,15 @@ export function formatPercent(part: number, total: number): string {
   return `${Math.round((part / total) * 100)} %`;
 }
 
-/** 694 → « 11 min 34 s » ; 127 → « 2 min 7 s » */
+/** 694 → « 11 min 34 » ; 127 → « 2 min 07 » ; 45 → « 45 s » (espaces insécables : jamais coupé) */
 export function formatDuration(seconds: number | null): string {
   if (seconds === null || !Number.isFinite(seconds)) return "—";
   const s = Math.round(seconds);
-  if (s < 60) return `${s} s`;
+  if (s < 60) return `${s}\u00a0s`;
   const minutes = Math.floor(s / 60);
-  const rest = s % 60;
-  if (minutes >= 60) return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")}`;
-  return rest ? `${minutes} min ${rest} s` : `${minutes} min`;
+  const rest = String(s % 60).padStart(2, "0");
+  if (minutes >= 60) return `${Math.floor(minutes / 60)}\u00a0h\u00a0${String(minutes % 60).padStart(2, "0")}`;
+  return `${minutes}\u00a0min\u00a0${rest}`;
 }
 
 /** Évolution par rapport à la période précédente (null si rien à comparer). */

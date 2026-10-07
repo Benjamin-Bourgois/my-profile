@@ -487,7 +487,7 @@ function Kpi({
       ) : (
         <small className={`flex flex-wrap items-center gap-x-1 font-semibold ${good === null ? "text-ink-2" : good ? "text-ok" : "text-danger"}`}>
           {rounded !== 0 && <Icon name={rounded > 0 ? "chevronUp" : "chevronDown"} size={14} />}
-          {`${rounded > 0 ? "+" : ""}${rounded} %`}
+          {rounded >= 300 ? `× ${formatInteger(Math.round(1 + (delta ?? 0)))}` : `${rounded > 0 ? "+" : ""}${rounded} %`}
           <span className="font-normal text-muted">{note}</span>
         </small>
       )}
