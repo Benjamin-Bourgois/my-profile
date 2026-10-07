@@ -7,7 +7,8 @@ import { MessageScreen } from "@/components/MessageScreen";
 import { MenuOrder } from "@/components/menu/MenuOrder";
 import { diagnose } from "@/lib/diagnose";
 import { isStripeConfigured, missingConfig } from "@/lib/env";
-import { getMenu, isTableVenueSuspended, type Menu } from "@/lib/menu";
+import { getMenu, getSuggestions, isTableVenueSuspended, type Menu } from "@/lib/menu";
+import type { Suggestions } from "@/lib/suggestions";
 
 // La carte doit toujours être à jour (produits indisponibles, table désactivée…).
 export const dynamic = "force-dynamic";
@@ -23,14 +24,16 @@ export async function generateMetadata(props: PageProps<"/t/[token]">): Promise<
 
 export default async function TablePage(props: PageProps<"/t/[token]">) {
   const { token } = await props.params;
+  const { panier } = await props.searchParams;
 
   const missing = missingConfig();
   if (missing.length) return <ConfigManquante missing={missing} />;
 
   let menu: Menu | null;
   let suspended: boolean;
+  let suggestions: Suggestions | null;
   try {
-    [menu, suspended] = await Promise.all([getMenu(token), isTableVenueSuspended(token)]);
+    [menu, suspended, suggestions] = await Promise.all([getMenu(token), isTableVenueSuspended(token), getSuggestions(token)]);
   } catch (error) {
     console.error("Lecture de la carte impossible", error);
     return <ErreurTechnique hint={diagnose(error)} />;
@@ -48,5 +51,5 @@ export default async function TablePage(props: PageProps<"/t/[token]">) {
     staff: menu.venue.pay_to_staff_enabled,
     online: menu.venue.online_payment_enabled && isStripeConfigured(),
   };
-  return <MenuOrder menu={menu} token={token} payment={payment} />;
+  return <MenuOrder menu={menu} token={token} payment={payment} suggestions={suggestions} openCart={panier === "1"} />;
 }

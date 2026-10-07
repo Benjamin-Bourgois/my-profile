@@ -24,9 +24,13 @@ export default async function AgencyBarPage(props: PageProps<"/agence/bars/[id]"
   const { id } = await props.params;
   if (!UUID_PATTERN.test(id)) notFound();
   const supabase = await getServerClient();
-  const { data, error } = await supabase.rpc("agency_get_venue", { p_venue_id: id });
+  const [{ data, error }, { data: appSalesData }] = await Promise.all([
+    supabase.rpc("agency_get_venue", { p_venue_id: id }),
+    supabase.rpc("agency_get_app_sales"), // absent si le script 10 n'a pas été exécuté
+  ]);
   if (error?.message === "INTROUVABLE") notFound();
   if (error) return <ErreurTechnique hint={agencyErrorMessage(error)} />;
+  const generated = ((appSalesData ?? {}) as Record<string, number>)[id] ?? 0;
 
   const venue = data as AgencyVenueDetail;
   const loginUrl = `${await siteUrl()}/connexion`;
@@ -43,14 +47,13 @@ export default async function AgencyBarPage(props: PageProps<"/agence/bars/[id]"
           <h2 className="break-words text-[30px]">{venue.name}</h2>
           {venue.suspended_at ? <span className="badge badge--danger">Suspendu</span> : <span className="badge badge--ok">Actif</span>}
         </div>
-        <p className="text-[14px] text-muted">Client depuis le {dateFormat.format(new Date(venue.created_at))}</p>
+        <p className="text-[14px] text-muted">
+          Client depuis le {dateFormat.format(new Date(venue.created_at))} · {formatInteger(venue.tables)} table
+          {venue.tables > 1 ? "s" : ""} active{venue.tables > 1 ? "s" : ""}
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="stat-tile">
-          <span>Tables actives</span>
-          <b>{formatInteger(venue.tables)}</b>
-        </div>
         <div className="stat-tile">
           <span>Commandes</span>
           <b>{formatInteger(venue.orders_30d)}</b>
@@ -60,6 +63,11 @@ export default async function AgencyBarPage(props: PageProps<"/agence/bars/[id]"
           <span>Chiffre d&apos;affaires</span>
           <b>{formatPrice(venue.revenue_30d_cents)}</b>
           <small>30 derniers jours</small>
+        </div>
+        <div className="stat-tile !border-gold">
+          <span>Grâce à l&apos;application</span>
+          <b>{formatPrice(generated)}</b>
+          <small>ventes en plus, 30 jours</small>
         </div>
         <div className="stat-tile">
           <span>Dernière commande</span>

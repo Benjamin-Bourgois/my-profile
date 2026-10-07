@@ -15,6 +15,7 @@ import { formatPrice } from "@/lib/format";
 import type { Menu } from "@/lib/menu";
 import { GENERIC_ORDER_ERROR, MENU_CHANGED_CODES } from "@/lib/order-errors";
 import { MAX_QUANTITY_PER_LINE, type PaymentMethod } from "@/lib/order-types";
+import { pickSuggestions, useOrigins, type Suggestions } from "@/lib/suggestions";
 
 const PAUSED_REFRESH_INTERVAL = 30_000;
 
@@ -23,15 +24,26 @@ export function MenuOrder({
   menu,
   token,
   payment,
+  suggestions,
+  openCart = false,
 }: {
   menu: Menu;
   token: string;
   payment: { staff: boolean; online: boolean };
+  suggestions: Suggestions | null;
+  /** Ouvrir le panier dès l'arrivée (« Une autre tournée ? » depuis le suivi). */
+  openCart?: boolean;
 }) {
   const router = useRouter();
   const [cart, setCart] = useCart(token);
+  const [origins, setOrigins] = useOrigins(token);
   const [recentOrders, setRecentOrders] = useRecentOrders(token);
-  const [cartOpen, setCartOpen] = useState(false);
+  const [cartOpen, setCartOpen] = useState(openCart);
+
+  // Panier ouvert depuis le suivi : on retire ?panier=1 pour qu'un rechargement ne le rouvre pas.
+  useEffect(() => {
+    if (openCart) router.replace(`/t/${token}`, { scroll: false });
+  }, [openCart, router, token]);
   const paused = menu.venue.orders_paused;
   const orderingEnabled = !paused && (payment.staff || payment.online);
 
@@ -51,6 +63,10 @@ export function MenuOrder({
     () => new Map(menu.categories.flatMap((category) => category.products).map((product) => [product.id, product])),
     [menu],
   );
+  const categoryOf = useMemo(
+    () => new Map(menu.categories.flatMap((category) => category.products.map((product) => [product.id, category.id] as const))),
+    [menu],
+  );
 
   // Seuls les produits encore disponibles comptent (la carte a pu changer).
   const lines: CartLine[] = useMemo(
@@ -66,14 +82,36 @@ export function MenuOrder({
   const total = lines.reduce((sum, line) => sum + line.quantity * line.product.price_cents, 0);
 
   const setQuantity = useCallback(
-    (productId: string, quantity: number) =>
+    (productId: string, quantity: number) => {
       setCart((current) => {
         const next = { ...current };
         if (quantity <= 0) delete next[productId];
         else next[productId] = Math.min(quantity, MAX_QUANTITY_PER_LINE);
         return next;
-      }),
-    [setCart],
+      });
+      if (quantity <= 0) {
+        setOrigins((current) => {
+          if (!(productId in current)) return current;
+          const next = { ...current };
+          delete next[productId];
+          return next;
+        });
+      }
+    },
+    [setCart, setOrigins],
+  );
+
+  // « Souvent pris avec » : l'article ajouté est compté comme vente de l'appli.
+  const suggested = useMemo(
+    () => pickSuggestions(lines.map((line) => line.product.id), suggestions, products, categoryOf),
+    [lines, suggestions, products, categoryOf],
+  );
+  const addSuggestion = useCallback(
+    (productId: string) => {
+      setQuantity(productId, (cart[productId] ?? 0) + 1);
+      setOrigins((current) => (current[productId] ? current : { ...current, [productId]: "pairing" }));
+    },
+    [cart, setQuantity, setOrigins],
   );
 
   const closeCart = useCallback(() => setCartOpen(false), []);
@@ -94,7 +132,7 @@ export function MenuOrder({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           token,
-          items: lines.map(({ product, quantity }) => ({ product_id: product.id, quantity })),
+          items: lines.map(({ product, quantity }) => ({ product_id: product.id, quantity, suggestion: origins[product.id] })),
           comment: comment.trim() || null,
           payment_method: paymentMethod,
           tip_cents: tipCents,
@@ -119,6 +157,7 @@ export function MenuOrder({
     }
     router.push(`/t/${token}/commande/${body.id}`);
     setCart(() => ({}));
+    setOrigins(() => ({}));
     return null;
   }
 
@@ -214,6 +253,8 @@ export function MenuOrder({
           total={total}
           payment={payment}
           paused={paused}
+          suggestions={suggested}
+          onAddSuggestion={addSuggestion}
           onClose={closeCart}
           onChangeQuantity={setQuantity}
           onSubmit={sendOrder}

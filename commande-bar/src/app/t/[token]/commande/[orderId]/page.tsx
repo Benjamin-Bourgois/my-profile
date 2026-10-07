@@ -7,7 +7,7 @@ import { MessageScreen } from "@/components/MessageScreen";
 import { OrderTracker } from "@/components/order/OrderTracker";
 import { diagnose } from "@/lib/diagnose";
 import { missingConfig } from "@/lib/env";
-import { getMenu } from "@/lib/menu";
+import { getMenu, getReorderOffer } from "@/lib/menu";
 import { getCustomerOrder } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +25,13 @@ export default async function OrderPage(props: PageProps<"/t/[token]/commande/[o
   const missing = missingConfig();
   if (missing.length) return <ConfigManquante missing={missing} />;
 
-  let order, menu;
+  let order, menu, reorderOffer;
   try {
-    [order, menu] = await Promise.all([getCustomerOrder(orderId, token), getMenu(token)]);
+    [order, menu, reorderOffer] = await Promise.all([
+      getCustomerOrder(orderId, token),
+      getMenu(token),
+      getReorderOffer(orderId, token),
+    ]);
   } catch (error) {
     console.error("Lecture de la commande impossible", error);
     return <ErreurTechnique hint={diagnose(error)} />;
@@ -52,6 +56,7 @@ export default async function OrderPage(props: PageProps<"/t/[token]/commande/[o
       token={token}
       venueName={menu?.venue.name ?? null}
       canReorder={!!menu}
+      reorderOffer={reorderOffer}
       paymentReturn={paymentReturn}
     />
   );

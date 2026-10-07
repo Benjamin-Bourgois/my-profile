@@ -26,14 +26,19 @@ const plural = (n: number, word: string) => `${formatInteger(n)} ${word}${n > 1 
 export default async function AgencyBarsPage(props: PageProps<"/agence">) {
   const { filtre } = await props.searchParams;
   const supabase = await getServerClient();
-  const { data, error } = await supabase.rpc("agency_get_venues");
+  const [{ data, error }, { data: appSalesData }] = await Promise.all([
+    supabase.rpc("agency_get_venues"),
+    supabase.rpc("agency_get_app_sales"), // absent si le script 10 n'a pas été exécuté
+  ]);
   if (error) return <ErreurTechnique hint={agencyErrorMessage(error)} />;
+  const appSales = (appSalesData ?? {}) as Record<string, number>;
 
   const venues = data as AgencyVenue[];
   const active = venues.filter((v) => !v.suspended_at);
   const shown = filtre === "actifs" ? active : filtre === "suspendus" ? venues.filter((v) => v.suspended_at) : venues;
   const orders = active.reduce((sum, v) => sum + v.orders_30d, 0);
   const revenue = active.reduce((sum, v) => sum + v.revenue_30d_cents, 0);
+  const generated = active.reduce((sum, v) => sum + (appSales[v.id] ?? 0), 0);
   const loginUrl = `${await siteUrl()}/connexion`;
 
   return (
@@ -50,12 +55,10 @@ export default async function AgencyBarsPage(props: PageProps<"/agence">) {
         <div className="stat-tile">
           <span>Bars actifs</span>
           <b>{formatInteger(active.length)}</b>
-          <small>sur {plural(venues.length, "bar")}</small>
-        </div>
-        <div className="stat-tile">
-          <span>Suspendus</span>
-          <b>{formatInteger(venues.length - active.length)}</b>
-          <small>abonnement arrêté</small>
+          <small>
+            sur {plural(venues.length, "bar")}
+            {venues.length > active.length && ` · ${plural(venues.length - active.length, "suspendu")}`}
+          </small>
         </div>
         <div className="stat-tile">
           <span>Commandes</span>
@@ -66,6 +69,11 @@ export default async function AgencyBarsPage(props: PageProps<"/agence">) {
           <span>Chiffre d&apos;affaires des bars</span>
           <b>{formatPrice(revenue)}</b>
           <small>30 derniers jours</small>
+        </div>
+        <div className="stat-tile !border-gold">
+          <span>Grâce à l&apos;application</span>
+          <b>{formatPrice(generated)}</b>
+          <small>ventes en plus (suggestions), 30 jours</small>
         </div>
       </div>
 
@@ -124,6 +132,12 @@ export default async function AgencyBarsPage(props: PageProps<"/agence">) {
                   </>
                 )}
               </p>
+              {!venue.suspended_at && (appSales[venue.id] ?? 0) > 0 && (
+                <p className="flex items-center gap-1.5 text-[14px] font-semibold text-gold-ink">
+                  <Icon name="sparkle" size={15} />
+                  {formatPrice(appSales[venue.id])} de ventes en plus grâce à l&apos;application (30 jours)
+                </p>
+              )}
               <div className="mt-auto flex flex-wrap items-center gap-2">
                 <Link href={`/agence/bars/${venue.id}`} className="btn btn--soft btn--sm">
                   <Icon name="lock" size={15} />

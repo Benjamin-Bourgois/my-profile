@@ -9,6 +9,7 @@ import { CallButtons } from "@/components/menu/CallButtons";
 import { useCart } from "@/lib/cart";
 import { formatPrice } from "@/lib/format";
 import { FINAL_STATUSES, type CustomerOrder, type OrderStatus } from "@/lib/order-types";
+import { REORDER_DELAY_MS, useOrigins, type ReorderOffer } from "@/lib/suggestions";
 
 const POLL_INTERVAL = 3000;
 /** Au-delà, on prévient le client que la confirmation du paiement tarde. */
@@ -45,19 +46,28 @@ export function OrderTracker({
   token,
   venueName,
   canReorder,
+  reorderOffer,
   paymentReturn,
 }: {
   initialOrder: CustomerOrder;
   token: string;
   venueName: string | null;
   canReorder: boolean;
+  /** « Une autre tournée ? » (null : suggestions désactivées par le bar) */
+  reorderOffer: ReorderOffer | null;
   /** Retour depuis la page de paiement Stripe (?paiement=ok ou ?paiement=annule). */
   paymentReturn: PaymentReturn;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const [, setCart] = useCart(token);
+  const [, setOrigins] = useOrigins(token);
   const [order, setOrder] = useState(initialOrder);
+  // Servie : à quel moment (donné par le bar, sinon constaté par cette page)
+  const [servedAt, setServedAt] = useState<number | null>(() =>
+    reorderOffer?.served_at ? Date.parse(reorderOffer.served_at) : initialOrder.status === "served" ? Date.now() : null,
+  );
+  const [offerReady, setOfferReady] = useState(false);
   const [connectionLost, setConnectionLost] = useState(false);
   const [slowPayment, setSlowPayment] = useState(false);
   const finished = FINAL_STATUSES.includes(order.status);
@@ -67,8 +77,31 @@ export function OrderTracker({
   useEffect(() => {
     if (paymentReturn !== "ok") return;
     setCart(() => ({}));
+    setOrigins(() => ({}));
     router.replace(pathname, { scroll: false });
-  }, [paymentReturn, pathname, router, setCart]);
+  }, [paymentReturn, pathname, router, setCart, setOrigins]);
+
+  // « Une autre tournée ? » : proposée un quart d'heure après le service.
+  useEffect(() => {
+    if (servedAt === null || !reorderOffer?.items.length) return;
+    const timer = window.setTimeout(() => setOfferReady(true), Math.max(0, servedAt + REORDER_DELAY_MS - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [servedAt, reorderOffer]);
+
+  function reorderSame() {
+    if (!reorderOffer) return;
+    setCart((current) => {
+      const next = { ...current };
+      for (const item of reorderOffer.items) next[item.product_id] = (next[item.product_id] ?? 0) + item.quantity;
+      return next;
+    });
+    setOrigins((current) => {
+      const next = { ...current };
+      for (const item of reorderOffer.items) next[item.product_id] ??= "reorder";
+      return next;
+    });
+    router.push(`/t/${token}?panier=1`);
+  }
 
   // Confirmation du paiement anormalement longue (webhook Stripe en retard).
   useEffect(() => {
@@ -83,7 +116,9 @@ export function OrderTracker({
       try {
         const response = await fetch(`/api/orders/${order.id}?t=${encodeURIComponent(token)}`, { cache: "no-store" });
         if (!response.ok) throw new Error(String(response.status));
-        setOrder(await response.json());
+        const next = (await response.json()) as CustomerOrder;
+        setOrder(next);
+        if (next.status === "served") setServedAt((current) => current ?? Date.now());
         setConnectionLost(false);
       } catch {
         setConnectionLost(true);
@@ -129,6 +164,24 @@ export function OrderTracker({
           )}
         </div>
       </section>
+
+      {canReorder && offerReady && order.status === "served" && reorderOffer && reorderOffer.items.length > 0 && (
+        <section aria-labelledby="autre-tournee" className="card rise mt-3 !border-gold !p-5">
+          <p className="eyebrow">Une autre tournée ?</p>
+          <h2 id="autre-tournee" className="mt-1 text-[26px] leading-tight">
+            La même chose, en un geste
+          </h2>
+          <p className="mt-1 text-ink-2">
+            {reorderOffer.items.map((item) => `${item.quantity} × ${item.name}`).join(" · ")}
+          </p>
+          <button type="button" onClick={reorderSame} className="btn btn--primary btn--block mt-4">
+            <Icon name="glass" size={18} />
+            Reprendre la même chose ·{" "}
+            {formatPrice(reorderOffer.items.reduce((sum, item) => sum + item.price_cents * item.quantity, 0))}
+          </button>
+          <p className="mt-2 text-center text-[13px] text-muted">Vous vérifiez votre panier avant d&apos;envoyer.</p>
+        </section>
+      )}
 
       {order.status !== "cancelled" && order.status !== "pending_payment" && (
         <ol className="card mt-3 !px-5 !py-4" aria-label="Avancement">
@@ -201,7 +254,10 @@ export function OrderTracker({
       )}
 
       {canReorder && (
-        <Link href={`/t/${token}`} className="btn btn--primary btn--block mt-4">
+        <Link
+          href={`/t/${token}`}
+          className={`btn btn--block mt-4 ${offerReady && reorderOffer?.items.length && order.status === "served" ? "btn--ghost" : "btn--primary"}`}
+        >
           {paymentCancelled || order.status === "cancelled" ? "Retour à la carte" : "Commander à nouveau"}
         </Link>
       )}

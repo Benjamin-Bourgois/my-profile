@@ -23,6 +23,8 @@ export function ProductForm({
   categoryId,
   categories,
   stockItems,
+  allProducts,
+  pairings,
   onClose,
 }: {
   venueId: string;
@@ -30,6 +32,10 @@ export function ProductForm({
   categoryId: string;
   categories: { id: string; name: string }[];
   stockItems: AdminStockItem[];
+  /** Produits de la carte, pour « Suggérer avec ce produit » (null : base sans le script 10). */
+  allProducts: { id: string; name: string }[] | null;
+  /** Suggestions choisies pour ce produit */
+  pairings: string[];
   onClose: () => void;
 }) {
   const { run, error, setError } = useAdminAction();
@@ -44,6 +50,9 @@ export function ProductForm({
   const [recipe, setRecipe] = useState(
     (product?.recipe ?? []).map((line) => ({ stock_item_id: line.stock_item_id, quantity: String(Number(line.quantity)).replace(".", ",") })),
   );
+  // « Souvent pris avec » choisi par le gérant (3 au plus)
+  const [suggested, setSuggested] = useState<string[]>(pairings);
+  const otherProducts = (allProducts ?? []).filter((p) => p.id !== product?.id);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -71,6 +80,15 @@ export function ProductForm({
         recipe: recipeLines,
       },
     });
+    if (result.ok && allProducts && suggested.join() !== pairings.join()) {
+      const saved = await run("admin_set_product_pairings", {
+        p_product_id: result.data,
+        p_suggested: [...new Set(suggested)],
+      });
+      setSaving(false);
+      if (saved.ok) onClose();
+      return;
+    }
     setSaving(false);
     if (result.ok) onClose();
   }
@@ -192,6 +210,54 @@ export function ProductForm({
                 </div>
               )}
             </div>
+
+            {allProducts && otherProducts.length > 0 && (
+              <div className="field">
+                <span>Suggérer avec ce produit (facultatif)</span>
+                <p className="text-[13px] text-muted">
+                  Dans le panier du client, proposés en premier avec « {name.trim() || "ce produit"} ». Sinon, l&apos;application choisit
+                  d&apos;après vos ventes.
+                </p>
+                <div className="grid gap-2">
+                  {suggested.map((id, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <select
+                        value={id}
+                        aria-label={`Suggestion ${index + 1}`}
+                        onChange={(e) => setSuggested((current) => current.map((s, i) => (i === index ? e.target.value : s)))}
+                        className="input min-w-0 flex-1"
+                      >
+                        {otherProducts.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        aria-label={`Retirer la suggestion ${index + 1}`}
+                        onClick={() => setSuggested((current) => current.filter((_, i) => i !== index))}
+                        className="icon-btn"
+                      >
+                        <Icon name="close" size={15} />
+                      </button>
+                    </div>
+                  ))}
+                  {suggested.length < 3 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSuggested((current) => [...current, (otherProducts.find((p) => !current.includes(p.id)) ?? otherProducts[0]).id])
+                      }
+                      className="btn btn--soft btn--sm justify-self-start"
+                    >
+                      <Icon name="sparkle" size={15} />
+                      Ajouter une suggestion
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </SheetBody>
 

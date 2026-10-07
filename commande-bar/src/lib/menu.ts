@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import type { ReorderOffer, Suggestions } from "@/lib/suggestions";
 import { getAdminClient } from "@/lib/supabase/admin";
 
 export type MenuProduct = {
@@ -55,4 +56,18 @@ export async function isTableVenueSuspended(token: string): Promise<boolean> {
   const { data, error } = await getAdminClient().rpc("get_table_venue_suspended", { p_token: token });
   // Base sans le script 9 : pas de suspension possible
   return !error && data === true;
+}
+
+/** Suggestions pour cette table (null : base sans le script 10, ou lien inconnu). */
+export async function getSuggestions(token: string): Promise<Suggestions | null> {
+  if (!TOKEN_PATTERN.test(token)) return null;
+  const { data, error } = await getAdminClient().rpc("get_suggestions", { p_token: token });
+  return error ? null : ((data as Suggestions | null) ?? null);
+}
+
+/** « Une autre tournée ? » pour une commande (null : suggestions désactivées ou base sans le script 10). */
+export async function getReorderOffer(orderId: string, token: string): Promise<ReorderOffer | null> {
+  if (!TOKEN_PATTERN.test(token)) return null;
+  const { data, error } = await getAdminClient().rpc("get_reorder_items", { p_order_id: orderId, p_token: token });
+  return error ? null : ((data as ReorderOffer | null) ?? null);
 }

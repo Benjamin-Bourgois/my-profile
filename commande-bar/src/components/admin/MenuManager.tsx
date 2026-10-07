@@ -18,10 +18,13 @@ export function MenuManager({
   venueId,
   categories: serverCategories,
   stockItems,
+  pairings,
 }: {
   venueId: string;
   categories: AdminCategory[];
   stockItems: AdminStockItem[];
+  /** Suggestions choisies par produit (null : base sans le script 10). */
+  pairings: Record<string, string[]> | null;
 }) {
   const { run, pending, error } = useAdminAction();
   // Carte affichée = carte du serveur + changements en cours d'enregistrement
@@ -204,6 +207,8 @@ export function MenuManager({
           categoryId={editing.categoryId}
           categories={categories.map(({ id, name }) => ({ id, name }))}
           stockItems={stockItems}
+          allProducts={pairings ? categories.flatMap((c) => c.products.map(({ id, name }) => ({ id, name }))) : null}
+          pairings={(editing.product && pairings?.[editing.product.id]) || []}
           onClose={() => setEditing(null)}
         />
       )}
