@@ -1,4 +1,4 @@
-import { getStaffSession } from "@/lib/staff";
+import { currentVenue, getStaffSession } from "@/lib/staff";
 import { getServerClient } from "@/lib/supabase/server";
 
 type ExportedOrder = {
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
   const from = params.get("du");
   const to = params.get("au");
   const session = await getStaffSession().catch(() => null);
-  const venue = session?.venues.find((v) => v.role === "owner");
+  const venue = session ? await currentVenue(session.venues, (v) => v.role === "owner") : undefined;
   if (!venue) return new Response("Accès réservé au gérant", { status: 403 });
 
   const supabase = await getServerClient();

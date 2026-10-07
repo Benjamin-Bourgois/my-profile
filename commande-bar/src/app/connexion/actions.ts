@@ -8,9 +8,9 @@ import { getServerClient } from "@/lib/supabase/server";
 export type LoginState = { error?: string; email?: string };
 
 /** N'accepte qu'une adresse interne au site (évite les redirections vers un autre site). */
-function safeNext(value: FormDataEntryValue | null): string {
+function safeNext(value: FormDataEntryValue | null): string | null {
   const next = typeof value === "string" ? value : "";
-  return next.startsWith("/") && !next.startsWith("//") ? next : "/bar";
+  return next.startsWith("/") && !next.startsWith("//") ? next : null;
 }
 
 export async function signIn(_previous: LoginState, formData: FormData): Promise<LoginState> {
@@ -28,7 +28,11 @@ export async function signIn(_previous: LoginState, formData: FormData): Promise
     console.error("Connexion impossible", error);
     return { error: `Connexion impossible. ${diagnose(error)}`, email };
   }
-  redirect(safeNext(formData.get("next")));
+  // Sans destination demandée : l'écran du bar, ou l'espace agence pour un compte de l'agence.
+  const next = safeNext(formData.get("next"));
+  if (next) redirect(next);
+  const { data: agency } = await supabase.rpc("is_agency");
+  redirect(agency === true ? "/agence" : "/bar");
 }
 
 export async function signOut() {

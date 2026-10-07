@@ -48,3 +48,11 @@ export const getMenu = cache(async (token: string): Promise<Menu | null> => {
   if (error) throw error;
   return (data as Menu | null) ?? null;
 });
+
+/** Le bar de cette table a-t-il été suspendu par l'agence (abonnement arrêté) ? */
+export async function isTableVenueSuspended(token: string): Promise<boolean> {
+  if (!TOKEN_PATTERN.test(token)) return false;
+  const { data, error } = await getAdminClient().rpc("get_table_venue_suspended", { p_token: token });
+  // Base sans le script 9 : pas de suspension possible
+  return !error && data === true;
+}
