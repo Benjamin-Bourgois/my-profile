@@ -200,6 +200,7 @@ create table if not exists private.platform_admins (
   user_id    uuid primary key references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
+alter table private.platform_admins enable row level security;   -- aucune règle : lisible seulement par les fonctions ci-dessous
 revoke all on private.platform_admins from public, anon, authenticated;
 
 create or replace function private.is_agency()
