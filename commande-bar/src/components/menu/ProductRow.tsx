@@ -23,6 +23,7 @@ export function ProductRow({
   onChange: (quantity: number) => void;
 }) {
   const canOrder = orderingEnabled && product.is_available;
+  const max = Math.min(MAX_QUANTITY_PER_LINE, product.remaining ?? MAX_QUANTITY_PER_LINE);
 
   return (
     <li className={`card rise flex gap-3 ${product.is_available ? "" : "opacity-60"}`} style={riseStyle(index)}>
@@ -32,6 +33,7 @@ export function ProductRow({
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
           <span className="text-[15px] font-bold tabular-nums">{formatPrice(product.price_cents)}</span>
           {!product.is_available && <span className="badge badge--danger">Épuisé</span>}
+          {product.is_available && !!product.remaining && <span className="badge badge--warn">Plus que {product.remaining}</span>}
           {quantity > 0 && product.is_available && <span className="badge badge--gold">{quantity} au panier</span>}
         </div>
       </div>
@@ -67,7 +69,7 @@ export function ProductRow({
               <button
                 type="button"
                 onClick={() => onChange(quantity + 1)}
-                disabled={quantity >= MAX_QUANTITY_PER_LINE}
+                disabled={quantity >= max}
                 aria-label={`Un ${product.name} de plus`}
                 className="grid h-[30px] w-[30px] place-items-center rounded-full active:bg-white/15 disabled:opacity-40"
               >

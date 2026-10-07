@@ -57,7 +57,8 @@ export function MenuOrder({
     () =>
       Object.entries(cart).flatMap(([id, quantity]) => {
         const product = products.get(id);
-        return product?.is_available ? [{ product, quantity }] : [];
+        // Jamais plus que ce qu'il reste en stock
+        return product?.is_available ? [{ product, quantity: Math.min(quantity, product.remaining ?? quantity) }] : [];
       }),
     [cart, products],
   );

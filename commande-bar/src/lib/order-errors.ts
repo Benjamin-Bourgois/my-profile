@@ -17,6 +17,10 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
     message: "Un produit de votre panier vient d'être épuisé. La carte a été mise à jour, vérifiez votre panier.",
   },
   PRODUIT_INCONNU: { status: 409, message: "La carte a changé. Vérifiez votre panier." },
+  STOCK_INSUFFISANT: {
+    status: 409,
+    message: "Il n'en reste plus assez en stock. La carte a été mise à jour, vérifiez votre panier.",
+  },
   PANIER_VIDE: { status: 400, message: "Votre panier est vide." },
   PANIER_INVALIDE: { status: 400, message: "Votre panier contient une erreur. Retirez les articles puis ajoutez-les à nouveau." },
   PANIER_TROP_GROS: { status: 400, message: "Commande trop importante : 20 exemplaires par produit et 50 articles au maximum." },
@@ -29,9 +33,16 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
 export const GENERIC_ORDER_ERROR = "Petit souci technique, la commande n'est pas partie. Réessayez dans un instant.";
 
 /** Codes après lesquels la carte affichée doit être rechargée. */
-export const MENU_CHANGED_CODES = ["PRODUIT_INDISPONIBLE", "PRODUIT_INCONNU", "COMMANDES_EN_PAUSE"];
+export const MENU_CHANGED_CODES = ["PRODUIT_INDISPONIBLE", "PRODUIT_INCONNU", "COMMANDES_EN_PAUSE", "STOCK_INSUFFISANT"];
 
-export function orderError(code: string): { status: number; message: string } {
+/** `detail` : pour un manque de stock, le nom des produits concernés. */
+export function orderError(code: string, detail?: string | null): { status: number; message: string } {
+  if (code === "STOCK_INSUFFISANT" && detail) {
+    return {
+      status: 409,
+      message: `Il ne reste plus assez de « ${detail} ». La carte a été mise à jour, vérifiez votre panier.`,
+    };
+  }
   return MESSAGES[code] ?? { status: 500, message: GENERIC_ORDER_ERROR };
 }
 

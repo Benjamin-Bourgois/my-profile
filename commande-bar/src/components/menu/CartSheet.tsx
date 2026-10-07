@@ -7,7 +7,7 @@ import { QuantityStepper } from "@/components/menu/QuantityStepper";
 import { Sheet, SheetBody, SheetFooter } from "@/components/Sheet";
 import { formatPrice, parsePrice } from "@/lib/format";
 import type { MenuProduct } from "@/lib/menu";
-import { MAX_COMMENT_LENGTH, MAX_TIP_CENTS, type PaymentMethod } from "@/lib/order-types";
+import { MAX_COMMENT_LENGTH, MAX_QUANTITY_PER_LINE, MAX_TIP_CENTS, type PaymentMethod } from "@/lib/order-types";
 
 export type CartLine = { product: MenuProduct; quantity: number };
 
@@ -112,6 +112,7 @@ export function CartSheet({
                   <QuantityStepper
                     quantity={quantity}
                     label={product.name}
+                    max={Math.min(MAX_QUANTITY_PER_LINE, product.remaining ?? MAX_QUANTITY_PER_LINE)}
                     onChange={(next) => onChangeQuantity(product.id, next)}
                   />
                 </li>

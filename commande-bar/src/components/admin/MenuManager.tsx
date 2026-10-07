@@ -6,7 +6,7 @@ import { inputClass, ProductForm } from "@/components/admin/ProductForm";
 import { Toggle } from "@/components/admin/Toggle";
 import { Icon } from "@/components/Icon";
 import { menuReducer, type MenuAction } from "@/lib/admin-reducers";
-import type { AdminCategory, AdminProduct } from "@/lib/admin-types";
+import type { AdminCategory, AdminProduct, AdminStockItem } from "@/lib/admin-types";
 import { formatPrice } from "@/lib/format";
 import { productEmoji } from "@/lib/style";
 import { useAdminAction } from "@/lib/use-admin-action";
@@ -14,7 +14,15 @@ import { useAdminAction } from "@/lib/use-admin-action";
 type Editing = { product: AdminProduct | null; categoryId: string };
 
 /** Gestion de la carte : catégories, produits, prix, photos, disponibilité. */
-export function MenuManager({ venueId, categories: serverCategories }: { venueId: string; categories: AdminCategory[] }) {
+export function MenuManager({
+  venueId,
+  categories: serverCategories,
+  stockItems,
+}: {
+  venueId: string;
+  categories: AdminCategory[];
+  stockItems: AdminStockItem[];
+}) {
   const { run, pending, error } = useAdminAction();
   // Carte affichée = carte du serveur + changements en cours d'enregistrement
   const [categories, applyOptimistic] = useOptimistic(serverCategories, menuReducer);
@@ -121,6 +129,7 @@ export function MenuManager({ venueId, categories: serverCategories }: { venueId
                 <div className={`min-w-40 flex-1 ${product.is_available ? "" : "opacity-55"}`}>
                   <p className="font-serif text-[20px] font-semibold leading-tight">{product.name}</p>
                   {product.description && <p className="line-clamp-1 text-[13px] text-ink-2">{product.description}</p>}
+                  <StockBadge remaining={product.remaining} />
                 </div>
                 <span className="w-20 text-right font-bold tabular-nums">{formatPrice(product.price_cents)}</span>
                 <span className="flex w-36 items-center gap-2">
@@ -194,6 +203,7 @@ export function MenuManager({ venueId, categories: serverCategories }: { venueId
           product={editing.product}
           categoryId={editing.categoryId}
           categories={categories.map(({ id, name }) => ({ id, name }))}
+          stockItems={stockItems}
           onClose={() => setEditing(null)}
         />
       )}
@@ -235,4 +245,12 @@ export function IconButton({ label, children, ...props }: React.ButtonHTMLAttrib
       {children}
     </button>
   );
+}
+
+/** Unités encore vendables d'après le stock (rien si le stock n'est pas suivi). */
+function StockBadge({ remaining }: { remaining: number | null }) {
+  if (remaining === null || remaining === undefined) return null;
+  if (remaining <= 0) return <span className="badge badge--danger mt-1">Rupture de stock</span>;
+  if (remaining <= 5) return <span className="badge badge--warn mt-1">Stock : {remaining}</span>;
+  return <span className="mt-1 block text-[12px] text-muted">Stock : de quoi en servir {remaining}</span>;
 }

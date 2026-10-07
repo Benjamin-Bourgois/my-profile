@@ -15,5 +15,5 @@ export default async function AdminMenuPage() {
   } catch (error) {
     return <ErreurTechnique hint={adminErrorMessage(error as { message?: string })} />;
   }
-  return <MenuManager venueId={venue.id} categories={data.categories} />;
+  return <MenuManager venueId={venue.id} categories={data.categories} stockItems={data.stock_items ?? []} />;
 }
