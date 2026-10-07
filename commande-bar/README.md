@@ -120,6 +120,15 @@ une tablette (le « bar »). Durée : 5 minutes.
 - Montre les **Commandes du jour** et le chiffre d'affaires, puis les **Statistiques**
   (heures de pointe, meilleures ventes, tables, rapidité du service) et la **planche de QR codes**.
 
+**Statistiques remplies pour la démo** : un bar qui démarre n'a pas encore d'historique.
+Pour montrer des statistiques parlantes, exécute une fois
+[`supabase/demo-historique.sql`](supabase/demo-historique.sql) dans Supabase (SQL Editor) :
+6 mois d'activité fictive mais réaliste pour **« Le Comptoir de Démo » uniquement**
+(soirées plus chargées le week-end, fermé le lundi, clientèle en hausse, pourboires,
+appels des tables). Les vraies commandes et les autres bars ne sont pas touchés ; on peut
+le relancer à tout moment (l'historique fictif est remplacé, toujours jusqu'à la veille).
+Pour l'effacer : [`supabase/demo-historique-effacer.sql`](supabase/demo-historique-effacer.sql).
+
 Points forts à souligner : pas d'application, pas d'attente pour commander, le serveur
 ne fait plus d'allers-retours pour prendre la commande, paiement sécurisé par Stripe,
 carte modifiable en un clic (rupture de stock), cartes NFC remplaçables à distance.
