@@ -11,6 +11,8 @@ export type MenuProduct = {
   price_cents: number;
   image_url: string | null;
   is_available: boolean;
+  /** S'il n'en reste que 5 ou moins en stock (sinon absent). */
+  remaining?: number | null;
 };
 
 export type MenuCategory = {

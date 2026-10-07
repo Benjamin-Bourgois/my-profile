@@ -263,14 +263,31 @@ export function BarScreen({ venue }: { venue: StaffVenue }) {
             </button>
           </form>
         </div>
-        <nav className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-3" aria-label="Affichage">
-          <button type="button" className="chip" aria-pressed={view === "active"} onClick={() => setView("active")}>
-            À préparer ({data?.active.length ?? 0})
-          </button>
-          <button type="button" className="chip" aria-pressed={view === "history"} onClick={() => setView("history")}>
-            Historique du jour ({data?.history.length ?? 0})
-          </button>
-        </nav>
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+          <nav className="flex flex-wrap gap-2" aria-label="Affichage">
+            <button type="button" className="chip" aria-pressed={view === "active"} onClick={() => setView("active")}>
+              À préparer ({data?.active.length ?? 0})
+            </button>
+            <button type="button" className="chip" aria-pressed={view === "history"} onClick={() => setView("history")}>
+              Historique du jour ({data?.history.length ?? 0})
+            </button>
+          </nav>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Link href="/stocks" className="btn btn--ghost btn--sm">
+              <Icon name="box" size={16} />
+              Stocks
+              {!!data?.stock_alerts && (
+                <span className="badge badge--danger" title="Articles à commander ou épuisés">
+                  {data.stock_alerts}
+                </span>
+              )}
+            </Link>
+            <Link href="/bar/commande" className="btn btn--primary btn--sm">
+              <Icon name="plus" size={16} />
+              Nouvelle commande
+            </Link>
+          </div>
+        </div>
       </header>
 
       {data?.orders_paused && (

@@ -69,7 +69,7 @@ export async function POST(request: Request) {
   if (error) {
     const code = isKnownOrderError(error.message) ? error.message : "ERREUR";
     if (code === "ERREUR") console.error("Création de commande impossible", error);
-    const { status, message } = orderError(code);
+    const { status, message } = orderError(code, error.details);
     return NextResponse.json({ error: message, code }, { status });
   }
 

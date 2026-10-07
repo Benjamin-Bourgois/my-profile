@@ -1,6 +1,7 @@
 // Données de l'espace gérant (partagées entre le serveur et le navigateur).
 
 import type { BarOrder } from "@/lib/order-types";
+import type { StockUnit } from "@/lib/stock";
 
 export type AdminProduct = {
   id: string;
@@ -10,7 +11,15 @@ export type AdminProduct = {
   price_cents: number;
   image_url: string | null;
   is_available: boolean;
+  /** Unités encore vendables d'après le stock (null : stock non suivi). */
+  remaining: number | null;
+  /** Ce que consomme une unité vendue. */
+  recipe: RecipeLine[];
 };
+
+export type RecipeLine = { stock_item_id: string; quantity: number };
+
+export type AdminStockItem = { id: string; name: string; unit: StockUnit; quantity: number };
 
 export type AdminCategory = { id: string; name: string; products: AdminProduct[] };
 
@@ -25,7 +34,12 @@ export type AdminSettings = {
   online_payment_enabled: boolean;
 };
 
-export type AdminData = { venue: AdminSettings; categories: AdminCategory[]; tables: AdminTable[] };
+export type AdminData = {
+  venue: AdminSettings;
+  categories: AdminCategory[];
+  tables: AdminTable[];
+  stock_items: AdminStockItem[];
+};
 
 export type DayTotals = {
   count: number;

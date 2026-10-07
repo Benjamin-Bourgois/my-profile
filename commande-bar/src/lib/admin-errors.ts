@@ -10,6 +10,12 @@ const MESSAGES: Record<string, string> = {
   PRIX_INVALIDE: "Prix invalide (entre 0 et 1 000 €).",
   DESCRIPTION_TROP_LONGUE: "La description est trop longue (300 caractères maximum).",
   IMAGE_INVALIDE: "Image invalide.",
+  NOM_DEJA_UTILISE: "Ce nom est déjà utilisé par un autre article de stock.",
+  UNITE_INVALIDE: "Unité invalide.",
+  QUANTITE_INVALIDE: "Quantité invalide : écrivez un nombre, par exemple 12 ou 0,5.",
+  RECETTE_INVALIDE: "Stock du produit invalide : choisissez un article et une quantité supérieure à 0.",
+  MOUVEMENT_INVALIDE: "Opération inconnue.",
+  NOTE_TROP_LONGUE: "La note est trop longue (200 caractères maximum).",
 };
 
 export function adminErrorMessage(error: { message?: string; code?: string } | null | undefined): string {
@@ -17,7 +23,7 @@ export function adminErrorMessage(error: { message?: string; code?: string } | n
   if (code in MESSAGES) return MESSAGES[code];
   if (/jwt|token/i.test(`${error?.code} ${code}`)) return "Session expirée : reconnectez-vous.";
   if (/could not find the function/i.test(code)) {
-    return "Base incomplète : exécutez dans Supabase (SQL Editor) le dernier script du dossier supabase (6-statistiques.sql), et les précédents s'ils ne l'ont pas été.";
+    return "Base incomplète : exécutez dans Supabase (SQL Editor) le dernier script du dossier supabase (7-stocks-et-commandes-serveur.sql), et les précédents s'ils ne l'ont pas été.";
   }
   return "La modification n'a pas pu être enregistrée. Réessayez.";
 }

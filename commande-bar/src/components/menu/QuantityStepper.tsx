@@ -8,10 +8,13 @@ export function QuantityStepper({
   quantity,
   label,
   onChange,
+  max = MAX_QUANTITY_PER_LINE,
 }: {
   quantity: number;
   label: string;
   onChange: (quantity: number) => void;
+  /** Au plus 20 par ligne, ou ce qu'il reste en stock. */
+  max?: number;
 }) {
   return (
     <div className="inline-flex items-center gap-1 rounded-full bg-sand-2 p-1">
@@ -29,7 +32,7 @@ export function QuantityStepper({
       <button
         type="button"
         onClick={() => onChange(quantity + 1)}
-        disabled={quantity >= MAX_QUANTITY_PER_LINE}
+        disabled={quantity >= max}
         aria-label={`Un ${label} de plus`}
         className="icon-btn"
       >

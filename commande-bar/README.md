@@ -30,6 +30,8 @@ arrive aussitôt sur l'écran du bar avec le numéro de table, et le serveur la 
 | `/t/<lien-secret>` | Le client (adresse écrite dans la puce NFC / le QR code) | Nom du bar, « Table X », carte par catégories, produits épuisés grisés, panier, commentaire, paiement, pourboire, boutons « Appeler un serveur » / « L'addition », mention sur l'alcool |
 | `/t/<lien-secret>/commande/<n°>` | Le client | Numéro de commande, statut mis à jour toutes les 3 s (Reçue → En préparation → Servie), « Commander à nouveau », appel du serveur |
 | `/bar` | Le personnel (tablette) | Commandes et appels des tables en temps réel avec signal sonore, numéro de table en très grand, boutons En préparation / Servie / Encaissé, pause des commandes |
+| `/bar/commande` | Les serveurs (téléphone ou tablette) | Prise de commande pour un client : table ou comptoir, articles, commentaire, « À encaisser » ou « Déjà encaissé » |
+| `/stocks` | Le personnel et le gérant | Stock de chaque article, alertes, livraisons, pertes, inventaires, historique ; le gérant crée les articles |
 | `/admin` | Le gérant | Commandes du jour et totaux (dont pourboires), carte, tables et cartes NFC, QR codes, réglages, pause des commandes |
 | `/connexion` | Personnel et gérant | Email + mot de passe |
 | `/` | Prospects | Page de présentation |
@@ -113,6 +115,12 @@ une tablette (le « bar »). Durée : 5 minutes.
 7. **Rush** — Sur la tablette, **« ⏸️ Pause des commandes »** : le téléphone affiche
    « Commandes en pause » et ne peut plus commander. **« ▶ Reprendre les commandes »**.
 8. **Recommander** — Sur le téléphone, **« Commander à nouveau »**.
+9. **Le serveur prend une commande** — Sur la tablette, **« + Nouvelle commande »** :
+   Table 4, deux Mojitos, « Déjà encaissé » → **Envoyer au bar**. La commande arrive
+   avec le badge « Serveur ».
+10. **Les stocks** — **« Stocks »** : le rhum, les citrons et la menthe ont baissé tout
+    seuls. Note une **Livraison** de menthe. Les Olives (stock à 0) sont « Épuisé » sur
+    la carte du client.
 
 **Pour finir, l'espace gérant** (`/admin`)
 - Passe un produit en **Épuisé** : il est grisé sur le téléphone.
@@ -153,9 +161,11 @@ Tout se fait dans le navigateur, rien à installer sur l'ordinateur.
    (bar de démo, affiche les 10 liens de tables), puis
    [`supabase/3-etape-2.sql`](supabase/3-etape-2.sql) (écran du bar),
    [`supabase/4-etape-4.sql`](supabase/4-etape-4.sql) (espace gérant) et
-   [`supabase/5-ajouts.sql`](supabase/5-ajouts.sql) (appel du serveur, pourboire, pause) et
-   [`supabase/6-statistiques.sql`](supabase/6-statistiques.sql) (statistiques du gérant).
-   Les scripts 3 à 6 peuvent être relancés sans risque.
+   [`supabase/5-ajouts.sql`](supabase/5-ajouts.sql) (appel du serveur, pourboire, pause),
+   [`supabase/6-statistiques.sql`](supabase/6-statistiques.sql) (statistiques du gérant) et
+   [`supabase/7-stocks-et-commandes-serveur.sql`](supabase/7-stocks-et-commandes-serveur.sql)
+   (stocks, commandes prises par les serveurs).
+   Les scripts 3 à 7 peuvent être relancés sans risque.
 7. **Authentication → Sign In / Providers** : désactive **Allow new users to sign up**
    (seuls les comptes que tu crées peuvent se connecter).
 8. Récupère 3 valeurs pour Vercel :
@@ -253,6 +263,33 @@ Le mode test ne demande ni SIRET ni compte bancaire ; aucun argent réel ne circ
   gérant peuvent l'activer.
 - **Pourboire** : proposé avec le paiement en ligne (Sans, 5 %, 10 % ou montant libre,
   au plus le montant de la commande) ; affiché « 🙏 Pourboire » sur la commande.
+- **+ Nouvelle commande** : un serveur prend la commande d'un client (sur la tablette ou
+  sur son téléphone, en ouvrant `/bar/commande` avec le compte du personnel) : il choisit
+  la table (ou « Comptoir »), les articles, ajoute un commentaire et indique si c'est
+  **À encaisser** ou **Déjà encaissé**. La commande arrive sur l'écran du bar avec le
+  badge « Serveur ». Possible même quand les commandes des clients sont en pause ; le
+  stock restant est affiché pour chaque produit.
+
+### Les stocks (`/stocks`, personnel et gérant)
+
+- Un **article de stock** est ce que le bar achète : un fût de bière (en litres), une
+  bouteille de rhum (en cl), des citrons (à l'unité), des portions de fromage…
+- Chaque produit de la carte peut **consommer** un ou plusieurs articles (Espace gérant →
+  Carte → Modifier → **Stock**) : un Mojito = 5 cl de rhum + 1 citron vert + 1 portion de
+  menthe ; une Pinte = 0,5 L de bière blonde.
+- **Décompte automatique** : à chaque commande (client ou serveur), le stock baisse ; il
+  remonte si la commande est annulée (par le bar, ou paiement en ligne abandonné). S'il
+  n'en reste plus assez, le produit passe **« Épuisé »** tout seul sur la carte des
+  clients ; quand il n'en reste que 5 ou moins, le client voit **« Plus que 3 »** et ne
+  peut pas en commander davantage.
+- **Toute l'équipe** peut saisir une **Livraison** (+), une **Perte / casse** (−) ou un
+  **Inventaire** (la quantité comptée remplace le stock) ; chaque mouvement est noté
+  dans l'**Historique** (qui, quand, pourquoi, n° de commande).
+- **Alertes** : un seuil par article ; les articles sous le seuil apparaissent dans
+  « À commander », et l'écran du bar affiche leur nombre sur le bouton « Stocks ».
+  « Environ N jours de stock » est estimé d'après les ventes des 7 derniers jours.
+- **Le gérant** crée, modifie et supprime les articles (bouton **Nouvel article**,
+  crayon ✏️). Le bar de démo est livré avec 16 articles déjà reliés à la carte.
 
 ### L'espace gérant (`/admin`, compte gérant uniquement)
 
@@ -312,6 +349,12 @@ l'écran revient à l'état réel.
   (paiement en ligne uniquement, au plus le montant de la commande et 100 €).
 - **Pause des commandes** vérifiée par la base : une commande envoyée pendant la pause
   est refusée, même si la page du client n'est pas à jour.
+- **Stocks** décomptés par la base, dans la même opération que la commande : deux clients
+  qui commandent en même temps les dernières bouteilles ne peuvent pas en obtenir plus
+  qu'il n'en reste (la deuxième commande est refusée avec un message clair). Le
+  personnel saisit les mouvements ; seul le gérant crée ou supprime des articles.
+- **Commandes des serveurs** : réservées aux comptes du personnel du bar, prix toujours
+  recalculés par la base, auteur enregistré.
 - **Liens de table** : 12 caractères aléatoires (générateur cryptographique), pages
   exclues des moteurs de recherche.
 - **Clés secrètes** uniquement dans les variables Vercel, jamais dans le code ni dans
@@ -345,7 +388,9 @@ l'écran revient à l'état réel.
 | « Carte non reconnue » | Lien incomplet, table désactivée ou lien régénéré. |
 | « Base incomplète : exécutez… » | Exécute dans Supabase le dernier script du dossier `supabase/` (et les précédents s'ils manquent). |
 | Page **Statistiques** : « Base incomplète », ou l'export CSV renvoie « Export impossible » | Exécute `supabase/6-statistiques.sql` dans Supabase. |
-| Après une mise à jour, plus aucune commande ne passe (« Petit souci technique ») ou l'écran du bar reste vide | Le dernier script SQL n'a pas été exécuté : lance `supabase/5-ajouts.sql` dans Supabase. Vercel → Logs : « Could not find the function ». |
+| Pages **Stocks** ou **Nouvelle commande** : « Base incomplète » | Exécute `supabase/7-stocks-et-commandes-serveur.sql` dans Supabase. |
+| Un produit est « Épuisé » alors qu'il en reste | Son stock (ou celui d'un de ses ingrédients) est à 0 dans **Stocks** : fais un **Inventaire** ou une **Livraison**. |
+| Après une mise à jour, plus aucune commande ne passe (« Petit souci technique ») ou l'écran du bar reste vide | Le dernier script SQL n'a pas été exécuté : lance le dernier script du dossier `supabase/` dans Supabase. Vercel → Logs : « Could not find the function ». |
 | « Envoi impossible » en ajoutant une photo | Stockage des images absent : relance la fin de `1-structure.sql` ou crée un bucket public `images` dans Supabase → Storage. |
 | « Payer maintenant » n'apparaît pas | `STRIPE_SECRET_KEY` ou `STRIPE_WEBHOOK_SECRET` manquante, ou pas redéployé. |
 | Paiement accepté mais rien au bar (« Paiement en cours… » qui dure) | Webhook : Stripe → Webhooks → ta destination → envois en échec. Vérifie l'URL `…/api/stripe/webhook` et le secret `whsec_…` de **cette** destination. Vercel → Logs : « Webhook Stripe refusé ». |
@@ -380,9 +425,11 @@ Organisation du code :
 | `src/app/t/` | Pages client (carte, suivi de commande) |
 | `src/app/bar/`, `src/components/bar/` | Écran du bar |
 | `src/app/admin/`, `src/components/admin/` | Espace gérant |
+| `src/app/bar/commande/`, `src/components/staff/` | Prise de commande par un serveur |
+| `src/app/stocks/`, `src/components/stock/` | Stocks |
 | `src/app/api/` | Commandes, webhook Stripe, QR codes |
 | `src/lib/` | Accès Supabase et Stripe, types, formatage, configuration |
-| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6) |
+| `supabase/` | Scripts SQL : structure et sécurité (1), démo (2), écran du bar (3), espace gérant (4), appels / pourboire / pause (5), statistiques (6), stocks et commandes des serveurs (7) |
 
 **Charte graphique Tapigo « Chic & Élégant »** : fond sable, cartes blanches, titres en
 *Cormorant Garamond*, texte en *Manrope*, boutons noir mat en pilule, doré en touche.

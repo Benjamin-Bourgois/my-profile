@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/admin/statistiques", label: "Statistiques" },
   { href: "/admin/carte", label: "Carte" },
   { href: "/admin/tables", label: "Tables & cartes NFC" },
+  { href: "/stocks", label: "Stocks" },
   { href: "/admin/reglages", label: "Réglages" },
 ];
 

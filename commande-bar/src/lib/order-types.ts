@@ -36,6 +36,8 @@ export type BarOrder = {
   total_cents: number;
   tip_cents: number;
   comment: string | null;
+  /** « staff » : commande prise par un serveur. */
+  source?: "client" | "staff";
   created_at: string;
   received_at: string | null;
   preparing_at: string | null;
@@ -61,6 +63,8 @@ export type BarOrders = {
   active: BarOrder[];
   history: BarOrder[];
   calls: TableCall[];
+  /** Articles de stock sous le seuil d'alerte ou épuisés. */
+  stock_alerts?: number;
 };
 
 /** Libellé du paiement, tel qu'affiché au bar. */

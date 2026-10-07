@@ -1,12 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { ImageField } from "@/components/admin/ImageField";
 import { Toggle } from "@/components/admin/Toggle";
 import { Sheet, SheetBody, SheetFooter } from "@/components/Sheet";
-import type { AdminProduct } from "@/lib/admin-types";
+import { Icon } from "@/components/Icon";
+import type { AdminProduct, AdminStockItem } from "@/lib/admin-types";
 import { parsePrice } from "@/lib/format";
+import { parseQuantity } from "@/lib/stock";
 import { useAdminAction } from "@/lib/use-admin-action";
 
 function priceToInput(cents: number): string {
@@ -19,12 +22,14 @@ export function ProductForm({
   product,
   categoryId,
   categories,
+  stockItems,
   onClose,
 }: {
   venueId: string;
   product: AdminProduct | null;
   categoryId: string;
   categories: { id: string; name: string }[];
+  stockItems: AdminStockItem[];
   onClose: () => void;
 }) {
   const { run, error, setError } = useAdminAction();
@@ -35,12 +40,21 @@ export function ProductForm({
   const [category, setCategory] = useState(product?.category_id ?? categoryId);
   const [imageUrl, setImageUrl] = useState<string | null>(product?.image_url ?? null);
   const [available, setAvailable] = useState(product?.is_available ?? true);
+  // Ce que consomme une unité vendue (quantités saisies en texte : « 0,25 »)
+  const [recipe, setRecipe] = useState(
+    (product?.recipe ?? []).map((line) => ({ stock_item_id: line.stock_item_id, quantity: String(Number(line.quantity)).replace(".", ",") })),
+  );
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
     const priceCents = parsePrice(price);
     if (priceCents === null) {
       setError("Prix invalide : écrivez par exemple 6,50 (maximum 1 000 €).");
+      return;
+    }
+    const recipeLines = recipe.map((line) => ({ stock_item_id: line.stock_item_id, quantity: parseQuantity(line.quantity) }));
+    if (recipeLines.some((line) => !line.quantity)) {
+      setError("Stock : indiquez pour chaque article une quantité supérieure à 0 (par exemple 1 ou 0,25).");
       return;
     }
     setSaving(true);
@@ -54,6 +68,7 @@ export function ProductForm({
         price_cents: priceCents,
         image_url: imageUrl,
         is_available: available,
+        recipe: recipeLines,
       },
     });
     setSaving(false);
@@ -99,6 +114,83 @@ export function ProductForm({
             <div className="flex items-center justify-between gap-3 rounded-md border border-line bg-card px-4 py-1.5">
               <span className="font-semibold">{available ? "Disponible" : "Épuisé (grisé sur la carte)"}</span>
               <Toggle checked={available} onChange={setAvailable} label="Disponible" />
+            </div>
+
+            <div className="field">
+              <span>Stock (facultatif)</span>
+              <p className="text-[13px] text-muted">
+                Ce que consomme un « {name.trim() || "produit"} » vendu : le stock baisse à chaque commande, et le produit passe « Épuisé »
+                tout seul quand il en manque.
+              </p>
+              {stockItems.length === 0 ? (
+                <p className="rounded-md bg-sand-2 px-4 py-3 text-[14px] text-ink-2">
+                  Aucun article de stock pour l&apos;instant :{" "}
+                  <Link href="/stocks" className="font-semibold text-ink underline">
+                    créez-les dans la page Stocks
+                  </Link>
+                  .
+                </p>
+              ) : (
+                <div className="grid gap-2">
+                  {recipe.map((line, index) => {
+                    const item = stockItems.find((s) => s.id === line.stock_item_id);
+                    return (
+                      <div key={index} className="flex items-center gap-2">
+                        <select
+                          value={line.stock_item_id}
+                          aria-label="Article de stock"
+                          onChange={(e) =>
+                            setRecipe((current) => current.map((l, i) => (i === index ? { ...l, stock_item_id: e.target.value } : l)))
+                          }
+                          className="input min-w-0 flex-1"
+                        >
+                          {stockItems.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          inputMode="decimal"
+                          value={line.quantity}
+                          aria-label={`Quantité de ${item?.name ?? "l'article"} par ${name.trim() || "produit"} vendu`}
+                          onChange={(e) =>
+                            setRecipe((current) => current.map((l, i) => (i === index ? { ...l, quantity: e.target.value } : l)))
+                          }
+                          className="input !w-20 text-right tabular-nums"
+                        />
+                        <span className="w-16 shrink-0 text-[13px] text-ink-2">{item?.unit}</span>
+                        <button
+                          type="button"
+                          aria-label={`Retirer ${item?.name ?? "cet article"}`}
+                          onClick={() => setRecipe((current) => current.filter((_, i) => i !== index))}
+                          className="icon-btn"
+                        >
+                          <Icon name="close" size={15} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {recipe.length < 10 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRecipe((current) => [
+                          ...current,
+                          {
+                            stock_item_id: (stockItems.find((s) => !current.some((l) => l.stock_item_id === s.id)) ?? stockItems[0]).id,
+                            quantity: "1",
+                          },
+                        ])
+                      }
+                      className="btn btn--soft btn--sm justify-self-start"
+                    >
+                      <Icon name="plus" size={15} />
+                      Ajouter un article de stock
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </SheetBody>
