@@ -1,0 +1,37 @@
+{
+  "name": "prospection",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent de prospection par email : Claude rédige, Gmail envoie, les relances et les réponses sont suivies.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "cycle": "node src/cli.ts cycle",
+    "verifier": "node src/cli.ts verifier",
+    "rediger": "node src/cli.ts rediger",
+    "apercu": "node src/cli.ts apercu",
+    "valider": "node src/cli.ts valider",
+    "envoyer": "node src/cli.ts envoyer",
+    "suivi": "node src/cli.ts suivi",
+    "test-connexion": "node src/cli.ts test-connexion",
+    "typecheck": "tsc --noEmit",
+    "rejeter": "node src/cli.ts rejeter",
+    "exclure": "node src/cli.ts exclure"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "csv-parse": "^7.0.3",
+    "imapflow": "^1.0.0",
+    "mailparser": "^3.12.4",
+    "nodemailer": "^10.2.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.9.0",
+    "@types/node": "^22",
+    "@types/nodemailer": "^8.0.2",
+    "typescript": "^5.9.0"
+  }
+}

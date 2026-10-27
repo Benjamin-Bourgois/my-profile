@@ -1,0 +1,5 @@
+node_modules/
+.env
+# Données personnelles des prospects : jamais sur GitHub
+prospects.csv
+donnees/
