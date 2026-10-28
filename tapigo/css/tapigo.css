@@ -907,3 +907,6 @@ button.table-badge:active { transform: scale(.96); }
   .date-row__actions { justify-content: flex-start; }
 }
 .member-station { height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; font: inherit; font-size: 13px; }
+.label-scan { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.label-scan .btn { cursor: pointer; }
+.scan-row select[data-dated-station] { min-width: 0; height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; font: inherit; font-size: 14px; }

@@ -324,6 +324,8 @@
     // Gérant : comptes du restaurant et poste de chaque compte équipe.
     team: function () { return rpc('team_members', { p_restaurant: current.id }); },
     setStation: function (user, station) { return rpc('set_member_station', { p_restaurant: current.id, p_user: user, p_station: station }); },
+    // Photo d'une étiquette -> { label, kind, expires_on, quantity, lot, warning } (rien n'est enregistré).
+    readLabel: function (image) { return callFunction('label-scan', { restaurant_id: current.id, image: image }); },
     // null : la base n'a pas encore la table (relancer supabase/schema.sql).
     list: function () { return expiryCache ? clone(expiryCache) : null; },
     add: function (e) {

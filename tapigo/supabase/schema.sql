@@ -1115,6 +1115,8 @@ create table if not exists public.stock_scans (
   created_at    timestamptz not null default now()
 );
 create index if not exists stock_scans_restaurant_idx on public.stock_scans (restaurant_id, created_at desc);
+-- 'bon' : bon de livraison ; 'etiquette' : étiquette d'un produit lue pour sa date limite.
+alter table public.stock_scans add column if not exists kind text not null default 'bon';
 alter table public.stock_scans enable row level security;
 drop policy if exists "Bons visibles par l'équipe" on public.stock_scans;
 create policy "Bons visibles par l'équipe" on public.stock_scans

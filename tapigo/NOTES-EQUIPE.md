@@ -71,6 +71,9 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **28/10/2026 · Benjamin** : dates limites lues automatiquement : DLC / lot relevés au scan du bon (proposés pour
+  l'onglet Dates) et bouton « Lire l'étiquette » (fonction `label-scan`). `stock_scans.kind` ('bon' / 'etiquette').
+  À faire une fois : relancer `supabase/schema.sql`. Fichiers en `?v=25`.
 - **28/10/2026 · Benjamin** : onglet « Dates » (DLC / DDM) : table `expiry_items`, `add_expiry`, `close_expiry`,
   poste des comptes équipe (`restaurant_members.station`, réglé par le gérant via `team_members` /
   `set_member_station`, ou dans admin.html). À faire une fois : relancer `supabase/schema.sql`. Fichiers en `?v=24`.
