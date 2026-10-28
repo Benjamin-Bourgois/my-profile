@@ -1199,7 +1199,7 @@
 
   /* ---------------- Bon de livraison lu par l'IA ---------------- */
   // sc.result.lines : [{ label, quantity_text, item_id, quantity, explanation, confidence, on }]
-  var sc = { busy: false, applying: false, error: '', result: null };
+  var sc = { busy: false, applying: false, error: '', result: null, dated: null, dating: false };
   var SCAN_MAX = 4;
 
   // Photo réduite (1600 px, JPEG) : envoi rapide, même en 4G. PDF envoyé tel quel.
@@ -1253,11 +1253,57 @@
     if (!todo.length || sc.applying) return;
     sc.applying = true;
     renderStock();
+    var dated = sc.result.lines.filter(function (l) { return l.expires_on; });
     T.scan.apply(sc.result.scan_id, todo.map(function (l) { return { itemId: l.item_id, quantity: l.quantity }; })).then(function (n) {
       UI.toast('Livraison ajoutée au stock · ' + n + ' produit' + (n > 1 ? 's' : ''));
       sc.result = null;
+      // Dates limites imprimées sur le bon : proposées pour l'onglet Dates.
+      sc.dated = T.expiry && dated.length ? datedFromScan(dated) : null;
     }, function (err) { UI.toast(esc(err.message), 5000); })
       .then(function () { sc.applying = false; renderStock(); });
+  }
+
+  // Lignes du bon avec une date limite -> propositions pour l'onglet Dates.
+  function datedFromScan(lines) {
+    var zone = T.expiry.station();
+    return lines.map(function (l) {
+      var item = l.item_id && T.getItem(l.item_id);
+      var station = zone !== 'all' ? zone : (l.station || (item && item.station === 'bar' ? 'bar' : 'cuisine'));
+      return { on: true, label: item ? item.name : l.label, itemId: l.item_id || null, kind: l.date_kind || 'dlc', expiresOn: l.expires_on,
+        quantity: l.quantity_text || '', note: l.lot ? 'Lot ' + l.lot : '', station: station };
+    });
+  }
+
+  function datedHTML() {
+    var zone = T.expiry.station(), n = sc.dated.filter(function (d) { return d.on; }).length;
+    return '<p class="forecast__summary"><strong>Dates limites relevées sur le bon</strong> · ajoutez-les à l’onglet Dates pour être prévenu avant qu’elles ne dépassent.</p>' +
+      '<div class="forecast__list">' + sc.dated.map(function (d, i) {
+        return '<div class="scan-row' + (d.on ? '' : ' is-off') + '" data-dated="' + i + '">' +
+          '<label class="scan-row__check"><input type="checkbox" data-dated-on' + (d.on ? ' checked' : '') + ' aria-label="Ajouter aux dates"></label>' +
+          '<div class="fc-row__name"><strong>' + esc(d.label) + '</strong><small>' + (d.kind === 'ddm' ? 'DDM / DLUO' : 'DLC') + ' · ' +
+            esc(new Date(d.expiresOn + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })) +
+            (d.note ? ' · ' + esc(d.note) : '') + '</small></div>' +
+          (zone === 'all'
+            ? '<select data-dated-station aria-label="Poste"><option value="cuisine"' + (d.station === 'cuisine' ? ' selected' : '') + '>Cuisine</option><option value="bar"' + (d.station === 'bar' ? ' selected' : '') + '>Bar</option></select>'
+            : '<span class="badge">' + (zone === 'bar' ? 'Bar' : 'Cuisine') + '</span>') +
+          '<span></span></div>';
+      }).join('') + '</div>' +
+      '<div class="forecast__ctx"><button class="btn btn--primary btn--sm" type="button" data-dated-add' + (n && !sc.dating ? '' : ' disabled') + '>' +
+        (sc.dating ? '<span class="spinner"></span> Ajout…' : 'Ajouter aux Dates (' + n + ')') + '</button>' +
+        '<button class="btn btn--ghost btn--sm" type="button" data-dated-skip>Plus tard</button></div>';
+  }
+
+  function addDated() {
+    var todo = sc.dated.filter(function (d) { return d.on; });
+    if (!todo.length || sc.dating) return;
+    sc.dating = true;
+    renderStock();
+    // Une à une : la base vérifie chaque ligne (poste du compte, date plausible).
+    todo.reduce(function (p, d) { return p.then(function () { return T.expiry.add(d); }); }, Promise.resolve()).then(function () {
+      UI.toast(todo.length + ' date' + (todo.length > 1 ? 's' : '') + ' ajoutée' + (todo.length > 1 ? 's' : '') + ' à l’onglet Dates');
+      sc.dated = null;
+    }, function (err) { UI.toast(esc(err.message), 5000); })
+      .then(function () { sc.dating = false; renderStock(); updateDatesBadge(); });
   }
 
   function scanHTML() {
@@ -1268,6 +1314,7 @@
         (sc.busy ? '<span class="spinner"></span> Lecture du bon…' : I.camera.replace('<svg ', '<svg width="16" height="16" ') + (sc.result ? ' Autre bon' : ' Scanner un bon')) +
         '<input type="file" accept="image/*,application/pdf" multiple data-scan-file hidden' + (sc.busy ? ' disabled' : '') + '></label></div>';
 
+    if (!sc.result && sc.dated) return '<section class="forecast scan">' + head + datedHTML() + '</section>';
     if (!sc.result) {
       return '<section class="forecast scan">' + head +
         '<p class="forecast__summary">Prenez en photo le bon ou la facture du fournisseur (jusqu’à ' + SCAN_MAX + ' pages). L’IA retrouve les produits de la carte et calcule les portions à ajouter. ' +
@@ -1285,7 +1332,8 @@
         var cur = l.item_id ? T.getStock(l.item_id) : null;
         return '<div class="scan-row' + (l.on ? '' : ' is-off') + '" data-scan-line="' + i + '">' +
           '<label class="scan-row__check"><input type="checkbox" data-scan-on' + (l.on ? ' checked' : '') + ' aria-label="Ajouter cette ligne"></label>' +
-          '<div class="fc-row__name"><strong>' + esc(l.label) + '</strong><small>' + esc(l.quantity_text) + (l.explanation ? ' · ' + esc(l.explanation) : '') + '</small>' +
+          '<div class="fc-row__name"><strong>' + esc(l.label) + '</strong><small>' + esc(l.quantity_text) + (l.explanation ? ' · ' + esc(l.explanation) : '') +
+            (l.expires_on ? ' · ' + (l.date_kind === 'ddm' ? 'DDM' : 'DLC') + ' ' + esc(l.expires_on.split('-').reverse().join('/')) : '') + '</small>' +
             (l.confidence === 'low' ? '<span class="badge badge--warn">À vérifier</span>' : '') + '</div>' +
           '<select data-scan-item aria-label="Produit de la carte"><option value="">Pas un produit de la carte</option>' +
             items.map(function (it) { return '<option value="' + esc(it.id) + '"' + (it.id === l.item_id ? ' selected' : '') + '>' + esc(it.name) + '</option>'; }).join('') +
@@ -1481,6 +1529,11 @@
       label: 'Produit daté',
       head: '<p class="eyebrow">Dates limites</p><h2>Ajouter un produit daté</h2>',
       body: '<form id="dateForm" class="form-grid" novalidate>' +
+        (T.expiry.readLabel
+          ? '<div class="span-2 label-scan"><label class="btn btn--soft btn--sm">' + I.camera.replace('<svg ', '<svg width="16" height="16" ') +
+              ' <span data-label-btn>Lire l’étiquette</span><input type="file" accept="image/*" capture="environment" data-label-file hidden></label>' +
+              '<small class="help" data-label-help>Photographiez la date sur l’emballage : le formulaire se remplit tout seul.</small></div>'
+          : '') +
         '<label class="field span-2"><span>Produit</span><input name="label" maxlength="80" list="dateItems" placeholder="Ex : crème liquide, burrata, lait…" autofocus>' +
           '<datalist id="dateItems">' + items.map(function (i) { return '<option value="' + esc(i.name) + '">'; }).join('') + '</datalist></label>' +
         (zone === 'all'
@@ -1497,6 +1550,23 @@
       footer: '<button class="btn btn--primary" type="submit" form="dateForm">Ajouter</button>',
       onMount: function (sheet) {
         var form = $('#dateForm', sheet);
+        sheet.addEventListener('change', function (e) {
+          if (!e.target.matches('[data-label-file]') || !e.target.files[0]) return;
+          var file = e.target.files[0], btnText = $('[data-label-btn]', sheet), help = $('[data-label-help]', sheet);
+          e.target.value = '';
+          btnText.innerHTML = '<span class="spinner"></span> Lecture…';
+          fileToPage(file).then(T.expiry.readLabel).then(function (r) {
+            var f = form.elements;
+            if (r.label) f.label.value = r.label;
+            if (r.expires_on) f.date.value = r.expires_on;
+            if (r.kind) f.kind.value = r.kind;
+            if (r.quantity) f.quantity.value = r.quantity;
+            if (r.lot && !f.note.value) f.note.value = 'Lot ' + r.lot;
+            help.textContent = r.warning || 'Étiquette lue : vérifiez les informations, puis « Ajouter ».';
+            help.style.color = r.warning ? 'var(--danger)' : '';
+          }, function (err) { help.textContent = err.message; help.style.color = 'var(--danger)'; })
+            .then(function () { btnText.textContent = 'Lire l’étiquette'; });
+        });
         sheet.addEventListener('click', function (e) {
           var q = e.target.closest('[data-quick]');
           if (q) form.elements.date.value = todayISO(+q.dataset.quick);
@@ -1698,6 +1768,8 @@
     stockView.addEventListener('click', function (e) {
       if (e.target.closest('[data-fc-run]')) return runForecast(($('#fcContext') || {}).value || '');
       if (e.target.closest('[data-scan-apply]')) return applyScan();
+      if (e.target.closest('[data-dated-add]')) return addDated();
+      if (e.target.closest('[data-dated-skip]')) { sc.dated = null; return renderStock(); }
       if (e.target.closest('[data-scan-cancel]')) { sc.result = null; sc.error = ''; return renderStock(); }
       var row = e.target.closest('[data-stock]');
       if (!row) return;
@@ -1712,6 +1784,13 @@
     });
     stockView.addEventListener('change', function (e) {
       if (e.target.matches('[data-scan-file]')) { runScan(e.target.files); e.target.value = ''; return; }
+      var dl = e.target.closest('[data-dated]');
+      if (dl && sc.dated) {
+        var dd = sc.dated[Number(dl.dataset.dated)];
+        if (e.target.matches('[data-dated-on]')) dd.on = e.target.checked;
+        if (e.target.matches('[data-dated-station]')) dd.station = e.target.value;
+        return renderStock();
+      }
       var sl = e.target.closest('[data-scan-line]');
       if (sl && sc.result) {
         var line = sc.result.lines[Number(sl.dataset.scanLine)];
