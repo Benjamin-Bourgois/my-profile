@@ -31,8 +31,7 @@
   var ACTIONS = [
     { id: 'preparation', label: 'En préparation' },
     { id: 'prete', label: 'Prête' },
-    { id: 'servie', label: 'Servie' },
-    { id: 'terminee', label: 'Terminée' }
+    { id: 'servie', label: 'Servie' }
   ];
   var PAY = { applepay: 'Apple Pay', card: 'Carte', onsite: 'Sur place', online: 'en ligne' };
   // Payer à table : ce que le client a annoncé (le serveur vient avec le terminal ou la monnaie).
@@ -96,7 +95,10 @@
         var i = FLOW.indexOf(a.id);
         var cls = i === cur ? ' is-active' : i === cur + 1 ? ' is-next' : i < cur ? ' is-past' : '';
         return '<button class="st-btn' + cls + '" type="button" data-status="' + a.id + '"' + (i === cur ? ' aria-current="true"' : '') + '>' + a.label + '</button>';
-      }).join('') + '</div>' +
+      }).join('') +
+        // Valider d'un coup, quel que soit l'avancement : la commande passe en « Terminée » (et encaissée).
+        '<button class="st-validate" type="button" data-validate>' + I.check.replace('<svg ', '<svg width="14" height="14" ') + ' Valider la commande</button>' +
+      '</div>' +
     '</article>';
   }
 
@@ -1432,6 +1434,14 @@
       var ticket = e.target.closest('[data-order]');
       if (!ticket) return;
       if (e.target.closest('[data-print]')) return printTicket(ticket.dataset.order);
+      if (e.target.closest('[data-validate]')) {
+        var v = T.getOrders().filter(function (x) { return x.id === ticket.dataset.order; })[0];
+        if (!v) return;
+        if (v.payment.status !== 'paid' && !confirm('Valider la commande n° ' + v.number + ' (table ' + v.table + ') ?\n\nElle passe en « Terminée » et elle est notée comme encaissée (' + fmt(v.total) + ').')) return;
+        var done = T.updateOrderStatus(v.id, 'terminee');
+        if (done) UI.toast('Table ' + esc(done.table) + ' · commande n° ' + done.number + ' validée');
+        return;
+      }
       var btn = e.target.closest('.st-btn');
       if (btn && !btn.classList.contains('is-active')) {
         var o = T.updateOrderStatus(ticket.dataset.order, btn.dataset.status);
