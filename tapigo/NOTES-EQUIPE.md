@@ -30,7 +30,8 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 - [x] Scan des bons de livraison par l'IA (photo du bon → mise à jour du stock) : fonction `stock-scan`, table
   `stock_scans`, fonction SQL `add_delivery_stock`, bloc « Bon de livraison » de l'onglet Stocks
-- [ ] Règlement au serveur : espèces, carte ou les deux
+- [x] Règlement au serveur : espèces, carte ou les deux (`place_order` accepte `cash`, `card`, `mixed` ;
+  `payment.with` ; réglage `info.onsiteWith` dans Établissement)
 - [ ] Paiement simulé pour les bars de démonstration
 - [ ] Suspension d'un bar depuis l'espace admin (impayé)
 - [ ] Bilan mensuel « ce que l'application vous a rapporté »
@@ -68,6 +69,8 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **28/10/2026 · Benjamin** : « Payer à table » avec le choix espèces / carte / les deux, affiché au bar. À faire une
+  fois : relancer `supabase/schema.sql`. Fichiers CSS/JS en `?v=17`.
 - **28/10/2026 · Benjamin** : prévision IA du stock : plus de bouton « Appliquer ». Colonne « Conseillé » à côté du
   « Stock réel » dans la liste, avec « manque N » ; les produits en dessous du conseillé passent dans « À surveiller ».
   Fichiers CSS/JS en `?v=16`.

@@ -35,6 +35,13 @@
     { id: 'terminee', label: 'Terminée' }
   ];
   var PAY = { applepay: 'Apple Pay', card: 'Carte', onsite: 'Sur place', online: 'en ligne' };
+  // Payer à table : ce que le client a annoncé (le serveur vient avec le terminal ou la monnaie).
+  var WITH = { cash: 'Espèces', card: 'Carte', mixed: 'Espèces + carte' };
+  function payLabel(o) {
+    var w = o.payment.with && WITH[o.payment.with];
+    if (o.payment.status === 'paid') return 'Payé · ' + (o.payment.method === 'onsite' && w ? w : PAY[o.payment.method]);
+    return 'À encaisser' + (w ? ' · ' + w : '');
+  }
 
   function savePrefs() { T.write(PREFS_KEY, { layout: state.layout, station: state.station }); }
 
@@ -81,7 +88,7 @@
       }).join('') + '</ul>' +
       (o.note ? '<p class="ticket__note">📝 ' + esc(o.note) + '</p>' : '') +
       '<div class="ticket__foot"><span class="badge ' + (paid ? 'badge--ok' : 'badge--warn') + '">' +
-        (paid ? 'Payé · ' + PAY[o.payment.method] : 'À encaisser') + '</span>' +
+        payLabel(o) + '</span>' +
         (o.tip ? '<span class="badge badge--ok" title="Pourboire payé en ligne">+ ' + fmt(o.tip) + ' pourboire</span>' : '') +
         '<button class="link-btn" type="button" data-print title="Imprimer le ticket">🖨 Imprimer</button>' +
         '<strong>' + fmt(o.total) + '</strong></div>' +
@@ -167,12 +174,15 @@
       html += keys.length
         ? '<div class="tables-grid">' + keys.map(function (k) {
             var list = tables[k];
-            var due = list.filter(function (o) { return o.payment.status !== 'paid'; }).reduce(function (s, o) { return s + o.total; }, 0);
+            var unpaid = list.filter(function (o) { return o.payment.status !== 'paid'; });
+            var due = unpaid.reduce(function (s, o) { return s + o.total; }, 0);
+            var ways = unpaid.map(function (o) { return o.payment.with; }).filter(function (w, i, a) { return WITH[w] && a.indexOf(w) === i; });
+            var how = ways.length === 1 ? ' · ' + WITH[ways[0]] : ways.length > 1 ? ' · ' + WITH.mixed : '';
             var total = list.reduce(function (s, o) { return s + o.total; }, 0);
             var srv = T.getTableServer(k);
             return '<section class="table-group"><div class="table-group__head"><h2>Table ' + esc(k) +
               '<button class="table-server" type="button" data-servers="' + esc(k) + '">' + (srv ? esc(srv) : '+ serveur') + '</button></h2>' +
-              (due ? '<span class="badge badge--warn">À encaisser ' + fmt(due) + '</span>' : '<span class="badge badge--ok">Réglée</span>') + '</div>' +
+              (due ? '<span class="badge badge--warn">À encaisser ' + fmt(due) + how + '</span>' : '<span class="badge badge--ok">Réglée</span>') + '</div>' +
               list.map(ticketHTML).join('') +
               '<div class="table-group__foot"><span>Total de la table <strong>' + fmt(total) + '</strong></span>' +
               '<span style="display:flex;gap:6px;flex-wrap:wrap">' +
@@ -190,7 +200,7 @@
         done.slice(0, 30).map(function (o) {
           return '<tr><td>' + o.number + '</td><td>' + esc(o.table) + '</td><td>' + T.clock(o.createdAt) + '</td>' +
             '<td>' + esc(o.lines.map(function (l) { return l.qty + '× ' + l.name; }).join(', ')) + '</td>' +
-            '<td>' + PAY[o.payment.method] + '</td><td>' + fmt(o.total) + '</td>' +
+            '<td>' + (o.payment.method === 'onsite' && WITH[o.payment.with] ? WITH[o.payment.with] : PAY[o.payment.method]) + '</td><td>' + fmt(o.total) + '</td>' +
             '<td><button class="link-btn" type="button" data-reopen="' + esc(o.id) + '">Rouvrir</button></td></tr>';
         }).join('') + '</tbody></table></div></details>';
     }
@@ -489,6 +499,11 @@
     return base + (cur ? '?r=' + cur.slug : '');
   }
 
+  function onsiteSet(r) {
+    var w = Array.isArray(r.onsiteWith) ? r.onsiteWith : [];
+    return w.length ? w : ['cash', 'card'];
+  }
+
   function openSettings() {
     var r = T.getRestaurant();
     UI.openSheet({
@@ -500,6 +515,9 @@
           '<label class="field span-2"><span>Accroche</span><input name="tagline" maxlength="80" value="' + esc(r.tagline || '') + '"></label>' +
           '<label class="field"><span>Nombre de tables</span><input name="tables" inputmode="numeric" value="' + (r.tables || 12) + '"></label>' +
           '<label class="field"><span>Lettre du logo</span><input name="logoLetter" maxlength="1" value="' + esc(r.logoLetter || r.name.charAt(0)) + '"></label>' +
+          '<fieldset class="span-2 onsite-set"><span>Moyens acceptés pour « Payer à table » (le client indique le sien en commandant)</span>' +
+            '<label class="check-line"><input type="checkbox" name="withCash"' + (onsiteSet(r).indexOf('cash') >= 0 ? ' checked' : '') + '><span>Espèces</span></label>' +
+            '<label class="check-line"><input type="checkbox" name="withCard"' + (onsiteSet(r).indexOf('card') >= 0 ? ' checked' : '') + '><span>Carte bancaire</span></label></fieldset>' +
           '<label class="check-line span-2"><input type="checkbox" name="tipsEnabled"' + (r.tipsEnabled === false ? '' : ' checked') + '>' +
             '<span>Proposer un pourboire lors du paiement en ligne (5 %, 10 %, 15 % ou montant libre)</span></label>' +
           '<label class="field span-2"><span>Lien d’avis Google (le client y est redirigé quand sa commande est terminée)</span>' +
@@ -524,13 +542,16 @@
           var f = e.target.elements;
           var review = f.reviewUrl.value.trim();
           if (review && !/^https:\/\//i.test(review)) return UI.toast('Le lien d’avis doit commencer par https://');
+          var withs = (f.withCash.checked ? ['cash'] : []).concat(f.withCard.checked ? ['card'] : []);
+          if (!withs.length) return UI.toast('Cochez au moins un moyen de paiement à table : espèces ou carte.');
           var info = Object.assign({}, r, {
             name: f.name.value.trim() || r.name,
             tagline: f.tagline.value.trim(),
             tables: Math.max(1, Math.min(200, parseInt(f.tables.value, 10) || r.tables || 12)),
             logoLetter: f.logoLetter.value.trim(),
             reviewUrl: review,
-            tipsEnabled: f.tipsEnabled.checked
+            tipsEnabled: f.tipsEnabled.checked,
+            onsiteWith: withs
           });
           T.saveRestaurant(info);
           UI.closeSheet();
@@ -709,7 +730,7 @@
       '<hr><p class="pt-total"><span>Total</span><span>' + fmt(o.total) + '</span></p>' +
       (o.tip ? '<p class="pt-total"><span>Pourboire</span><span>' + fmt(o.tip) + '</span></p>' : '') +
       (T.getTableServer(o.table) ? '<p class="pt-center">Serveur : ' + esc(T.getTableServer(o.table)) + '</p>' : '') +
-      '<p class="pt-center">' + (o.payment.status === 'paid' ? 'Payé' : 'À encaisser') + '</p></div>';
+      '<p class="pt-center">' + payLabel(o) + '</p></div>';
     window.print();
   }
 

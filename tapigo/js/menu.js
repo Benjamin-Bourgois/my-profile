@@ -29,7 +29,8 @@
     mine: T.read(MINE_KEY, []),
     trackingId: null,
     tip: { mode: 'none', pct: 0, amount: 0 },
-    payMethod: LIVE ? 'onsite' : 'applepay'
+    payMethod: LIVE ? 'onsite' : 'applepay',
+    onsiteWith: null // 'cash' | 'card' | 'mixed' : comment le client réglera à table
   };
 
   function norm(s) {
@@ -572,6 +573,35 @@
       '<span class="opt__mark"></span></label>';
   }
 
+  /* Payer à table : le client annonce espèces, carte ou les deux (le serveur vient avec le bon matériel). */
+  var WITH_LABEL = { cash: 'Espèces', card: 'Carte bancaire', mixed: 'Espèces et carte' };
+  function onsiteAccepted() {
+    var w = state.restaurant.onsiteWith;
+    w = Array.isArray(w) ? w.filter(function (x) { return x === 'cash' || x === 'card'; }) : [];
+    return w.length ? w : ['cash', 'card'];
+  }
+  // Moyen annoncé, ou null tant que le client n'a pas choisi (un seul moyen accepté : choisi d'office).
+  function onsiteWith() {
+    var acc = onsiteAccepted();
+    if (acc.length === 1) return acc[0];
+    return state.onsiteWith && (state.onsiteWith === 'mixed' || acc.indexOf(state.onsiteWith) >= 0) ? state.onsiteWith : null;
+  }
+  function onsiteHTML() {
+    var acc = onsiteAccepted();
+    if (acc.length === 1) {
+      return '<p class="onsite-only">' + (acc[0] === 'cash' ? 'Règlement en <strong>espèces</strong> uniquement.' : 'Règlement par <strong>carte bancaire</strong> uniquement.') + '</p>';
+    }
+    var cur = onsiteWith();
+    var chip = function (id, label, sub) {
+      return '<button type="button" class="tip-chip' + (cur === id ? ' is-on' : '') + '" data-with="' + id + '" aria-pressed="' + (cur === id) + '">' +
+        '<b>' + label + '</b><small>' + sub + '</small></button>';
+    };
+    return '<div class="tip-box"><p class="tip-box__title">Comment réglerez-vous ?</p>' +
+      '<div class="tip-chips onsite-chips">' +
+        chip('cash', 'Espèces', 'en liquide') + chip('card', 'Carte', 'sans contact') + chip('mixed', 'Les deux', 'espèces + carte') +
+      '</div><p class="help">Le serveur viendra avec le terminal ou la monnaie.</p></div>';
+  }
+
   /* Pourboire (paiement en ligne uniquement : à table, il se laisse sur le terminal). */
   function tipsOffered() { return state.restaurant.tipsEnabled !== false; }
 
@@ -625,6 +655,7 @@
             payMethodHTML('card', I.card, 'Carte bancaire', 'Visa, Mastercard, Amex · via Stripe')) +
           payMethodHTML('onsite', I.wallet, LIVE ? 'Payer à table' : 'Payer sur place', 'Le serveur passe avec le terminal en fin de repas') +
         '</div>' +
+        '<div id="onsiteBox"></div>' +
         '<div id="tipBox"></div>' +
         '<div id="cardForm"></div>' +
         '<p class="secure" id="payNote"></p>',
@@ -633,6 +664,7 @@
         var btn = $('#payBtn', sheet);
         var paint = function () {
           var m = state.payMethod;
+          $('#onsiteBox', sheet).innerHTML = m === 'onsite' ? onsiteHTML() : '';
           $('#cardForm', sheet).innerHTML = m === 'card'
             ? '<div class="card-form">' +
                 '<label class="field"><span>Numéro de carte</span><input id="ccNum" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" maxlength="19"></label>' +
@@ -666,6 +698,8 @@
           if (e.target.name === 'pay') { state.payMethod = e.target.value; paint(); }
         });
         sheet.addEventListener('click', function (e) {
+          var w = e.target.closest('[data-with]');
+          if (w) { state.onsiteWith = w.dataset.with; $('#onsiteBox', sheet).innerHTML = onsiteHTML(); return; }
           var c = e.target.closest('[data-tip]');
           if (!c) return;
           var v = c.dataset.tip;
@@ -695,6 +729,11 @@
           var tErr = tableError(tableNo);
           if (tErr) return invalid($('#tableInput', sheet), tErr);
           if (state.restaurant.ordersPaused) return UI.toast('Les commandes en ligne sont en pause. Adressez-vous au serveur.', 4000);
+          if (state.payMethod === 'onsite' && !onsiteWith()) {
+            var box = $('.onsite-chips', sheet);
+            if (box) { box.classList.remove('is-missing'); void box.offsetWidth; box.classList.add('is-missing'); }
+            return UI.toast('Indiquez comment vous réglerez : espèces, carte ou les deux.');
+          }
           if (state.payMethod === 'card') {
             var num = $('#ccNum', sheet), exp = $('#ccExp', sheet), cvc = $('#ccCvc', sheet);
             if (!luhn(num.value.replace(/\s/g, ''))) return invalid(num, 'Numéro de carte invalide');
@@ -732,11 +771,12 @@
 
   // Mode démo uniquement : paiement simulé. En ligne, voir payOnline() plus bas
   // (Stripe Checkout via la fonction serveur stripe-checkout).
-  function simulatePayment(method) {
+  function simulatePayment(method, w) {
     return new Promise(function (resolve) {
       setTimeout(function () {
         resolve({
           method: method,
+          with: method === 'onsite' ? w : undefined,
           status: method === 'onsite' ? 'pending' : 'paid',
           ref: method === 'onsite' ? null : 'pi_demo_' + Math.random().toString(36).slice(2, 10)
         });
@@ -755,9 +795,11 @@
     if (LIVE && state.payMethod === 'online') return payOnline(btn, label, tableNo, s);
 
     // En ligne : le paiement se fait à table, la commande part directement.
-    var pay = LIVE ? Promise.resolve({ method: 'onsite', status: 'pending' }) : simulatePayment(state.payMethod);
+    var w = state.payMethod === 'onsite' ? onsiteWith() : null;
+    var pay = LIVE ? Promise.resolve({ method: 'onsite', status: 'pending', with: w }) : simulatePayment(state.payMethod, w);
     pay.then(function (payment) {
       return T.createOrder({
+        pay: w || undefined,
         table: tableNo,
         note: state.note,
         payment: payment,
@@ -909,7 +951,7 @@
       '</div>' +
       '<div class="totals">' +
         '<div class="totals__row"><span>Paiement</span><span class="badge ' + (paid ? 'badge--ok' : 'badge--warn') + '">' +
-          (paid ? 'Payé · ' + (PAY_LABEL[order.payment.method] || 'carte') : pending ? 'Paiement en cours…' : 'À régler sur place') + '</span></div>' +
+          (paid ? 'Payé · ' + (PAY_LABEL[order.payment.method] || 'carte') : pending ? 'Paiement en cours…' : ('À régler sur place' + (order.payment.with && WITH_LABEL[order.payment.with] ? ' · ' + WITH_LABEL[order.payment.with].toLowerCase() : ''))) + '</span></div>' +
         (order.tip ? '<div class="totals__row"><span>Pourboire</span><span>' + fmt(order.tip) + '</span></div>' : '') +
         '<div class="totals__row totals__row--grand"><span>Total</span><span>' + fmt(order.total + (order.tip || 0)) + '</span></div>' +
       '</div>' +

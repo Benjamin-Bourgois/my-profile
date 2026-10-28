@@ -309,7 +309,7 @@
       p_items: items,
       p_note: payload.note || ''
     };
-    if (payload.pay === 'online') args.p_pay = 'online';
+    if (payload.pay === 'online' || /^(cash|card|mixed)$/.test(payload.pay || '')) args.p_pay = payload.pay;
     if (payload.pay === 'online' && Number(payload.tip) > 0) args.p_tip = Math.round(Number(payload.tip) * 100) / 100;
     return sb.rpc('place_order', args).then(function (r) {
       if (r.error) throw new Error(r.error.message);

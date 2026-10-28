@@ -845,6 +845,14 @@ button.table-badge:active { transform: scale(.96); }
 .tip-custom input { width: 110px; height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; font: inherit; font-size: 16px; font-weight: 700; text-align: right; outline: none; }
 .tip-custom input:focus { border-color: var(--ink-2); }
 @media (max-width: 380px) { .tip-chips { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.onsite-chips { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.onsite-chips.is-missing { animation: onsite-shake .4s; }
+.onsite-chips.is-missing .tip-chip { border-color: var(--danger); }
+@keyframes onsite-shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+@media (prefers-reduced-motion: reduce) { .onsite-chips.is-missing { animation: none; } }
+.onsite-only { margin: 12px 0 0; padding: 10px 14px; border-radius: var(--r-sm); background: var(--sand-2); font-size: 14px; color: var(--ink-2); }
+.onsite-set { display: grid; gap: 8px; border: 0; padding: 0; margin: 0; }
+.onsite-set > span { font-size: 13px; font-weight: 700; color: var(--ink-2); }
 
 /* Serveur attitré */
 .track__server { margin: 6px 0 0; font-size: 14px; color: var(--ink-2); }
