@@ -1351,6 +1351,175 @@
   }
 
   /* ======================================================================
+     Dates limites (DLC / DDM) — cuisine et bar, chacun voit son poste ;
+     le gérant voit tout.
+     ====================================================================== */
+  var dates = { zone: 'all' };
+  var ZONE = { cuisine: 'Cuisine', bar: 'Bar' };
+  var KIND = { dlc: 'DLC', ddm: 'DDM / DLUO' };
+
+  function todayISO(offset) {
+    var d = new Date(); d.setDate(d.getDate() + (offset || 0));
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function daysLeft(iso) { return Math.round((Date.parse(iso + 'T12:00:00') - Date.parse(todayISO() + 'T12:00:00')) / 86400000); }
+  function myZone() { return T.expiry ? T.expiry.station() : 'all'; }
+
+  function datesOpen() {
+    var list = T.expiry && T.expiry.list();
+    return (list || []).filter(function (x) { return x.status === 'actif'; });
+  }
+
+  // Badge : produits dépassés ou à utiliser aujourd'hui / demain.
+  function updateDatesBadge() {
+    var n = datesOpen().filter(function (x) { return daysLeft(x.expiresOn) <= 1; }).length;
+    var c = $('#datesCount');
+    if (!c) return;
+    c.hidden = !n;
+    c.textContent = n;
+  }
+
+  function dateRowHTML(x) {
+    var d = daysLeft(x.expiresOn);
+    var when = d < 0 ? (x.kind === 'dlc' ? 'Dépassée depuis ' + (-d) + ' j · à jeter' : 'Dépassée depuis ' + (-d) + ' j · à vérifier')
+      : d === 0 ? 'Aujourd’hui' : d === 1 ? 'Demain' : 'Dans ' + d + ' jours';
+    var state = d < 0 ? 'late' : d <= 1 ? 'soon' : d <= 3 ? 'week' : 'ok';
+    var date = new Date(x.expiresOn + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+    return '<div class="date-row date-row--' + state + '" data-exp="' + esc(x.id) + '">' +
+      '<div class="date-row__when"><b>' + esc(date) + '</b><small>' + esc(when) + '</small></div>' +
+      '<div class="date-row__name"><strong>' + esc(x.label) + '</strong>' +
+        '<span><span class="badge ' + (x.kind === 'dlc' ? 'badge--danger' : 'badge--info') + '">' + KIND[x.kind] + '</span> ' +
+        (myZone() === 'all' ? '<span class="badge">' + ZONE[x.station] + '</span> ' : '') +
+        (x.quantity ? esc(x.quantity) : '') + (x.note ? ' · ' + esc(x.note) : '') + '</span></div>' +
+      '<div class="date-row__actions">' +
+        '<button class="btn btn--soft btn--sm" type="button" data-exp-done="utilise">Utilisé</button>' +
+        '<button class="btn btn--danger btn--sm" type="button" data-exp-done="jete">Jeté</button>' +
+        '<button class="icon-btn" type="button" data-exp-done="supprime" aria-label="Supprimer (saisie par erreur)" title="Supprimer (saisie par erreur)">' + I.trash + '</button>' +
+      '</div></div>';
+  }
+
+  function renderDates() {
+    var view = $('#datesView');
+    var list = T.expiry && T.expiry.list();
+    if (list === null) {
+      view.innerHTML = '<div class="empty"><h3>Dates limites pas encore activées</h3><p>Relancez supabase/schema.sql dans Supabase (SQL Editor) pour activer la gestion des DLC / DDM.</p></div>';
+      return;
+    }
+    var zone = myZone();
+    var shown = datesOpen().filter(function (x) { return zone !== 'all' || dates.zone === 'all' || x.station === dates.zone; })
+      .sort(function (a, b) { return a.expiresOn < b.expiresOn ? -1 : a.expiresOn > b.expiresOn ? 1 : a.label.localeCompare(b.label, 'fr'); });
+    var groups = [
+      ['Dépassées', function (d) { return d < 0; }],
+      ['Aujourd’hui et demain', function (d) { return d >= 0 && d <= 1; }],
+      ['Dans les 7 jours', function (d) { return d >= 2 && d <= 7; }],
+      ['Plus tard', function (d) { return d > 7; }]
+    ];
+    var monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+    var thrown = (list || []).filter(function (x) {
+      return x.status === 'jete' && x.closedAt >= monthStart.getTime() && (zone !== 'all' || dates.zone === 'all' || x.station === dates.zone);
+    }).length;
+    var count = function (f) { return shown.filter(function (x) { return f(daysLeft(x.expiresOn)); }).length; };
+
+    view.innerHTML = '<div class="editor">' +
+      '<div class="dates-bar">' +
+        (zone === 'all'
+          ? '<div class="seg" role="group" aria-label="Poste">' + [['all', 'Tout'], ['cuisine', 'Cuisine'], ['bar', 'Bar']].map(function (z) {
+              return '<button type="button" data-zone="' + z[0] + '" aria-pressed="' + (dates.zone === z[0]) + '">' + z[1] + '</button>';
+            }).join('') + '</div>'
+          : '<span class="badge badge--info">Poste : ' + ZONE[zone] + '</span>') +
+        '<div class="k-top__spacer"></div>' +
+        (LIVE && T.expiry.team && T.currentRestaurant().role !== 'equipe' ? '<button class="btn btn--ghost btn--sm" type="button" data-exp-team>Postes de l’équipe</button>' : '') +
+        '<button class="btn btn--primary btn--sm" type="button" data-exp-add>+ Ajouter un produit daté</button>' +
+      '</div>' +
+      '<div class="stat-tiles">' +
+        '<div class="stat-tile"><span>Dépassées</span><b>' + count(groups[0][1]) + '</b><small>à retirer ou vérifier</small></div>' +
+        '<div class="stat-tile"><span>Aujourd’hui et demain</span><b>' + count(groups[1][1]) + '</b><small>à utiliser en priorité</small></div>' +
+        '<div class="stat-tile"><span>Suivis</span><b>' + shown.length + '</b><small>produits datés en stock</small></div>' +
+        '<div class="stat-tile"><span>Jetés ce mois-ci</span><b>' + thrown + '</b><small>pour suivre le gaspillage</small></div>' +
+      '</div>' +
+      (shown.length ? groups.map(function (g) {
+        var rows = shown.filter(function (x) { return g[1](daysLeft(x.expiresOn)); });
+        return rows.length ? '<section class="editor-cat"><h2>' + g[0] + '</h2><div class="editor-list">' + rows.map(dateRowHTML).join('') + '</div></section>' : '';
+      }).join('') : '<div class="empty"><h3>Aucun produit daté</h3><p>Ajoutez les produits frais ou ouverts avec leur date : Tapigo vous prévient avant qu’ils ne dépassent.</p></div>') +
+      '<p class="help"><strong>DLC</strong> (« à consommer jusqu’au ») : date impérative, le produit ne doit plus être servi après. ' +
+        '<strong>DDM / DLUO</strong> (« à consommer de préférence avant ») : le produit reste consommable après, mais sa qualité n’est plus garantie. ' +
+        'Pensez à dater aussi les produits ouverts (sauces, lait, bouteilles entamées).</p>' +
+    '</div>';
+  }
+
+  // Gérant : poste de chaque compte équipe (ce qu'il voit dans les dates limites).
+  function openTeamStations() {
+    UI.openSheet({
+      label: 'Postes de l’équipe',
+      head: '<p class="eyebrow">Dates limites</p><h2>Postes de l’équipe</h2>',
+      body: '<p class="help">Chaque compte « Équipe » ne voit que les produits datés de son poste. Le gérant voit tout.</p><div class="order-list" id="teamList" style="margin-top:12px"><p class="help"><span class="spinner"></span> Chargement…</p></div>',
+      onMount: function (sheet) {
+        var box = $('#teamList', sheet);
+        T.expiry.team().then(function (list) {
+          var team = (list || []).filter(function (m) { return m.role === 'equipe'; });
+          box.innerHTML = team.length ? team.map(function (m) {
+            return '<div class="order-link"><span><strong>' + esc(m.email) + '</strong></span>' +
+              '<select class="member-station" data-team-station="' + esc(m.user_id) + '" aria-label="Poste de ' + esc(m.email) + '">' +
+                [['all', 'Cuisine et bar'], ['cuisine', 'Cuisine'], ['bar', 'Bar']].map(function (o) {
+                  return '<option value="' + o[0] + '"' + ((m.station || 'all') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+                }).join('') + '</select></div>';
+          }).join('') : '<p class="help">Aucun compte « Équipe » pour l’instant. Demandez à l’équipe Tapigo de créer les accès de vos serveurs et cuisiniers.</p>';
+        }, function (err) { box.innerHTML = '<p class="login__error">' + esc(err.message) + '</p>'; });
+        sheet.addEventListener('change', function (e) {
+          if (!e.target.matches('[data-team-station]')) return;
+          T.expiry.setStation(e.target.dataset.teamStation, e.target.value)
+            .then(function () { UI.toast('Poste enregistré'); }, function (err) { UI.toast(esc(err.message), 5000); });
+        });
+      }
+    });
+  }
+
+  function openDateForm() {
+    var zone = myZone();
+    var items = T.getMenu().items.filter(function (i) { return zone === 'all' || (i.station || 'cuisine') === zone; });
+    UI.openSheet({
+      label: 'Produit daté',
+      head: '<p class="eyebrow">Dates limites</p><h2>Ajouter un produit daté</h2>',
+      body: '<form id="dateForm" class="form-grid" novalidate>' +
+        '<label class="field span-2"><span>Produit</span><input name="label" maxlength="80" list="dateItems" placeholder="Ex : crème liquide, burrata, lait…" autofocus>' +
+          '<datalist id="dateItems">' + items.map(function (i) { return '<option value="' + esc(i.name) + '">'; }).join('') + '</datalist></label>' +
+        (zone === 'all'
+          ? '<label class="field"><span>Poste</span><select name="station"><option value="cuisine"' + (dates.zone === 'bar' ? '' : ' selected') + '>Cuisine</option><option value="bar"' + (dates.zone === 'bar' ? ' selected' : '') + '>Bar</option></select></label>'
+          : '<input type="hidden" name="station" value="' + zone + '">') +
+        '<label class="field"><span>Type de date</span><select name="kind"><option value="dlc">DLC · à consommer jusqu’au</option><option value="ddm">DDM / DLUO · de préférence avant</option></select></label>' +
+        '<label class="field"><span>Date limite</span><input name="date" type="date" value="' + todayISO(3) + '" min="' + todayISO(-30) + '"></label>' +
+        '<label class="field"><span>Quantité (facultatif)</span><input name="quantity" maxlength="30" placeholder="Ex : 2 L, 4 pièces"></label>' +
+        '<label class="field span-2"><span>Note (facultatif)</span><input name="note" maxlength="140" placeholder="Ex : ouvert le 28/10, lot n°…"></label>' +
+        '<div class="span-2 date-quick">' + [[0, 'Aujourd’hui'], [1, 'Demain'], [3, '+3 jours'], [7, '+7 jours']].map(function (q) {
+          return '<button type="button" class="btn btn--ghost btn--sm" data-quick="' + q[0] + '">' + q[1] + '</button>';
+        }).join('') + '</div>' +
+      '</form>',
+      footer: '<button class="btn btn--primary" type="submit" form="dateForm">Ajouter</button>',
+      onMount: function (sheet) {
+        var form = $('#dateForm', sheet);
+        sheet.addEventListener('click', function (e) {
+          var q = e.target.closest('[data-quick]');
+          if (q) form.elements.date.value = todayISO(+q.dataset.quick);
+        });
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var f = form.elements;
+          var label = f.label.value.trim();
+          if (!label) { f.label.focus(); return UI.toast('Indiquez le produit'); }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(f.date.value)) return UI.toast('Indiquez la date limite');
+          var match = items.filter(function (i) { return i.name.toLowerCase() === label.toLowerCase(); })[0];
+          var btn = sheet.querySelector('[type="submit"]');
+          if (btn) btn.disabled = true;
+          T.expiry.add({ station: f.station.value, label: label, itemId: match ? match.id : null, kind: f.kind.value,
+            expiresOn: f.date.value, quantity: f.quantity.value.trim(), note: f.note.value.trim() })
+            .then(function () { UI.closeSheet(); UI.toast('<strong>' + esc(label) + '</strong> ajouté'); renderDates(); },
+              function (err) { if (btn) btn.disabled = false; UI.toast(esc(err.message), 5000); });
+        });
+      }
+    });
+  }
+
+  /* ======================================================================
      Statistiques
      ====================================================================== */
   var statsDays = 30;
@@ -1403,7 +1572,9 @@
     $('#menuView').hidden = v !== 'menu';
     $('#statsView').hidden = v !== 'stats';
     $('#stockView').hidden = v !== 'stock';
+    $('#datesView').hidden = v !== 'dates';
     if (v === 'orders') renderOrders();
+    else if (v === 'dates') renderDates();
     else if (v === 'menu') renderMenuEditor();
     else if (v === 'stock') renderStock();
     else renderStats();
@@ -1499,6 +1670,25 @@
       } else if (ticket.classList.contains('is-new')) {
         T.markSeen(ticket.dataset.order);
       }
+    });
+
+    $('#datesView').addEventListener('click', function (e) {
+      var z = e.target.closest('[data-zone]');
+      if (z) { dates.zone = z.dataset.zone; return renderDates(); }
+      if (e.target.closest('[data-exp-add]')) return openDateForm();
+      if (e.target.closest('[data-exp-team]')) return openTeamStations();
+      var b = e.target.closest('[data-exp-done]');
+      if (!b) return;
+      var row = b.closest('[data-exp]');
+      var x = (T.expiry.list() || []).filter(function (y) { return y.id === row.dataset.exp; })[0];
+      if (!x) return;
+      var st = b.dataset.expDone;
+      if (st === 'supprime' && !confirm('Supprimer « ' + x.label + ' » ? (à utiliser seulement pour une saisie par erreur)')) return;
+      b.disabled = true;
+      T.expiry.close(x.id, st).then(function () {
+        UI.toast('<strong>' + esc(x.label) + '</strong> ' + (st === 'utilise' ? 'utilisé' : st === 'jete' ? 'jeté' : 'supprimé'));
+        renderDates();
+      }, function (err) { b.disabled = false; UI.toast(esc(err.message), 5000); });
     });
 
     var stockView = $('#stockView');
@@ -1618,6 +1808,7 @@
       }
       if (/^service:/.test(msg.type) && state.view === 'orders') renderOrders();
       if (msg.type === 'error') UI.toast('⚠ ' + esc(msg.payload.message), 5000);
+      if (msg.type === 'expiry:updated') { updateDatesBadge(); if (state.view === 'dates') renderDates(); }
     });
 
     setInterval(tickTimers, 15000);
@@ -1654,6 +1845,9 @@
     renderPause();
     bind();
     updateStockBadge();
+    updateDatesBadge();
+    // Les échéances changent avec la date du jour (passage de minuit, tablette allumée toute la nuit).
+    setInterval(function () { updateDatesBadge(); if (state.view === 'dates') renderDates(); }, 10 * 60000);
     setView('orders');
     tickTimers();
     stripeReturn();

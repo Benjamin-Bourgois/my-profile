@@ -71,6 +71,9 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **28/10/2026 · Benjamin** : onglet « Dates » (DLC / DDM) : table `expiry_items`, `add_expiry`, `close_expiry`,
+  poste des comptes équipe (`restaurant_members.station`, réglé par le gérant via `team_members` /
+  `set_member_station`, ou dans admin.html). À faire une fois : relancer `supabase/schema.sql`. Fichiers en `?v=24`.
 - **28/10/2026 · Benjamin** : bilan du mois dans Statistiques. Paiement simulé de démo abandonné (décision). À faire
   une fois : relancer `supabase/schema.sql`. Fichiers en `?v=22`.
 - **28/10/2026 · Benjamin** : suspension d'un bar (admin.html → « Suspendre » / « Réactiver »). À faire une fois :

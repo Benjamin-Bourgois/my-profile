@@ -36,6 +36,13 @@ create table if not exists public.restaurant_members (
   created_at    timestamptz not null default now(),
   primary key (restaurant_id, user_id)
 );
+-- Poste d'un compte équipe : 'cuisine', 'bar' ou 'all' (les deux). Le gérant voit tout.
+alter table public.restaurant_members add column if not exists station text not null default 'all';
+do $$
+begin
+  alter table public.restaurant_members add constraint restaurant_members_station_check check (station in ('all', 'cuisine', 'bar'));
+exception when duplicate_object then null;
+end $$;
 
 create table if not exists public.orders (
   id            uuid primary key default gen_random_uuid(),
@@ -503,7 +510,8 @@ begin
            'active', r.active,
            'suspendedReason', case when not r.active then nullif(b.suspended_reason, '') end,
            'suspendedAt', case when not r.active then b.suspended_at end,
-           'role', case when public.is_admin() then 'admin' else m.role end
+           'role', case when public.is_admin() then 'admin' else m.role end,
+           'station', case when public.is_admin() or m.role = 'owner' then 'all' else coalesce(m.station, 'all') end
          ) order by coalesce(nullif(r.info ->> 'name', ''), r.slug)), '[]'::jsonb)
   from public.restaurants r
   left join public.restaurant_members m on m.restaurant_id = r.id and m.user_id = auth.uid()
@@ -559,7 +567,7 @@ as $$
 begin
   if not public.is_admin() then raise exception 'Accès refusé'; end if;
   return (
-    select coalesce(jsonb_agg(jsonb_build_object('user_id', m.user_id, 'email', u.email, 'role', m.role)
+    select coalesce(jsonb_agg(jsonb_build_object('user_id', m.user_id, 'email', u.email, 'role', m.role, 'station', m.station)
                               order by u.email), '[]'::jsonb)
     from public.restaurant_members m
     join auth.users u on u.id = m.user_id
@@ -584,6 +592,37 @@ begin
   insert into public.restaurant_members (restaurant_id, user_id, role)
   values (p_restaurant, v_user, p_role)
   on conflict (restaurant_id, user_id) do update set role = excluded.role;
+end;
+$$;
+
+-- Poste d'un compte équipe (cuisine, bar ou les deux) : ce qu'il voit dans les dates (DLC / DDM).
+-- Réglé par le gérant du restaurant ou par l'équipe Tapigo.
+create or replace function public.team_members(p_restaurant uuid)
+returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object('user_id', m.user_id, 'email', u.email, 'role', m.role, 'station', m.station)
+                              order by m.role, u.email), '[]'::jsonb)
+    from public.restaurant_members m
+    join auth.users u on u.id = m.user_id
+    where m.restaurant_id = p_restaurant
+  );
+end;
+$$;
+
+create or replace function public.set_member_station(p_restaurant uuid, p_user uuid, p_station text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  if p_station not in ('all', 'cuisine', 'bar') then raise exception 'Poste invalide'; end if;
+  update public.restaurant_members set station = p_station
+  where restaurant_id = p_restaurant and user_id = p_user and role = 'equipe';
+  if not found then raise exception 'Seuls les comptes « Équipe » ont un poste : le gérant voit tout.'; end if;
 end;
 $$;
 
@@ -1019,6 +1058,10 @@ revoke all on function public.admin_set_active(uuid, boolean) from public;
 revoke all on function public.admin_list_members(uuid) from public;
 revoke all on function public.admin_add_member(uuid, text, text) from public;
 revoke all on function public.admin_remove_member(uuid, uuid) from public;
+revoke all on function public.team_members(uuid) from public;
+revoke all on function public.set_member_station(uuid, uuid, text) from public;
+grant execute on function public.team_members(uuid) to authenticated;
+grant execute on function public.set_member_station(uuid, uuid, text) to authenticated;
 
 grant execute on function public.place_order(text, text, jsonb, text, text, numeric) to anon, authenticated;
 grant execute on function public.get_order(uuid) to anon, authenticated;
@@ -1124,6 +1167,104 @@ end;
 $$;
 revoke all on function public.add_delivery_stock(uuid, uuid, jsonb) from public;
 grant execute on function public.add_delivery_stock(uuid, uuid, jsonb) to authenticated;
+
+-- ---------- Dates limites (DLC / DDM-DLUO) ----------
+-- Produits datés de la cuisine et du bar. Un compte équipe ne voit et ne gère
+-- que son poste ; le gérant (et l'équipe Tapigo) voit tout.
+create or replace function public.member_station(p_restaurant uuid)
+returns text
+language sql stable security definer set search_path = public
+as $$
+  select case
+    when public.member_role(p_restaurant) is null then null
+    when public.member_role(p_restaurant) in ('admin', 'owner') then 'all'
+    else (select station from public.restaurant_members where restaurant_id = p_restaurant and user_id = auth.uid())
+  end;
+$$;
+
+create table if not exists public.expiry_items (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  station       text not null check (station in ('cuisine', 'bar')),
+  label         text not null check (length(label) between 1 and 80),
+  item_id       text,
+  kind          text not null default 'dlc' check (kind in ('dlc', 'ddm')),
+  expires_on    date not null,
+  quantity      text not null default '' check (length(quantity) <= 30),
+  note          text not null default '' check (length(note) <= 140),
+  status        text not null default 'actif' check (status in ('actif', 'utilise', 'jete')),
+  created_by    uuid references auth.users (id) on delete set null,
+  created_at    timestamptz not null default now(),
+  closed_at     timestamptz,
+  closed_by     uuid references auth.users (id) on delete set null
+);
+create index if not exists expiry_items_open_idx on public.expiry_items (restaurant_id, status, expires_on);
+alter table public.expiry_items enable row level security;
+drop policy if exists "Dates visibles par le poste concerné" on public.expiry_items;
+create policy "Dates visibles par le poste concerné" on public.expiry_items
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.expiry_items from anon;
+revoke insert, update, delete on public.expiry_items from authenticated;
+grant select on public.expiry_items to authenticated;
+
+create or replace function public.add_expiry(p_restaurant uuid, p_station text, p_label text, p_item text,
+                                             p_kind text, p_date date, p_quantity text default '', p_note text default '')
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_row public.expiry_items;
+begin
+  if public.member_station(p_restaurant) is null then raise exception 'Accès refusé'; end if;
+  if p_station not in ('cuisine', 'bar') then raise exception 'Choisissez cuisine ou bar'; end if;
+  if public.member_station(p_restaurant) not in ('all', p_station) then
+    raise exception 'Votre compte ne gère que le poste %', public.member_station(p_restaurant);
+  end if;
+  if btrim(coalesce(p_label, '')) = '' then raise exception 'Indiquez le produit'; end if;
+  if p_kind not in ('dlc', 'ddm') then raise exception 'Type de date invalide'; end if;
+  if p_date is null or p_date < current_date - 365 or p_date > current_date + 3650 then raise exception 'Date invalide'; end if;
+  insert into public.expiry_items (restaurant_id, station, label, item_id, kind, expires_on, quantity, note, created_by)
+  values (p_restaurant, p_station, left(btrim(p_label), 80), nullif(left(coalesce(p_item, ''), 60), ''), p_kind, p_date,
+          left(btrim(coalesce(p_quantity, '')), 30), left(btrim(coalesce(p_note, '')), 140), auth.uid())
+  returning * into v_row;
+  return to_jsonb(v_row);
+end;
+$$;
+
+-- p_status : 'utilise' (consommé / vendu), 'jete' (perdu), 'supprime' (saisie par erreur).
+create or replace function public.close_expiry(p_id uuid, p_status text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_row public.expiry_items;
+begin
+  select * into v_row from public.expiry_items where id = p_id;
+  if not found or public.member_station(v_row.restaurant_id) not in ('all', v_row.station)
+     or public.member_station(v_row.restaurant_id) is null then
+    raise exception 'Accès refusé';
+  end if;
+  if p_status = 'supprime' then
+    delete from public.expiry_items where id = p_id;
+  elsif p_status in ('utilise', 'jete') then
+    update public.expiry_items set status = p_status, closed_at = now(), closed_by = auth.uid() where id = p_id;
+  else
+    raise exception 'Statut invalide';
+  end if;
+end;
+$$;
+revoke all on function public.member_station(uuid) from public;
+revoke all on function public.add_expiry(uuid, text, text, text, text, date, text, text) from public;
+revoke all on function public.close_expiry(uuid, text) from public;
+grant execute on function public.member_station(uuid) to authenticated;
+grant execute on function public.add_expiry(uuid, text, text, text, text, date, text, text) to authenticated;
+grant execute on function public.close_expiry(uuid, text) to authenticated;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.expiry_items;
+exception when duplicate_object then null;
+end $$;
 
 -- ---------- Temps réel ----------
 do $$

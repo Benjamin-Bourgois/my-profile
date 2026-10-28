@@ -887,3 +887,23 @@ button.table-badge:active { transform: scale(.96); }
 .bilan__facts li span { color: var(--ink-2); }
 .bilan__facts li strong { text-align: right; }
 @media print { .bilan__hero { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+/* ---------- Dates limites (DLC / DDM) ---------- */
+.dates-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.date-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 10px 12px; border-radius: var(--r-md); background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--line); }
+.date-row--late { border-left-color: var(--danger); background: var(--danger-soft); }
+.date-row--soon { border-left-color: var(--warn); background: var(--warn-soft); }
+.date-row--week { border-left-color: var(--gold); }
+.date-row__when { display: grid; gap: 2px; }
+.date-row__when b { font-size: 15px; text-transform: capitalize; }
+.date-row__when small { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.date-row--late .date-row__when small { color: var(--danger); }
+.date-row__name { display: grid; gap: 4px; min-width: 0; }
+.date-row__name > span { font-size: 13px; color: var(--ink-2); }
+.date-row__actions { display: flex; gap: 6px; align-items: center; }
+.date-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .date-row { grid-template-columns: minmax(0, 1fr); }
+  .date-row__actions { justify-content: flex-start; }
+}
+.member-station { height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; font: inherit; font-size: 13px; }

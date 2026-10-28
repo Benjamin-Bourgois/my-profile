@@ -292,6 +292,50 @@
       .subscribe(function (status) { if (status === 'SUBSCRIBED') loadServers(); });
   }
 
+  /* ---------------- Dates limites (DLC / DDM) ---------------- */
+  // Un compte équipe ne reçoit que les produits de son poste (règle de la base).
+  var expiryCache = [];
+  function fromExpiry(r) {
+    return { id: r.id, station: r.station, label: r.label, itemId: r.item_id, kind: r.kind, expiresOn: r.expires_on,
+      quantity: r.quantity || '', note: r.note || '', status: r.status, closedAt: r.closed_at ? Date.parse(r.closed_at) : null };
+  }
+  function loadExpiry() {
+    var since = new Date(Date.now() - 31 * 24 * 3600 * 1000).toISOString();
+    return sb.from('expiry_items').select('*').eq('restaurant_id', current.id)
+      .or('status.eq.actif,closed_at.gte."' + since + '"').order('expires_on', { ascending: true }).limit(1000)
+      .then(function (r) {
+        if (r.error) {
+          if (/expiry_items/.test(r.error.message)) { expiryCache = null; emit('expiry:updated', null); return; } // schéma pas à jour
+          throw r.error;
+        }
+        expiryCache = r.data.map(fromExpiry);
+        emit('expiry:updated', null);
+      });
+  }
+  function subscribeExpiry() {
+    sb.channel('tapigo-expiry-' + current.id)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expiry_items', filter: 'restaurant_id=eq.' + current.id }, function () {
+        loadExpiry().catch(function () {});
+      })
+      .subscribe(function (status) { if (status === 'SUBSCRIBED') loadExpiry().catch(function () {}); });
+  }
+  T.expiry = {
+    station: function () { return (current && current.station) || 'all'; },
+    // Gérant : comptes du restaurant et poste de chaque compte équipe.
+    team: function () { return rpc('team_members', { p_restaurant: current.id }); },
+    setStation: function (user, station) { return rpc('set_member_station', { p_restaurant: current.id, p_user: user, p_station: station }); },
+    // null : la base n'a pas encore la table (relancer supabase/schema.sql).
+    list: function () { return expiryCache ? clone(expiryCache) : null; },
+    add: function (e) {
+      return rpc('add_expiry', { p_restaurant: current.id, p_station: e.station, p_label: e.label, p_item: e.itemId || null,
+        p_kind: e.kind, p_date: e.expiresOn, p_quantity: e.quantity || '', p_note: e.note || '' })
+        .then(function (row) { return loadExpiry().then(function () { return fromExpiry(row); }); });
+    },
+    close: function (id, status) {
+      return rpc('close_expiry', { p_id: id, p_status: status }).then(function () { return loadExpiry(); });
+    }
+  };
+
   T.resetDemo = function () { /* sans objet en ligne */ };
 
   /* ---------------- Commandes ---------------- */
@@ -549,7 +593,7 @@
   T.startStaff = function (restaurant) {
     if (staffStarted) return Promise.resolve();
     staffStarted = true;
-    current = { id: restaurant.id, slug: restaurant.slug, role: restaurant.role };
+    current = { id: restaurant.id, slug: restaurant.slug, role: restaurant.role, station: restaurant.station || 'all' };
 
     return selectRestaurant('info, menu', function (q) { return q.eq('id', current.id).maybeSingle(); }).then(function (r) {
       if (r.error) throw r.error;
@@ -558,6 +602,7 @@
       subscribeRestaurant();
       subscribeStock();
       subscribeServers();
+      subscribeExpiry();
       return Promise.all([loadOrders(), loadStock(), loadServers()]);
     }).then(function () {
       sb.channel('tapigo-orders-' + current.id)
@@ -735,6 +780,8 @@
     // Suspension (impayé…) : plus de commandes, plus d'accès au dashboard pour l'équipe du restaurant.
     suspend: function (id, reason) { return rpc('admin_suspend', { p_restaurant: id, p_reason: reason || '' }); },
     listMembers: function (id) { return rpc('admin_list_members', { p_restaurant: id }); },
+    // Poste d'un compte équipe : 'cuisine', 'bar' ou 'all' (dates limites).
+    setStation: function (id, user, station) { return rpc('set_member_station', { p_restaurant: id, p_user: user, p_station: station }); },
     addMember: function (id, email, role) { return rpc('admin_add_member', { p_restaurant: id, p_email: email, p_role: role }); },
     removeMember: function (id, userId) { return rpc('admin_remove_member', { p_restaurant: id, p_user: userId }); },
     // { restaurant_id: { plan, monthly_price, status, next_billing, notes } }
