@@ -678,6 +678,20 @@
     }
   };
 
+  /* ---------------- Bons de livraison lus par l'IA ---------------- */
+  T.scan = {
+    // pages : [{ media_type, data (base64) }] -> proposition de l'IA, rien n'est encore en stock.
+    read: function (pages) {
+      return callFunction('stock-scan', { restaurant_id: current.id, pages: pages });
+    },
+    // lines : [{ itemId, quantity }] validées par l'équipe -> nombre de produits mis à jour.
+    apply: function (scanId, lines) {
+      return rpc('add_delivery_stock', { p_restaurant: current.id, p_scan: scanId, p_lines: lines }).then(function (n) {
+        return loadStock().then(function () { return n; });
+      });
+    }
+  };
+
   /* ---------------- Administration Tapigo ---------------- */
   function rpc(name, args) {
     return sb.rpc(name, args || {}).then(function (r) {

@@ -74,6 +74,7 @@ Le **mode en ligne** s'appuie sur [Supabase](https://supabase.com) et gère plus
 - **Prise de commande en salle** (tous les rôles) : le serveur choisit la table, ajoute les plats et leurs options, note pour la cuisine, puis envoie. Commande marquée « Prise en salle », non bloquée par la pause ni par l'anti-abus, stocks vérifiés.
 - **Stocks** (toute l'équipe, gérant ou non) : quantités restantes décomptées à chaque commande, plat retiré de la carte à 0, « Plus que N » côté client, mise en rupture / remise en vente, alerte « épuisé » en cuisine.
 - **Prévision IA du stock** : chaque matin, Claude analyse les ventes des 8 dernières semaines (même jour, tendance, contexte saisi par l'équipe) et propose la quantité à prévoir par produit, avec une explication. L'équipe applique chaque suggestion ou tout d'un coup ; rien ne change sans validation.
+- **Bon de livraison lu par l'IA** (Stocks → « Scanner un bon ») : photo ou PDF du bon du fournisseur (4 pages au maximum). Claude retrouve les produits de la carte et calcule les portions à ajouter (2 cartons de 24 canettes → 48 ; un fût de 30 L pour une pression de 25 cl → 120), en signalant les lignes à vérifier. L'équipe corrige si besoin puis valide : les quantités s'ajoutent au stock restant, une seule fois par bon. 20 lectures par restaurant et par heure au maximum.
 - **Paiement en ligne** (gérant, dans Établissement) : connexion du compte Stripe du restaurant et activation de « Payer maintenant ». Aucune commission Tapigo.
 - Rôles : Gérant (tout) / Équipe (commandes et stocks ; ni prix, ni carte, ni statistiques).
 
@@ -96,7 +97,7 @@ Le **mode en ligne** s'appuie sur [Supabase](https://supabase.com) et gère plus
 │   ├── schema.sql      Base de données, droits et fonctions (mode en ligne)
 │   ├── cron.sql        Prévision de stock automatique chaque matin
 │   └── functions/      Fonctions serveur : stripe-connect, stripe-checkout,
-│                       stripe-webhook, stock-forecast (Claude)
+│                       stripe-webhook, stock-forecast et stock-scan (Claude)
 ├── css/tapigo.css      Charte « Chic & Élégant » (tokens, composants, responsive)
 └── js/
     ├── data.js         Données de démonstration (restaurant, catégories, plats, options)
@@ -123,7 +124,7 @@ Ces deux options reposent sur des **Supabase Edge Functions** (`supabase/functio
    | --- | --- |
    | `STRIPE_SECRET_KEY` | Clé secrète Stripe de Tapigo (`sk_live_…`, ou `sk_test_…` pour tester) |
    | `STRIPE_WEBHOOK_SECRET` | `whsec_…` donné par Stripe à l'étape 4 |
-   | `ANTHROPIC_API_KEY` | Clé de l'API Claude (console.anthropic.com) |
+   | `ANTHROPIC_API_KEY` | Clé de l'API Claude (console.anthropic.com) : prévision du stock et lecture des bons de livraison |
    | `CRON_SECRET` | Un mot de passe long, au hasard |
    | `SITE_URL` | `https://tom-kempakinosky.github.io/tapigo` |
 

@@ -1135,6 +1135,110 @@
     '</section>';
   }
 
+  /* ---------------- Bon de livraison lu par l'IA ---------------- */
+  // sc.result.lines : [{ label, quantity_text, item_id, quantity, explanation, confidence, on }]
+  var sc = { busy: false, applying: false, error: '', result: null };
+  var SCAN_MAX = 4;
+
+  // Photo réduite (1600 px, JPEG) : envoi rapide, même en 4G. PDF envoyé tel quel.
+  function fileToPage(file) {
+    if (file.type === 'application/pdf') {
+      if (file.size > 6 * 1024 * 1024) return Promise.reject(new Error('PDF trop lourd (6 Mo au maximum).'));
+      return new Promise(function (resolve, reject) {
+        var r = new FileReader();
+        r.onload = function () { resolve({ media_type: 'application/pdf', data: String(r.result).split(',')[1] }); };
+        r.onerror = function () { reject(new Error('Fichier illisible')); };
+        r.readAsDataURL(file);
+      });
+    }
+    if (!/^image\//.test(file.type)) return Promise.reject(new Error('Envoyez une photo ou un PDF.'));
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        var k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+        var c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k);
+        c.height = Math.round(img.naturalHeight * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        resolve({ media_type: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.85).split(',')[1] });
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('Photo illisible (format non pris en charge par ce navigateur).')); };
+      img.src = url;
+    });
+  }
+
+  function runScan(files) {
+    files = Array.prototype.slice.call(files || [], 0, SCAN_MAX);
+    if (!files.length) return;
+    sc.busy = true; sc.error = ''; sc.result = null;
+    renderStock();
+    Promise.all(files.map(fileToPage)).then(T.scan.read).then(function (r) {
+      r.lines.forEach(function (l) { l.on = !!(l.item_id && l.quantity); });
+      sc.result = r;
+    }, function (err) { sc.error = err.message; })
+      .then(function () { sc.busy = false; renderStock(); });
+  }
+
+  function scanTodo() {
+    if (!sc.result) return [];
+    return sc.result.lines.filter(function (l) { return l.on && l.item_id && l.quantity > 0 && T.getItem(l.item_id); });
+  }
+
+  function applyScan() {
+    var todo = scanTodo();
+    if (!todo.length || sc.applying) return;
+    sc.applying = true;
+    renderStock();
+    T.scan.apply(sc.result.scan_id, todo.map(function (l) { return { itemId: l.item_id, quantity: l.quantity }; })).then(function (n) {
+      UI.toast('Livraison ajoutée au stock · ' + n + ' produit' + (n > 1 ? 's' : ''));
+      sc.result = null;
+    }, function (err) { UI.toast(esc(err.message), 5000); })
+      .then(function () { sc.applying = false; renderStock(); });
+  }
+
+  function scanHTML() {
+    if (!T.scan) return '';
+    var head = '<div class="forecast__head"><div><p class="eyebrow">' + I.camera.replace('<svg ', '<svg width="14" height="14" ') + ' Bon de livraison</p>' +
+      '<h2>Ajouter une livraison au stock</h2></div>' +
+      '<label class="btn btn--' + (sc.result ? 'ghost' : 'primary') + ' btn--sm' + (sc.busy ? ' is-disabled' : '') + '">' +
+        (sc.busy ? '<span class="spinner"></span> Lecture du bon…' : I.camera.replace('<svg ', '<svg width="16" height="16" ') + (sc.result ? ' Autre bon' : ' Scanner un bon')) +
+        '<input type="file" accept="image/*,application/pdf" multiple data-scan-file hidden' + (sc.busy ? ' disabled' : '') + '></label></div>';
+
+    if (!sc.result) {
+      return '<section class="forecast scan">' + head +
+        '<p class="forecast__summary">Prenez en photo le bon ou la facture du fournisseur (jusqu’à ' + SCAN_MAX + ' pages). L’IA retrouve les produits de la carte et calcule les portions à ajouter. ' +
+        'Rien n’est ajouté sans votre validation.</p>' +
+        (sc.error ? '<p class="help" style="color:var(--danger)">' + esc(sc.error) + '</p>' : '') + '</section>';
+    }
+
+    var r = sc.result, items = T.getMenu().items.slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'fr'); });
+    var todo = scanTodo();
+    var meta = [r.supplier, r.reference ? 'n° ' + r.reference : '', r.document_date ? r.document_date.split('-').reverse().join('/') : ''].filter(Boolean).join(' · ');
+    return '<section class="forecast scan">' + head +
+      (meta ? '<p class="forecast__summary"><strong>' + esc(meta) + '</strong></p>' : '') +
+      (r.warning ? '<ul class="forecast__alerts"><li>' + esc(r.warning) + '</li></ul>' : '') +
+      '<div class="forecast__list">' + r.lines.map(function (l, i) {
+        var cur = l.item_id ? T.getStock(l.item_id) : null;
+        return '<div class="scan-row' + (l.on ? '' : ' is-off') + '" data-scan-line="' + i + '">' +
+          '<label class="scan-row__check"><input type="checkbox" data-scan-on' + (l.on ? ' checked' : '') + ' aria-label="Ajouter cette ligne"></label>' +
+          '<div class="fc-row__name"><strong>' + esc(l.label) + '</strong><small>' + esc(l.quantity_text) + (l.explanation ? ' · ' + esc(l.explanation) : '') + '</small>' +
+            (l.confidence === 'low' ? '<span class="badge badge--warn">À vérifier</span>' : '') + '</div>' +
+          '<select data-scan-item aria-label="Produit de la carte"><option value="">Pas un produit de la carte</option>' +
+            items.map(function (it) { return '<option value="' + esc(it.id) + '"' + (it.id === l.item_id ? ' selected' : '') + '>' + esc(it.name) + '</option>'; }).join('') +
+          '</select>' +
+          '<div class="scan-row__qty"><span>+</span><input type="number" min="1" max="100000" inputmode="numeric" data-scan-qty value="' + (l.quantity || '') + '" placeholder="0" aria-label="Portions à ajouter">' +
+            '<small>' + (l.item_id ? (cur == null ? 'illimité → suivi' : 'stock ' + cur + ' → ' + (cur + (l.quantity || 0))) : '') + '</small></div>' +
+        '</div>';
+      }).join('') + '</div>' +
+      '<div class="forecast__ctx"><button class="btn btn--primary btn--sm" type="button" data-scan-apply' + (todo.length && !sc.applying ? '' : ' disabled') + '>' +
+        (sc.applying ? '<span class="spinner"></span> Ajout…' : 'Ajouter au stock (' + todo.length + ')') + '</button>' +
+        '<button class="btn btn--ghost btn--sm" type="button" data-scan-cancel>Annuler</button></div>' +
+      '<p class="help">Les quantités s’ajoutent au stock restant. Un produit « illimité » commence à être suivi avec la quantité livrée.</p>' +
+    '</section>';
+  }
+
   function renderStock() {
     if (!fc.loaded) loadForecast();
     var menu = T.getMenu();
@@ -1150,6 +1254,7 @@
         '<div class="stat-tile"><span>Suivis en quantité</span><b>' + Object.keys(T.getStocks()).length + '</b><small>les autres sont illimités</small></div>' +
       '</div>' +
       forecastHTML() +
+      scanHTML() +
       '<p class="help">Indiquez combien de portions il reste : chaque commande les décompte automatiquement et, à 0, le plat disparaît de la carte client. ' +
         'Laissez vide pour un stock illimité. Toute l’équipe peut gérer les stocks ; les prix et la carte restent réservés au gérant.</p>' +
       '<label class="search">' + I.search + '<input id="stockSearch" type="search" placeholder="Rechercher un produit…" value="' + esc(stockQ) + '" aria-label="Rechercher un produit"></label>' +
@@ -1314,6 +1419,8 @@
     stockView.addEventListener('click', function (e) {
       var f;
       if (e.target.closest('[data-fc-run]')) return runForecast(($('#fcContext') || {}).value || '');
+      if (e.target.closest('[data-scan-apply]')) return applyScan();
+      if (e.target.closest('[data-scan-cancel]')) { sc.result = null; sc.error = ''; return renderStock(); }
       if ((f = e.target.closest('[data-fc-apply]'))) {
         var sug = forecastRows().filter(function (r) { return r.item.id === f.dataset.fcApply; })[0];
         if (sug) { applyQty(sug.item.id, sug.quantity); UI.toast('<strong>' + esc(sug.item.name) + '</strong> · stock réglé à ' + sug.quantity); }
@@ -1338,6 +1445,15 @@
       if (set) return applyQty(id, set.dataset.qtySet);
     });
     stockView.addEventListener('change', function (e) {
+      if (e.target.matches('[data-scan-file]')) { runScan(e.target.files); e.target.value = ''; return; }
+      var sl = e.target.closest('[data-scan-line]');
+      if (sl && sc.result) {
+        var line = sc.result.lines[Number(sl.dataset.scanLine)];
+        if (e.target.matches('[data-scan-on]')) line.on = e.target.checked;
+        if (e.target.matches('[data-scan-item]')) { line.item_id = e.target.value || null; line.on = !!(line.item_id && line.quantity); }
+        if (e.target.matches('[data-scan-qty]')) { var v = parseInt(e.target.value, 10); line.quantity = v > 0 ? Math.min(v, 100000) : null; line.on = !!(line.item_id && line.quantity); }
+        return renderStock();
+      }
       var row = e.target.closest('[data-stock]');
       if (!row) return;
       if (e.target.matches('[data-qty-input]')) applyQty(row.dataset.stock, e.target.value.trim());
@@ -1350,7 +1466,7 @@
       }
     });
     stockView.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && e.target.matches('[data-qty-input]')) e.target.blur();
+      if (e.key === 'Enter' && e.target.matches('[data-qty-input], [data-scan-qty]')) e.target.blur();
       if (e.key === 'Enter' && e.target.id === 'fcContext' && !fc.running) runForecast(e.target.value);
     });
 

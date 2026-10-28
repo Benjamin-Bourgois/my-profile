@@ -987,6 +987,75 @@ grant execute on function public.set_online_payment(uuid, boolean) to authentica
 revoke all on function public.set_table_servers(uuid, text[], text) from public;
 grant execute on function public.set_table_servers(uuid, text[], text) to authenticated;
 
+-- ---------- Bons de livraison lus par l'IA ----------
+-- La fonction stock-scan lit la photo du bon et enregistre ici sa proposition
+-- (journal + limite d'usage). Rien n'entre en stock tant que l'équipe n'a pas
+-- validé les lignes avec add_delivery_stock.
+create table if not exists public.stock_scans (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  created_by    uuid references auth.users (id) on delete set null,
+  supplier      text,
+  reference     text,
+  lines         jsonb not null default '[]'::jsonb, -- proposition de l'IA
+  applied       jsonb,                              -- [{ itemId, quantity }] ajoutés au stock
+  applied_at    timestamptz,
+  created_at    timestamptz not null default now()
+);
+create index if not exists stock_scans_restaurant_idx on public.stock_scans (restaurant_id, created_at desc);
+alter table public.stock_scans enable row level security;
+drop policy if exists "Bons visibles par l'équipe" on public.stock_scans;
+create policy "Bons visibles par l'équipe" on public.stock_scans
+  for select using (public.member_role(restaurant_id) is not null);
+revoke all on public.stock_scans from anon;
+revoke insert, update, delete on public.stock_scans from authenticated;
+grant select on public.stock_scans to authenticated;
+
+-- Ajoute les quantités validées au stock (une seule fois par bon).
+-- Un produit encore « illimité » commence à être suivi avec la quantité livrée.
+create or replace function public.add_delivery_stock(p_restaurant uuid, p_scan uuid, p_lines jsonb)
+returns int
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_line  jsonb;
+  v_item  text;
+  v_qty   int;
+  v_count int := 0;
+  v_done  jsonb := '[]'::jsonb;
+begin
+  if public.member_role(p_restaurant) is null then raise exception 'Accès refusé'; end if;
+  if jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then raise exception 'Aucune ligne à ajouter'; end if;
+  if jsonb_array_length(p_lines) > 80 then raise exception 'Trop de lignes'; end if;
+
+  perform 1 from public.stock_scans
+  where id = p_scan and restaurant_id = p_restaurant and applied_at is null
+  for update;
+  if not found then raise exception 'Ce bon a déjà été ajouté au stock.'; end if;
+
+  for v_line in select value from jsonb_array_elements(p_lines) loop
+    v_item := v_line ->> 'itemId';
+    v_qty  := (v_line ->> 'quantity')::int;
+    if v_qty is null or v_qty < 1 or v_qty > 100000 then raise exception 'Quantité invalide'; end if;
+    if not exists (select 1 from public.restaurants r, jsonb_array_elements(r.menu -> 'items') x
+                   where r.id = p_restaurant and x ->> 'id' = v_item) then
+      raise exception 'Produit introuvable';
+    end if;
+    insert into public.item_stock (restaurant_id, item_id, quantity)
+    values (p_restaurant, v_item, least(v_qty, 100000))
+    on conflict (restaurant_id, item_id)
+    do update set quantity = least(public.item_stock.quantity + excluded.quantity, 100000), updated_at = now();
+    v_done := v_done || jsonb_build_object('itemId', v_item, 'quantity', v_qty);
+    v_count := v_count + 1;
+  end loop;
+
+  update public.stock_scans set applied = v_done, applied_at = now() where id = p_scan;
+  return v_count;
+end;
+$$;
+revoke all on function public.add_delivery_stock(uuid, uuid, jsonb) from public;
+grant execute on function public.add_delivery_stock(uuid, uuid, jsonb) to authenticated;
+
 -- ---------- Temps réel ----------
 do $$
 begin
