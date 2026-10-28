@@ -884,6 +884,24 @@ begin
 end;
 $$;
 
+-- L'équipe encaisse à table une commande restée en attente de paiement en ligne
+-- (appelée par la fonction stripe-checkout, après fermeture de la page Stripe).
+create or replace function public.payment_onsite(p_id uuid, p_with text)
+returns boolean
+language plpgsql security definer set search_path = public
+as $$
+begin
+  update public.orders
+  set payment    = jsonb_strip_nulls(jsonb_build_object('method', 'onsite', 'status', 'paid', 'with', p_with, 'paidAt', now())),
+      tip        = 0,
+      created_at = now(),
+      history    = jsonb_build_array(jsonb_build_object('status', 'nouvelle', 'at', now())),
+      seen       = false
+  where id = p_id and payment ->> 'status' = 'awaiting';
+  return found;
+end;
+$$;
+
 -- Le gérant active / coupe le paiement en ligne (compte Stripe validé requis).
 create or replace function public.set_online_payment(p_restaurant uuid, p_enabled boolean)
 returns void
@@ -996,6 +1014,8 @@ revoke all on function public.payment_confirmed(uuid, text) from public, anon, a
 revoke all on function public.set_online_payment(uuid, boolean) from public;
 grant execute on function public.release_awaiting_order(uuid) to service_role;
 grant execute on function public.payment_confirmed(uuid, text) to service_role;
+revoke all on function public.payment_onsite(uuid, text) from public, anon, authenticated;
+grant execute on function public.payment_onsite(uuid, text) to service_role;
 grant execute on function public.set_online_payment(uuid, boolean) to authenticated;
 revoke all on function public.set_table_servers(uuid, text[], text) from public;
 grant execute on function public.set_table_servers(uuid, text[], text) to authenticated;
