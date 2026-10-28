@@ -321,6 +321,9 @@
   }
   T.expiry = {
     station: function () { return (current && current.station) || 'all'; },
+    // Gérant : comptes du restaurant et poste de chaque compte équipe.
+    team: function () { return rpc('team_members', { p_restaurant: current.id }); },
+    setStation: function (user, station) { return rpc('set_member_station', { p_restaurant: current.id, p_user: user, p_station: station }); },
     // null : la base n'a pas encore la table (relancer supabase/schema.sql).
     list: function () { return expiryCache ? clone(expiryCache) : null; },
     add: function (e) {
@@ -778,7 +781,7 @@
     suspend: function (id, reason) { return rpc('admin_suspend', { p_restaurant: id, p_reason: reason || '' }); },
     listMembers: function (id) { return rpc('admin_list_members', { p_restaurant: id }); },
     // Poste d'un compte équipe : 'cuisine', 'bar' ou 'all' (dates limites).
-    setStation: function (id, user, station) { return rpc('admin_set_member_station', { p_restaurant: id, p_user: user, p_station: station }); },
+    setStation: function (id, user, station) { return rpc('set_member_station', { p_restaurant: id, p_user: user, p_station: station }); },
     addMember: function (id, email, role) { return rpc('admin_add_member', { p_restaurant: id, p_email: email, p_role: role }); },
     removeMember: function (id, userId) { return rpc('admin_remove_member', { p_restaurant: id, p_user: userId }); },
     // { restaurant_id: { plan, monthly_price, status, next_billing, notes } }

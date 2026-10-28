@@ -1428,6 +1428,7 @@
             }).join('') + '</div>'
           : '<span class="badge badge--info">Poste : ' + ZONE[zone] + '</span>') +
         '<div class="k-top__spacer"></div>' +
+        (LIVE && T.expiry.team && T.currentRestaurant().role !== 'equipe' ? '<button class="btn btn--ghost btn--sm" type="button" data-exp-team>Postes de l’équipe</button>' : '') +
         '<button class="btn btn--primary btn--sm" type="button" data-exp-add>+ Ajouter un produit daté</button>' +
       '</div>' +
       '<div class="stat-tiles">' +
@@ -1444,6 +1445,33 @@
         '<strong>DDM / DLUO</strong> (« à consommer de préférence avant ») : le produit reste consommable après, mais sa qualité n’est plus garantie. ' +
         'Pensez à dater aussi les produits ouverts (sauces, lait, bouteilles entamées).</p>' +
     '</div>';
+  }
+
+  // Gérant : poste de chaque compte équipe (ce qu'il voit dans les dates limites).
+  function openTeamStations() {
+    UI.openSheet({
+      label: 'Postes de l’équipe',
+      head: '<p class="eyebrow">Dates limites</p><h2>Postes de l’équipe</h2>',
+      body: '<p class="help">Chaque compte « Équipe » ne voit que les produits datés de son poste. Le gérant voit tout.</p><div class="order-list" id="teamList" style="margin-top:12px"><p class="help"><span class="spinner"></span> Chargement…</p></div>',
+      onMount: function (sheet) {
+        var box = $('#teamList', sheet);
+        T.expiry.team().then(function (list) {
+          var team = (list || []).filter(function (m) { return m.role === 'equipe'; });
+          box.innerHTML = team.length ? team.map(function (m) {
+            return '<div class="order-link"><span><strong>' + esc(m.email) + '</strong></span>' +
+              '<select class="member-station" data-team-station="' + esc(m.user_id) + '" aria-label="Poste de ' + esc(m.email) + '">' +
+                [['all', 'Cuisine et bar'], ['cuisine', 'Cuisine'], ['bar', 'Bar']].map(function (o) {
+                  return '<option value="' + o[0] + '"' + ((m.station || 'all') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+                }).join('') + '</select></div>';
+          }).join('') : '<p class="help">Aucun compte « Équipe » pour l’instant. Demandez à l’équipe Tapigo de créer les accès de vos serveurs et cuisiniers.</p>';
+        }, function (err) { box.innerHTML = '<p class="login__error">' + esc(err.message) + '</p>'; });
+        sheet.addEventListener('change', function (e) {
+          if (!e.target.matches('[data-team-station]')) return;
+          T.expiry.setStation(e.target.dataset.teamStation, e.target.value)
+            .then(function () { UI.toast('Poste enregistré'); }, function (err) { UI.toast(esc(err.message), 5000); });
+        });
+      }
+    });
   }
 
   function openDateForm() {
@@ -1648,6 +1676,7 @@
       var z = e.target.closest('[data-zone]');
       if (z) { dates.zone = z.dataset.zone; return renderDates(); }
       if (e.target.closest('[data-exp-add]')) return openDateForm();
+      if (e.target.closest('[data-exp-team]')) return openTeamStations();
       var b = e.target.closest('[data-exp-done]');
       if (!b) return;
       var row = b.closest('[data-exp]');

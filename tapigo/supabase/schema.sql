@@ -596,14 +596,33 @@ end;
 $$;
 
 -- Poste d'un compte équipe (cuisine, bar ou les deux) : ce qu'il voit dans les dates (DLC / DDM).
-create or replace function public.admin_set_member_station(p_restaurant uuid, p_user uuid, p_station text)
+-- Réglé par le gérant du restaurant ou par l'équipe Tapigo.
+create or replace function public.team_members(p_restaurant uuid)
+returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object('user_id', m.user_id, 'email', u.email, 'role', m.role, 'station', m.station)
+                              order by m.role, u.email), '[]'::jsonb)
+    from public.restaurant_members m
+    join auth.users u on u.id = m.user_id
+    where m.restaurant_id = p_restaurant
+  );
+end;
+$$;
+
+create or replace function public.set_member_station(p_restaurant uuid, p_user uuid, p_station text)
 returns void
 language plpgsql security definer set search_path = public
 as $$
 begin
-  if not public.is_admin() then raise exception 'Accès refusé'; end if;
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
   if p_station not in ('all', 'cuisine', 'bar') then raise exception 'Poste invalide'; end if;
-  update public.restaurant_members set station = p_station where restaurant_id = p_restaurant and user_id = p_user;
+  update public.restaurant_members set station = p_station
+  where restaurant_id = p_restaurant and user_id = p_user and role = 'equipe';
+  if not found then raise exception 'Seuls les comptes « Équipe » ont un poste : le gérant voit tout.'; end if;
 end;
 $$;
 
@@ -1039,8 +1058,10 @@ revoke all on function public.admin_set_active(uuid, boolean) from public;
 revoke all on function public.admin_list_members(uuid) from public;
 revoke all on function public.admin_add_member(uuid, text, text) from public;
 revoke all on function public.admin_remove_member(uuid, uuid) from public;
-revoke all on function public.admin_set_member_station(uuid, uuid, text) from public;
-grant execute on function public.admin_set_member_station(uuid, uuid, text) to authenticated;
+revoke all on function public.team_members(uuid) from public;
+revoke all on function public.set_member_station(uuid, uuid, text) from public;
+grant execute on function public.team_members(uuid) to authenticated;
+grant execute on function public.set_member_station(uuid, uuid, text) to authenticated;
 
 grant execute on function public.place_order(text, text, jsonb, text, text, numeric) to anon, authenticated;
 grant execute on function public.get_order(uuid) to anon, authenticated;
