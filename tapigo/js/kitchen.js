@@ -1054,11 +1054,13 @@
     return '<div class="stock-row stock-row--' + state + '" data-stock="' + esc(i.id) + '">' +
       UI.media(i, 'editor-row__thumb') +
       '<div class="editor-row__name"><strong>' + esc(i.name) + '</strong><span class="badge ' + badge + '">' + label + '</span></div>' +
+      '<div class="stock-cell"><span class="stock-cell__label">Stock réel</span>' +
       '<div class="qty-ctrl" role="group" aria-label="Quantité restante de ' + esc(i.name) + '">' +
         '<button class="icon-btn" type="button" data-qty="-1" aria-label="Retirer un"' + (st ? '' : ' disabled') + '>−</button>' +
         '<input type="number" min="0" max="100000" inputmode="numeric" data-qty-input value="' + (st == null ? '' : st) + '" placeholder="∞" aria-label="Quantité restante">' +
         '<button class="icon-btn" type="button" data-qty="1" aria-label="Ajouter un">+</button>' +
-      '</div>' +
+      '</div></div>' +
+      adviceHTML(i, st) +
       '<div class="stock-row__quick">' +
         '<button class="btn btn--ghost btn--sm" type="button" data-qty-set="0">Épuisé</button>' +
         '<button class="btn btn--ghost btn--sm" type="button" data-qty-set="">Illimité</button>' +
@@ -1087,13 +1089,25 @@
       .then(function () { fc.running = false; renderStock(); });
   }
 
-  // Suggestions encore utiles : produit présent et quantité différente du stock saisi.
-  function forecastRows() {
-    if (!fc.data) return [];
-    return (fc.data.items || []).map(function (s) {
-      var item = T.getItem(s.itemId);
-      return item ? { item: item, quantity: s.quantity, reason: s.reason, current: T.getStock(s.itemId) } : null;
-    }).filter(Boolean);
+  // Stock conseillé du jour par produit : { itemId: { quantity, reason } }. Il ne modifie jamais le stock réel.
+  function advice() {
+    var out = {};
+    if (fc.data) (fc.data.items || []).forEach(function (s) { out[s.itemId] = s; });
+    return out;
+  }
+
+  // Colonne « Conseillé » d'une ligne de stock, à côté du stock réel.
+  function adviceHTML(item, st) {
+    if (!T.forecast) return '';
+    var a = fc.data && advice()[item.id];
+    var note, cls = '';
+    if (!fc.data) note = 'pas encore calculé';
+    else if (!a) note = 'rien de prévu';
+    else if (st == null) note = 'stock illimité';
+    else if (st < a.quantity) { note = 'manque ' + (a.quantity - st); cls = ' is-short'; }
+    else { note = 'suffisant'; cls = ' is-ok'; }
+    return '<div class="stock-cell stock-cell--advice' + cls + '"' + (a && a.reason ? ' title="' + esc(a.reason) + '"' : '') + '>' +
+      '<span class="stock-cell__label">Conseillé</span><b>' + (a ? a.quantity : '—') + '</b><small>' + note + '</small></div>';
   }
 
   function forecastHTML() {
@@ -1112,26 +1126,16 @@
         'Rien n’est modifié sans votre validation.</p>' +
         (fc.error ? '<p class="help" style="color:var(--danger)">' + esc(fc.error) + '</p>' : '') + ctxField + '</section>';
     }
-    var rows = forecastRows();
-    var todo = rows.filter(function (r) { return r.current !== r.quantity; });
+    var a = advice(), short = 0;
+    Object.keys(a).forEach(function (id) { var st = T.getStock(id); if (T.getItem(id) && st != null && st < a[id].quantity) short++; });
     var when = fc.data.created_at ? T.clock(Date.parse(fc.data.created_at)) : '';
-    return '<section class="forecast">' + head +
-        (todo.length ? '<button class="btn btn--primary btn--sm" type="button" data-fc-all>Tout appliquer (' + todo.length + ')</button>' : '') +
-      '</div>' +
+    return '<section class="forecast">' + head + '</div>' +
       '<p class="forecast__summary">' + esc(fc.data.summary || '') + '</p>' +
-      ((fc.data.alerts || []).length ? '<ul class="forecast__alerts">' + fc.data.alerts.map(function (a) { return '<li>' + esc(a) + '</li>'; }).join('') + '</ul>' : '') +
-      (rows.length ? '<div class="forecast__list">' + rows.map(function (r) {
-        var same = r.current === r.quantity;
-        return '<div class="fc-row' + (same ? ' is-done' : '') + '">' +
-          '<div class="fc-row__name"><strong>' + esc(r.item.name) + '</strong><small>' + esc(r.reason) + '</small></div>' +
-          '<div class="fc-row__qty"><span>' + (r.current == null ? '∞' : r.current) + '</span><span aria-hidden="true">→</span><b>' + r.quantity + '</b></div>' +
-          (same ? '<span class="badge badge--ok">Appliqué</span>'
-                : '<button class="btn btn--soft btn--sm" type="button" data-fc-apply="' + esc(r.item.id) + '">Appliquer</button>') +
-        '</div>';
-      }).join('') + '</div>' : '') +
+      ((fc.data.alerts || []).length ? '<ul class="forecast__alerts">' + fc.data.alerts.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
+      '<p class="forecast__summary"><strong>' + (short ? short + ' produit' + (short > 1 ? 's' : '') + ' en dessous du stock conseillé' : 'Stock réel suffisant pour la journée') + '</strong> · ' +
+        'voir la colonne « Conseillé » dans la liste ci-dessous. Votre stock réel n’est jamais modifié par la prévision.</p>' +
       ctxField +
-      '<p class="help">' + (fc.data.source === 'ia' ? 'Analyse IA (Claude)' : 'Base statistique') + (when ? ' · calculée à ' + when : '') +
-        ' · « Appliquer » remplace la quantité restante du produit.</p>' +
+      '<p class="help">' + (fc.data.source === 'ia' ? 'Analyse IA (Claude)' : 'Base statistique') + (when ? ' · calculée à ' + when : '') + '</p>' +
     '</section>';
   }
 
@@ -1245,7 +1249,11 @@
     var q = norm(stockQ);
     var items = menu.items.filter(function (i) { return !q || norm(i.name).indexOf(q) >= 0; });
     var count = function (k) { return menu.items.filter(function (i) { return stockState(i) === k; }).length; };
-    var alerts = menu.items.filter(function (i) { var s = stockState(i); return s === 'out' || s === 'low' || s === 'off'; });
+    var adv = advice();
+    var alerts = menu.items.filter(function (i) {
+      var s = stockState(i), st = T.getStock(i.id);
+      return s === 'out' || s === 'low' || s === 'off' || (adv[i.id] && st != null && st < adv[i.id].quantity);
+    });
 
     var html = '<div class="editor">' +
       '<div class="stat-tiles">' +
@@ -1417,22 +1425,9 @@
       if (e.target.id === 'stockSearch') { stockQ = e.target.value; renderStock(); }
     });
     stockView.addEventListener('click', function (e) {
-      var f;
       if (e.target.closest('[data-fc-run]')) return runForecast(($('#fcContext') || {}).value || '');
       if (e.target.closest('[data-scan-apply]')) return applyScan();
       if (e.target.closest('[data-scan-cancel]')) { sc.result = null; sc.error = ''; return renderStock(); }
-      if ((f = e.target.closest('[data-fc-apply]'))) {
-        var sug = forecastRows().filter(function (r) { return r.item.id === f.dataset.fcApply; })[0];
-        if (sug) { applyQty(sug.item.id, sug.quantity); UI.toast('<strong>' + esc(sug.item.name) + '</strong> · stock réglé à ' + sug.quantity); }
-        return;
-      }
-      if (e.target.closest('[data-fc-all]')) {
-        var todo = forecastRows().filter(function (r) { return r.current !== r.quantity; });
-        if (!todo.length || !confirm('Appliquer les ' + todo.length + ' quantités conseillées ? Les stocks saisis pour ces produits seront remplacés.')) return;
-        todo.forEach(function (r) { T.setStock(r.item.id, r.quantity); });
-        UI.toast('Stocks du jour mis à jour (' + todo.length + ' produits)');
-        return;
-      }
       var row = e.target.closest('[data-stock]');
       if (!row) return;
       var id = row.dataset.stock;

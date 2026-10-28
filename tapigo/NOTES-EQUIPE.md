@@ -68,6 +68,9 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **28/10/2026 · Benjamin** : prévision IA du stock : plus de bouton « Appliquer ». Colonne « Conseillé » à côté du
+  « Stock réel » dans la liste, avec « manque N » ; les produits en dessous du conseillé passent dans « À surveiller ».
+  Fichiers CSS/JS en `?v=16`.
 - **28/10/2026 · Benjamin** : scan des bons de livraison par l'IA dans l'onglet Stocks. À faire une fois : relancer
   `supabase/schema.sql`, ajouter le secret GitHub `SUPABASE_ACCESS_TOKEN`, vérifier le secret Supabase
   `ANTHROPIC_API_KEY`. Fichiers CSS/JS en `?v=15`.
