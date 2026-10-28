@@ -1201,6 +1201,15 @@ create table if not exists public.expiry_items (
   closed_by     uuid references auth.users (id) on delete set null
 );
 create index if not exists expiry_items_open_idx on public.expiry_items (restaurant_id, status, expires_on);
+-- Portions restantes d'un lot rattaché à un produit de la carte : décomptées toutes
+-- seules par les commandes (le lot qui périme le premier part en premier).
+-- null = lot non suivi en portions (ingrédient, produit hors carte).
+alter table public.expiry_items add column if not exists portions int;
+do $$
+begin
+  alter table public.expiry_items add constraint expiry_items_portions_check check (portions is null or portions >= 0);
+exception when duplicate_object then null;
+end $$;
 alter table public.expiry_items enable row level security;
 drop policy if exists "Dates visibles par le poste concerné" on public.expiry_items;
 create policy "Dates visibles par le poste concerné" on public.expiry_items
@@ -1209,8 +1218,10 @@ revoke all on public.expiry_items from anon;
 revoke insert, update, delete on public.expiry_items from authenticated;
 grant select on public.expiry_items to authenticated;
 
+drop function if exists public.add_expiry(uuid, text, text, text, text, date, text, text);
 create or replace function public.add_expiry(p_restaurant uuid, p_station text, p_label text, p_item text,
-                                             p_kind text, p_date date, p_quantity text default '', p_note text default '')
+                                             p_kind text, p_date date, p_quantity text default '', p_note text default '',
+                                             p_portions int default null)
 returns jsonb
 language plpgsql security definer set search_path = public
 as $$
@@ -1225,9 +1236,11 @@ begin
   if btrim(coalesce(p_label, '')) = '' then raise exception 'Indiquez le produit'; end if;
   if p_kind not in ('dlc', 'ddm') then raise exception 'Type de date invalide'; end if;
   if p_date is null or p_date < current_date - 365 or p_date > current_date + 3650 then raise exception 'Date invalide'; end if;
-  insert into public.expiry_items (restaurant_id, station, label, item_id, kind, expires_on, quantity, note, created_by)
+  if p_portions is not null and (p_portions < 1 or p_portions > 100000) then raise exception 'Nombre de portions invalide'; end if;
+  insert into public.expiry_items (restaurant_id, station, label, item_id, kind, expires_on, quantity, note, created_by, portions)
   values (p_restaurant, p_station, left(btrim(p_label), 80), nullif(left(coalesce(p_item, ''), 60), ''), p_kind, p_date,
-          left(btrim(coalesce(p_quantity, '')), 30), left(btrim(coalesce(p_note, '')), 140), auth.uid())
+          left(btrim(coalesce(p_quantity, '')), 30), left(btrim(coalesce(p_note, '')), 140), auth.uid(),
+          case when nullif(btrim(coalesce(p_item, '')), '') is not null then p_portions end)
   returning * into v_row;
   return to_jsonb(v_row);
 end;
@@ -1250,16 +1263,60 @@ begin
     delete from public.expiry_items where id = p_id;
   elsif p_status in ('utilise', 'jete') then
     update public.expiry_items set status = p_status, closed_at = now(), closed_by = auth.uid() where id = p_id;
+    -- Lot jeté : ses portions restantes sortent aussi du stock du produit.
+    if p_status = 'jete' and v_row.item_id is not null and coalesce(v_row.portions, 0) > 0 then
+      update public.item_stock set quantity = greatest(quantity - v_row.portions, 0), updated_at = now()
+      where restaurant_id = v_row.restaurant_id and item_id = v_row.item_id;
+    end if;
   else
     raise exception 'Statut invalide';
   end if;
 end;
 $$;
 revoke all on function public.member_station(uuid) from public;
-revoke all on function public.add_expiry(uuid, text, text, text, text, date, text, text) from public;
+revoke all on function public.add_expiry(uuid, text, text, text, text, date, text, text, int) from public;
 revoke all on function public.close_expiry(uuid, text) from public;
 grant execute on function public.member_station(uuid) to authenticated;
-grant execute on function public.add_expiry(uuid, text, text, text, text, date, text, text) to authenticated;
+grant execute on function public.add_expiry(uuid, text, text, text, text, date, text, text, int) to authenticated;
+
+-- Le stock d'un produit baisse (commande, saisie, « Épuisé », lot jeté) : les lots datés
+-- de ce produit sont décomptés d'autant, le plus proche de sa date d'abord. Un lot à 0
+-- passe en « utilisé ». Les lots ne dépassent ainsi jamais le stock réel.
+create or replace function public.expiry_follow_stock()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_excess int;
+  v_lot    record;
+  v_take   int;
+begin
+  select coalesce(sum(portions), 0) - new.quantity into v_excess
+  from public.expiry_items
+  where restaurant_id = new.restaurant_id and item_id = new.item_id and status = 'actif' and portions is not null;
+  if v_excess <= 0 then return new; end if;
+  for v_lot in
+    select id, portions from public.expiry_items
+    where restaurant_id = new.restaurant_id and item_id = new.item_id and status = 'actif' and portions > 0
+    order by expires_on, created_at
+    for update
+  loop
+    exit when v_excess <= 0;
+    v_take := least(v_lot.portions, v_excess);
+    update public.expiry_items
+    set portions  = portions - v_take,
+        status    = case when portions - v_take = 0 then 'utilise' else status end,
+        closed_at = case when portions - v_take = 0 then now() else closed_at end
+    where id = v_lot.id;
+    v_excess := v_excess - v_take;
+  end loop;
+  return new;
+end;
+$$;
+drop trigger if exists expiry_follow_stock on public.item_stock;
+create trigger expiry_follow_stock after insert or update of quantity on public.item_stock
+  for each row execute function public.expiry_follow_stock();
+revoke all on function public.expiry_follow_stock() from public, anon, authenticated;
 grant execute on function public.close_expiry(uuid, text) to authenticated;
 
 do $$

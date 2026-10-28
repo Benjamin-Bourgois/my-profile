@@ -1270,7 +1270,8 @@
       var item = l.item_id && T.getItem(l.item_id);
       var station = zone !== 'all' ? zone : (l.station || (item && item.station === 'bar' ? 'bar' : 'cuisine'));
       return { on: true, label: item ? item.name : l.label, itemId: l.item_id || null, kind: l.date_kind || 'dlc', expiresOn: l.expires_on,
-        quantity: l.quantity_text || '', note: l.lot ? 'Lot ' + l.lot : '', station: station };
+        quantity: l.quantity_text || '', note: l.lot ? 'Lot ' + l.lot : '', station: station,
+        portions: item && l.quantity > 0 ? l.quantity : null }; // décomptées ensuite par les commandes
     });
   }
 
@@ -1282,7 +1283,7 @@
           '<label class="scan-row__check"><input type="checkbox" data-dated-on' + (d.on ? ' checked' : '') + ' aria-label="Ajouter aux dates"></label>' +
           '<div class="fc-row__name"><strong>' + esc(d.label) + '</strong><small>' + (d.kind === 'ddm' ? 'DDM / DLUO' : 'DLC') + ' · ' +
             esc(new Date(d.expiresOn + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })) +
-            (d.note ? ' · ' + esc(d.note) : '') + '</small></div>' +
+            (d.portions ? ' · ' + d.portions + ' portions, décomptées par les commandes' : '') + (d.note ? ' · ' + esc(d.note) : '') + '</small></div>' +
           (zone === 'all'
             ? '<select data-dated-station aria-label="Poste"><option value="cuisine"' + (d.station === 'cuisine' ? ' selected' : '') + '>Cuisine</option><option value="bar"' + (d.station === 'bar' ? ' selected' : '') + '>Bar</option></select>'
             : '<span class="badge">' + (zone === 'bar' ? 'Bar' : 'Cuisine') + '</span>') +
@@ -1438,9 +1439,12 @@
       '<div class="date-row__name"><strong>' + esc(x.label) + '</strong>' +
         '<span><span class="badge ' + (x.kind === 'dlc' ? 'badge--danger' : 'badge--info') + '">' + KIND[x.kind] + '</span> ' +
         (myZone() === 'all' ? '<span class="badge">' + ZONE[x.station] + '</span> ' : '') +
-        (x.quantity ? esc(x.quantity) : '') + (x.note ? ' · ' + esc(x.note) : '') + '</span></div>' +
+        (x.portions != null ? '<strong>reste ' + x.portions + ' portion' + (x.portions > 1 ? 's' : '') + '</strong> · décompté par les commandes'
+          : (x.quantity ? esc(x.quantity) : '')) +
+        (x.note ? ' · ' + esc(x.note) : '') + '</span></div>' +
       '<div class="date-row__actions">' +
-        '<button class="btn btn--soft btn--sm" type="button" data-exp-done="utilise">Utilisé</button>' +
+        // Lot rattaché à un produit de la carte : il se vide tout seul avec les commandes.
+        (x.portions != null ? '' : '<button class="btn btn--soft btn--sm" type="button" data-exp-done="utilise">Utilisé</button>') +
         '<button class="btn btn--danger btn--sm" type="button" data-exp-done="jete">Jeté</button>' +
         '<button class="icon-btn" type="button" data-exp-done="supprime" aria-label="Supprimer (saisie par erreur)" title="Supprimer (saisie par erreur)">' + I.trash + '</button>' +
       '</div></div>';
@@ -1491,7 +1495,8 @@
       }).join('') : '<div class="empty"><h3>Aucun produit daté</h3><p>Ajoutez les produits frais ou ouverts avec leur date : Tapigo vous prévient avant qu’ils ne dépassent.</p></div>') +
       '<p class="help"><strong>DLC</strong> (« à consommer jusqu’au ») : date impérative, le produit ne doit plus être servi après. ' +
         '<strong>DDM / DLUO</strong> (« à consommer de préférence avant ») : le produit reste consommable après, mais sa qualité n’est plus garantie. ' +
-        'Pensez à dater aussi les produits ouverts (sauces, lait, bouteilles entamées).</p>' +
+        'Pensez à dater aussi les produits ouverts (sauces, lait, bouteilles entamées). ' +
+        'Un lot rattaché à un produit de la carte se décompte tout seul à chaque commande, le plus proche de sa date d’abord.</p>' +
     '</div>';
   }
 
@@ -1542,6 +1547,8 @@
         '<label class="field"><span>Type de date</span><select name="kind"><option value="dlc">DLC · à consommer jusqu’au</option><option value="ddm">DDM / DLUO · de préférence avant</option></select></label>' +
         '<label class="field"><span>Date limite</span><input name="date" type="date" value="' + todayISO(3) + '" min="' + todayISO(-30) + '"></label>' +
         '<label class="field"><span>Quantité (facultatif)</span><input name="quantity" maxlength="30" placeholder="Ex : 2 L, 4 pièces"></label>' +
+        '<label class="field" data-portions-field hidden><span>Portions de ce lot</span><input name="portions" type="number" min="1" max="100000" inputmode="numeric" placeholder="Ex : 12">' +
+          '<small class="help">Produit de la carte : le lot se vide tout seul avec les commandes.</small></label>' +
         '<label class="field span-2"><span>Note (facultatif)</span><input name="note" maxlength="140" placeholder="Ex : ouvert le 28/10, lot n°…"></label>' +
         '<div class="span-2 date-quick">' + [[0, 'Aujourd’hui'], [1, 'Demain'], [3, '+3 jours'], [7, '+7 jours']].map(function (q) {
           return '<button type="button" class="btn btn--ghost btn--sm" data-quick="' + q[0] + '">' + q[1] + '</button>';
@@ -1550,14 +1557,22 @@
       footer: '<button class="btn btn--primary" type="submit" form="dateForm">Ajouter</button>',
       onMount: function (sheet) {
         var form = $('#dateForm', sheet);
+        // Portions proposées seulement pour un produit de la carte (décompte automatique).
+        var syncPortions = function () {
+          var v = form.elements.label.value.trim().toLowerCase();
+          var hit = items.filter(function (i) { return i.name.toLowerCase() === v; })[0];
+          $('[data-portions-field]', sheet).hidden = !hit;
+        };
+        form.elements.label.addEventListener('input', syncPortions);
         sheet.addEventListener('change', function (e) {
+          if (e.target.name === 'label') syncPortions();
           if (!e.target.matches('[data-label-file]') || !e.target.files[0]) return;
           var file = e.target.files[0], btnText = $('[data-label-btn]', sheet), help = $('[data-label-help]', sheet);
           e.target.value = '';
           btnText.innerHTML = '<span class="spinner"></span> Lecture…';
           fileToPage(file).then(T.expiry.readLabel).then(function (r) {
             var f = form.elements;
-            if (r.label) f.label.value = r.label;
+            if (r.label) { f.label.value = r.label; syncPortions(); }
             if (r.expires_on) f.date.value = r.expires_on;
             if (r.kind) f.kind.value = r.kind;
             if (r.quantity) f.quantity.value = r.quantity;
@@ -1581,7 +1596,8 @@
           var btn = sheet.querySelector('[type="submit"]');
           if (btn) btn.disabled = true;
           T.expiry.add({ station: f.station.value, label: label, itemId: match ? match.id : null, kind: f.kind.value,
-            expiresOn: f.date.value, quantity: f.quantity.value.trim(), note: f.note.value.trim() })
+            expiresOn: f.date.value, quantity: f.quantity.value.trim(), note: f.note.value.trim(),
+            portions: match ? (parseInt(f.portions.value, 10) || null) : null })
             .then(function () { UI.closeSheet(); UI.toast('<strong>' + esc(label) + '</strong> ajouté'); renderDates(); },
               function (err) { if (btn) btn.disabled = false; UI.toast(esc(err.message), 5000); });
         });

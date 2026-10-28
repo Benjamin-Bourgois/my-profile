@@ -297,7 +297,8 @@
   var expiryCache = [];
   function fromExpiry(r) {
     return { id: r.id, station: r.station, label: r.label, itemId: r.item_id, kind: r.kind, expiresOn: r.expires_on,
-      quantity: r.quantity || '', note: r.note || '', status: r.status, closedAt: r.closed_at ? Date.parse(r.closed_at) : null };
+      quantity: r.quantity || '', note: r.note || '', status: r.status, closedAt: r.closed_at ? Date.parse(r.closed_at) : null,
+      portions: r.portions == null ? null : r.portions };
   }
   function loadExpiry() {
     var since = new Date(Date.now() - 31 * 24 * 3600 * 1000).toISOString();
@@ -330,7 +331,7 @@
     list: function () { return expiryCache ? clone(expiryCache) : null; },
     add: function (e) {
       return rpc('add_expiry', { p_restaurant: current.id, p_station: e.station, p_label: e.label, p_item: e.itemId || null,
-        p_kind: e.kind, p_date: e.expiresOn, p_quantity: e.quantity || '', p_note: e.note || '' })
+        p_kind: e.kind, p_date: e.expiresOn, p_quantity: e.quantity || '', p_note: e.note || '', p_portions: e.itemId && e.portions > 0 ? e.portions : null })
         .then(function (row) { return loadExpiry().then(function () { return fromExpiry(row); }); });
     },
     close: function (id, status) {

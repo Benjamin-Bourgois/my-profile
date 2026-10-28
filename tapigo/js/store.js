@@ -253,6 +253,7 @@
     var m = read(K.stock, {});
     if (quantity == null) delete m[id]; else m[id] = quantity;
     write(K.stock, m);
+    if (quantity != null) followStock(id, quantity);
     emit('stock:updated', { id: id, quantity: quantity });
     return Promise.resolve();
   }
@@ -281,7 +282,7 @@
       }
     });
     var touched = Object.keys(need).filter(function (id) { return id in stock; });
-    touched.forEach(function (id) { stock[id] -= need[id]; });
+    touched.forEach(function (id) { stock[id] -= need[id]; followStock(id, stock[id]); });
     if (touched.length) {
       write(K.stock, stock);
       touched.forEach(function (id) { emit('stock:updated', { id: id, quantity: stock[id] }); });
@@ -471,20 +472,45 @@
     }
     return list;
   }
+  // Comme en ligne : quand le stock d'un produit baisse, ses lots datés sont décomptés,
+  // le plus proche de sa date d'abord ; un lot à 0 passe en « utilisé ».
+  function followStock(itemId, quantity) {
+    var list = read(K.expiry, null);
+    if (!list) return;
+    var lots = list.filter(function (x) { return x.itemId === itemId && x.status === 'actif' && x.portions != null; });
+    var excess = lots.reduce(function (s, x) { return s + x.portions; }, 0) - quantity;
+    if (excess <= 0) return;
+    lots.sort(function (a, b) { return a.expiresOn < b.expiresOn ? -1 : a.expiresOn > b.expiresOn ? 1 : 0; }).forEach(function (x) {
+      if (excess <= 0) return;
+      var take = Math.min(x.portions, excess);
+      x.portions -= take; excess -= take;
+      if (!x.portions) { x.status = 'utilise'; x.closedAt = Date.now(); }
+    });
+    write(K.expiry, list);
+    emit('expiry:updated', null);
+  }
+
   var expiry = {
     station: function () { return 'all'; },
     list: function () { return clone(expiryList()); },
     add: function (e) {
       var list = expiryList();
       var row = { id: 'exp_' + Date.now().toString(36), station: e.station, label: e.label, itemId: e.itemId || null, kind: e.kind,
-        expiresOn: e.expiresOn, quantity: e.quantity || '', note: e.note || '', status: 'actif', closedAt: null };
+        expiresOn: e.expiresOn, quantity: e.quantity || '', note: e.note || '', status: 'actif', closedAt: null,
+        portions: e.itemId && e.portions > 0 ? e.portions : null };
       list.push(row); write(K.expiry, list); emit('expiry:updated', null);
       return Promise.resolve(clone(row));
     },
     close: function (id, status) {
       var list = expiryList().filter(function (x) { return status !== 'supprime' || x.id !== id; });
-      list.forEach(function (x) { if (x.id === id && status !== 'supprime') { x.status = status; x.closedAt = Date.now(); } });
+      var thrown = null;
+      list.forEach(function (x) { if (x.id === id && status !== 'supprime') { x.status = status; x.closedAt = Date.now(); if (status === 'jete') thrown = x; } });
       write(K.expiry, list); emit('expiry:updated', null);
+      // Lot jeté : ses portions restantes sortent aussi du stock.
+      if (thrown && thrown.itemId && thrown.portions > 0) {
+        var st = getStock(thrown.itemId);
+        if (st != null) setStock(thrown.itemId, Math.max(0, st - thrown.portions));
+      }
       return Promise.resolve();
     }
   };
