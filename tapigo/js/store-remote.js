@@ -633,21 +633,32 @@
   }
 
   /* ---------------- Paiement en ligne (Stripe) ---------------- */
+  // Après une action sur un paiement en attente : le bandeau « paie en ligne » disparaît tout de suite
+  // (le temps réel ne diffuse pas les suppressions filtrées), puis l'équipe recharge ses commandes.
+  function settled(orderId, r) {
+    if (r && (r.cancelled || r.paid || r.onsite)) {
+      cache.awaiting = cache.awaiting.filter(function (o) { return o.id !== orderId; });
+      emit('orders:sync', null);
+    }
+    if (!current || !current.role) return r;
+    return loadOrders().then(function () { return r; }, function () { return r; });
+  }
+
   T.payments = {
     // Client : page de paiement Stripe de la commande -> { url } ou { paid: true }.
     checkout: function (orderId) { return callFunction('stripe-checkout', { order_id: orderId }); },
     // Relit l'état du paiement chez Stripe (si la notification de Stripe s'est
     // perdue) : { paid } | { cancelled } | { pending }.
-    sync: function (orderId) { return callFunction('stripe-checkout', { order_id: orderId, action: 'sync' }); },
+    sync: function (orderId) { return callFunction('stripe-checkout', { order_id: orderId, action: 'sync' }).then(function (r) { return settled(orderId, r); }); },
     // Équipe : le client a finalement réglé à table (espèces, carte ou les deux).
-    onsite: function (orderId, w) { return callFunction('stripe-checkout', { order_id: orderId, action: 'onsite', with: w || null }); },
+    onsite: function (orderId, w) { return callFunction('stripe-checkout', { order_id: orderId, action: 'onsite', with: w || null }).then(function (r) { return settled(orderId, r); }); },
     // Équipe : commandes payées en ligne dont le paiement n'est pas encore confirmé.
     awaiting: function () { return clone(cache.awaiting); },
     // Client revenu sans payer : la commande est supprimée et le stock rendu.
     cancel: function (orderId) {
       delete tracked[orderId];
       cache.orders = cache.orders.filter(function (o) { return o.id !== orderId; });
-      return callFunction('stripe-checkout', { order_id: orderId, action: 'cancel' });
+      return callFunction('stripe-checkout', { order_id: orderId, action: 'cancel' }).then(function (r) { return settled(orderId, r); });
     },
     // Gérant : { connected, charges_enabled, details_submitted, online_payment }.
     status: function () { return callFunction('stripe-connect', { restaurant_id: current.id, action: 'status' }); },

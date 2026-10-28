@@ -69,6 +69,8 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **28/10/2026 · Benjamin** : le bandeau « paie en ligne » disparaît après « Annuler », « Encaissé à table » ou un
+  « Vérifier » concluant (le temps réel ne diffuse pas les suppressions filtrées). Fichiers en `?v=20`.
 - **28/10/2026 · Benjamin** : commandes « paie en ligne » bloquées : boutons « Encaissé à table » (espèces / carte /
   les deux, page Stripe fermée, action `onsite` de `stripe-checkout` + SQL `payment_onsite`) et « Annuler »
   (commande supprimée, stock rendu). À faire une fois : relancer `supabase/schema.sql`. Fichiers en `?v=19`.
