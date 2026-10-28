@@ -1,4 +1,7 @@
-# Notes d'équipe Tapigo
+# Notes d'équipe Tapigo (ancienne application)
+
+> **Application mise de côté le 28/10/2026.** On travaille désormais dans le dossier `tapigo/` à la racine du
+> dépôt (voir `tapigo/NOTES-EQUIPE.md`). Ce dossier reste en ligne et sert de réserve de code.
 
 Mémoire partagée entre les cofondateurs et leurs sessions Claude. **Chaque session Claude lit ce fichier au
 démarrage et le met à jour à la fin** (section « Journal » et « À faire »). Les conversations Claude ne sont pas
