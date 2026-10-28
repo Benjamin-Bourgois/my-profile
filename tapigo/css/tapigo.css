@@ -660,7 +660,7 @@ button.table-badge:active { transform: scale(.96); }
 .billing[open] summary::after { content: '▴'; }
 
 /* Stocks */
-.stock-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto auto auto; gap: 14px; align-items: center; padding: 10px 12px; border-radius: var(--r-md); background: var(--card); border: 1px solid var(--line); }
+.stock-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto auto auto auto; gap: 14px; align-items: center; padding: 10px 12px; border-radius: var(--r-md); background: var(--card); border: 1px solid var(--line); }
 .stock-row .editor-row__name { display: grid; gap: 4px; justify-items: start; }
 .stock-row--out, .stock-row--off { background: var(--sand-2); }
 .stock-row--out .editor-row__thumb, .stock-row--off .editor-row__thumb { opacity: .55; }
@@ -670,11 +670,21 @@ button.table-badge:active { transform: scale(.96); }
 .qty-ctrl input::-webkit-outer-spin-button, .qty-ctrl input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .qty-ctrl input:focus { border-color: var(--ink-2); background: #fff; }
 .qty-ctrl .icon-btn:disabled { opacity: .35; cursor: default; }
+.stock-cell { display: grid; gap: 4px; justify-items: center; }
+.stock-cell__label { font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.stock-cell--advice { min-width: 96px; padding: 6px 10px; border-radius: var(--r-sm); background: var(--sand); border: 1px dashed var(--line); gap: 0; }
+.stock-cell--advice .stock-cell__label { color: var(--gold); }
+.stock-cell--advice b { font-family: var(--serif); font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stock-cell--advice small { font-size: 11px; font-weight: 700; color: var(--muted); }
+.stock-cell--advice.is-short { background: var(--warn-soft); border-color: var(--warn); }
+.stock-cell--advice.is-short small { color: #8C5F1C; }
+.stock-cell--advice.is-ok small { color: var(--ok); }
 .stock-row__quick { display: flex; gap: 6px; }
 .k-tab .count--warn { background: var(--warn); }
 @media (max-width: 860px) {
   .stock-row { grid-template-columns: 48px minmax(0, 1fr) auto; }
   .stock-row__quick, .stock-row .switch { grid-column: 2 / -1; }
+  .stock-cell--advice { grid-column: 2 / -1; grid-template-columns: auto auto 1fr; justify-items: start; align-items: baseline; gap: 8px; }
 }
 
 /* Prévision IA du stock */
