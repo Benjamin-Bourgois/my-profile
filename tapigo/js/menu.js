@@ -352,7 +352,7 @@
           if (pair) {
             var p = T.getItem(pair.dataset.pair);
             if (p && !(p.options || []).some(function (g) { return g.required; })) {
-              if (addToCart(p.id, 1, {}, '')) {
+              if (addToCart(p.id, 1, {}, '', true)) {
                 pair.disabled = true;
                 pair.querySelector('.pair__add').textContent = '✓';
                 UI.toast('<strong>' + esc(p.name) + '</strong> ajouté au panier', 1800);
@@ -418,14 +418,17 @@
     T.write(NOTE_KEY, state.note);
   }
 
-  function addToCart(itemId, qty, sel, note) {
+  // viaSuggestion : ajouté depuis « Parfait avec » (compté dans le bilan mensuel du gérant).
+  function addToCart(itemId, qty, sel, note, viaSuggestion) {
     var key = lineKey(itemId, sel, note);
     var existing = state.cart.filter(function (l) { return l.key === key; })[0];
     var room = maxQty(itemId);
     if (room <= 0) { UI.toast('Plus aucun disponible pour le moment'); return false; }
     qty = Math.min(qty, room);
-    if (existing) existing.qty = Math.min(50, existing.qty + qty);
-    else state.cart.push({ key: key, itemId: itemId, qty: qty, selections: sel, note: note });
+    if (existing) {
+      existing.qty = Math.min(50, existing.qty + qty);
+      if (viaSuggestion) existing.suggested = Math.min(existing.qty, (existing.suggested || 0) + qty);
+    } else state.cart.push({ key: key, itemId: itemId, qty: qty, selections: sel, note: note, suggested: viaSuggestion ? qty : 0 });
     saveCart();
     renderCartBar(true);
     renderMenu();
@@ -438,6 +441,7 @@
     return state.cart.map(function (l) {
       var item = T.getItem(l.itemId);
       var built = item ? T.buildLine(l.itemId, l.qty, l.selections, l.note) : null;
+      if (built && l.suggested) built.suggested = Math.min(l.qty, l.suggested);
       return { raw: l, item: item, built: built, unavailable: !isOrderable(item) };
     });
   }

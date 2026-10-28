@@ -1358,7 +1358,7 @@
     var cur = LIVE ? T.currentRestaurant() : null;
     window.TapigoStats.render($('#statsView'), {
       days: statsDays,
-      load: function (days) { statsDays = days; return T.loadStats(days); },
+      load: function (days) { if ([7, 30, 90].indexOf(days) >= 0) statsDays = days; return T.loadStats(days); },
       // Données fictives : réservé à l'équipe Tapigo (ou au mode démo) pour présenter l'outil.
       demoTools: !LIVE || (cur && cur.role === 'admin'),
       seed: function () {

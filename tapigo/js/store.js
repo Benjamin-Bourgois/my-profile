@@ -468,7 +468,9 @@
         for (var j = 0, m = 1 + Math.floor(Math.random() * 4); j < m; j++) {
           var it = pick(items), sel = {};
           (it.options || []).forEach(function (g) { if (g.required) sel[g.id] = [pick(g.choices).label]; });
-          lines.push(buildLine(it.id, Math.random() < 0.25 ? 2 : 1, sel, ''));
+          var bl = buildLine(it.id, Math.random() < 0.25 ? 2 : 1, sel, '');
+          if (j > 0 && Math.random() < 0.12) bl.suggested = bl.qty; // ajouté depuis « Parfait avec »
+          lines.push(bl);
         }
         var prep = 8 + Math.floor(Math.random() * 14);
         orders.push({

@@ -395,7 +395,9 @@ begin
       'qty', v_qty,
       'unitPrice', round(v_unit, 2),
       'options', v_options,
-      'note', left(coalesce(v_req ->> 'note', ''), 140)
+      'note', left(coalesce(v_req ->> 'note', ''), 140),
+      -- Quantité ajoutée depuis « Parfait avec » (bilan mensuel du gérant).
+      'suggested', least(greatest(coalesce(case when v_req ->> 'suggested' ~ '^[0-9]{1,3}$' then (v_req ->> 'suggested')::int end, 0), 0), v_qty)
     ));
     v_total := v_total + v_unit * v_qty;
   end loop;
@@ -805,7 +807,8 @@ begin
         end loop;
         v_lines := v_lines || jsonb_build_array(jsonb_build_object(
           'itemId', v_item ->> 'id', 'name', v_item ->> 'name', 'station', coalesce(v_item ->> 'station', 'cuisine'),
-          'qty', v_qty, 'unitPrice', round(v_unit, 2), 'options', v_opts, 'note', ''));
+          'qty', v_qty, 'unitPrice', round(v_unit, 2), 'options', v_opts, 'note', '',
+          'suggested', case when v_j > 1 and random() < 0.12 then v_qty else 0 end));
         v_total := v_total + v_unit * v_qty;
       end loop;
       v_prep := 8 + floor(random() * 14)::int;
