@@ -19,12 +19,12 @@ const SCHEMA = {
   type: "object",
   properties: {
     is_product_label: { type: "boolean" },
-    label: { type: ["string", "null"] },
-    expires_on: { type: ["string", "null"] },
-    kind: { type: ["string", "null"], enum: ["dlc", "ddm", null] },
-    quantity: { type: ["string", "null"] },
-    lot: { type: ["string", "null"] },
-    warning: { type: ["string", "null"] },
+    label: { anyOf: [{ type: "string" }, { type: "null" }] },
+    expires_on: { anyOf: [{ type: "string" }, { type: "null" }] },
+    kind: { anyOf: [{ type: "string", enum: ["dlc", "ddm"] }, { type: "null" }] },
+    quantity: { anyOf: [{ type: "string" }, { type: "null" }] },
+    lot: { anyOf: [{ type: "string" }, { type: "null" }] },
+    warning: { anyOf: [{ type: "string" }, { type: "null" }] },
   },
   required: ["is_product_label", "label", "expires_on", "kind", "quantity", "lot", "warning"],
   additionalProperties: false,
@@ -89,7 +89,7 @@ serve(async (req) => {
     console.error("Lecture de l'étiquette impossible :", err);
     if (err instanceof Anthropic.RateLimitError) throw new HttpError(503, "Le service de lecture est très demandé : réessayez dans une minute.");
     if (err instanceof Anthropic.AuthenticationError) throw new HttpError(503, "La clé ANTHROPIC_API_KEY est refusée : vérifiez-la dans Supabase.");
-    if (err instanceof Anthropic.BadRequestError) throw new HttpError(422, "Cette photo n'a pas pu être lue : reprenez-la, nette et bien éclairée.");
+    if (err instanceof Anthropic.BadRequestError) throw new HttpError(422, "Cette photo n'a pas pu être lue : reprenez-la, nette et bien éclairée. (Détail : " + String((err as Error).message || "").slice(0, 160) + ")");
     throw new HttpError(503, "Lecture momentanément indisponible : réessayez dans un instant.");
   }
 

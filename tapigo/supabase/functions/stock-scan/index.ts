@@ -35,10 +35,10 @@ const SCHEMA = {
   type: "object",
   properties: {
     is_delivery_document: { type: "boolean" },
-    supplier: { type: ["string", "null"] },
-    reference: { type: ["string", "null"] },
-    document_date: { type: ["string", "null"] },
-    warning: { type: ["string", "null"] },
+    supplier: { anyOf: [{ type: "string" }, { type: "null" }] },
+    reference: { anyOf: [{ type: "string" }, { type: "null" }] },
+    document_date: { anyOf: [{ type: "string" }, { type: "null" }] },
+    warning: { anyOf: [{ type: "string" }, { type: "null" }] },
     lines: {
       type: "array",
       items: {
@@ -46,13 +46,13 @@ const SCHEMA = {
         properties: {
           label: { type: "string" },
           quantity_text: { type: "string" },
-          item_ref: { type: ["integer", "null"] },
-          portions: { type: ["integer", "null"] },
+          item_ref: { anyOf: [{ type: "integer" }, { type: "null" }] },
+          portions: { anyOf: [{ type: "integer" }, { type: "null" }] },
           explanation: { type: "string" },
           confidence: { type: "string", enum: ["high", "low"] },
-          expires_on: { type: ["string", "null"] },
-          date_kind: { type: ["string", "null"], enum: ["dlc", "ddm", null] },
-          lot: { type: ["string", "null"] },
+          expires_on: { anyOf: [{ type: "string" }, { type: "null" }] },
+          date_kind: { anyOf: [{ type: "string", enum: ["dlc", "ddm"] }, { type: "null" }] },
+          lot: { anyOf: [{ type: "string" }, { type: "null" }] },
         },
         required: ["label", "quantity_text", "item_ref", "portions", "explanation", "confidence", "expires_on", "date_kind", "lot"],
         additionalProperties: false,
@@ -160,7 +160,7 @@ serve(async (req) => {
     console.error("Lecture du bon impossible :", err);
     if (err instanceof Anthropic.RateLimitError) throw new HttpError(503, "Le service de lecture est très demandé : réessayez dans une minute.");
     if (err instanceof Anthropic.AuthenticationError) throw new HttpError(503, "La clé ANTHROPIC_API_KEY est refusée : vérifiez-la dans Supabase.");
-    if (err instanceof Anthropic.BadRequestError) throw new HttpError(422, "Ce fichier n'a pas pu être lu : reprenez la photo, bien à plat et nette.");
+    if (err instanceof Anthropic.BadRequestError) throw new HttpError(422, "Ce fichier n'a pas pu être lu : reprenez la photo, bien à plat et nette. (Détail : " + String((err as Error).message || "").slice(0, 160) + ")");
     throw new HttpError(503, "Lecture momentanément indisponible : réessayez dans un instant.");
   }
 
