@@ -1229,7 +1229,7 @@
       if (el) el.hidden = true;
     });
     var title = !lost ? 'Menu momentanément indisponible'
-      : err.reason === 'closed' ? 'Commandes en pause'
+      : err.reason === 'closed' ? 'Commande en ligne indisponible'
       : err.reason === 'old-link' ? 'Lien à mettre à jour'
       : 'Restaurant introuvable';
     $('#rName').textContent = lost ? 'Tapigo' : 'Menu';

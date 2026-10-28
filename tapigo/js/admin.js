@@ -50,8 +50,16 @@
         '<label class="field span-2"><span>Notes internes</span><input name="notes" maxlength="200" value="' + esc(b.notes || '') + '" placeholder="Contact, conditions…"></label>' +
         '<button class="btn btn--primary span-2" type="submit">Enregistrer l’abonnement</button>' +
         '<p class="help span-2">Pas de commission sur les ventes : le restaurant paie uniquement son abonnement. ' +
-          'Un abonnement « En retard » peut être suspendu avec l’interrupteur Actif.</p>' +
+          'Un abonnement « En retard » peut être suspendu avec le bouton « Suspendre ».</p>' +
       '</form></details>';
+  }
+
+  // Restaurant suspendu : motif et date, visibles aussi par son équipe sur l'écran « Accès suspendu ».
+  function suspensionHTML(r) {
+    var b = billing[r.id];
+    if (r.active || !b || !b.suspended_at) return '';
+    return '<p class="help" style="margin-top:6px;color:var(--danger)">Suspendu le ' + esc(new Date(b.suspended_at).toLocaleDateString('fr-FR')) +
+      (b.suspended_reason ? ' · ' + esc(b.suspended_reason) : '') + '</p>';
   }
 
   function restaurantHTML(r) {
@@ -59,9 +67,12 @@
       '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">' +
         '<div><h2>' + esc(r.info.name) + '</h2>' +
           '<p style="margin-top:4px"><span class="badge">' + esc(r.slug) + '</span> ' +
-          '<span class="badge ' + (r.active ? 'badge--ok' : 'badge--danger') + '">' + (r.active ? 'Actif' : 'Désactivé') + '</span></p>' +
+          '<span class="badge ' + (r.active ? 'badge--ok' : 'badge--danger') + '">' + (r.active ? 'Actif' : 'Suspendu') + '</span></p>' +
+          suspensionHTML(r) +
           '<p style="margin-top:6px">' + (r.info.tables || 12) + ' tables · ' + r.items + ' plat' + (r.items > 1 ? 's' : '') + ' à la carte</p></div>' +
-        '<label class="switch" title="Un restaurant désactivé ne peut plus recevoir de commandes"><input type="checkbox" data-active' + (r.active ? ' checked' : '') + '><span class="switch__track"></span><span>Actif</span></label>' +
+        (r.active
+          ? '<button class="btn btn--danger btn--sm" type="button" data-suspend>Suspendre</button>'
+          : '<button class="btn btn--primary btn--sm" type="button" data-reactivate>Réactiver</button>') +
       '</div>' +
       '<div class="check-row">' +
         '<a class="btn btn--ghost btn--sm" target="_blank" rel="noopener" href="menu.html?r=' + esc(r.slug) + '">Menu client</a>' +
@@ -215,15 +226,27 @@
       }
     });
 
-    view.addEventListener('change', function (e) {
-      if (!e.target.matches('[data-active]')) return;
+    view.addEventListener('click', function (e) {
+      var s = e.target.closest('[data-suspend]'), a = e.target.closest('[data-reactivate]');
+      if (!s && !a) return;
       var card = e.target.closest('[data-rid]');
-      var on = e.target.checked;
-      if (!on && !confirm('Désactiver ce restaurant ? Ses clients ne pourront plus commander.')) { e.target.checked = true; return; }
-      T.admin.setActive(card.dataset.rid, on).then(function () {
-        UI.toast(on ? 'Restaurant réactivé' : 'Restaurant désactivé');
+      var name = card.querySelector('h2').textContent;
+      if (s) {
+        var late = billing[card.dataset.rid] && billing[card.dataset.rid].status === 'en_retard';
+        var reason = prompt('Suspendre « ' + name + ' » ?\n\nSes clients ne pourront plus commander et son équipe n’aura plus accès au dashboard (les données sont conservées).\n\nMotif affiché au restaurant :', late ? 'Abonnement impayé' : '');
+        if (reason === null) return;
+        s.disabled = true;
+        return T.admin.suspend(card.dataset.rid, reason.trim()).then(function () {
+          UI.toast('« ' + esc(name) + ' » suspendu');
+          return render();
+        }).catch(function (err) { s.disabled = false; UI.toast(esc(err.message), 5000); });
+      }
+      if (!confirm('Réactiver « ' + name + ' » ? Ses clients pourront commander et son équipe retrouve l’accès au dashboard.')) return;
+      a.disabled = true;
+      T.admin.setActive(card.dataset.rid, true).then(function () {
+        UI.toast('« ' + esc(name) + ' » réactivé');
         return render();
-      }).catch(function (err) { e.target.checked = !on; UI.toast(esc(err.message), 5000); });
+      }).catch(function (err) { a.disabled = false; UI.toast(esc(err.message), 5000); });
     });
 
     $('#accountBtn').addEventListener('click', function () { UI.openAccount({}); });

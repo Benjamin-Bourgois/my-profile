@@ -62,7 +62,10 @@ export async function callerRole(db: Db, req: Request, restaurantId: string): Pr
   if (adm) return "admin";
   const { data: m } = await db.from("restaurant_members").select("role")
     .eq("restaurant_id", restaurantId).eq("user_id", uid).maybeSingle();
-  return m ? m.role : null;
+  if (!m) return null;
+  // Restaurant suspendu : l'équipe n'a plus accès (seuls les admins Tapigo gardent la main).
+  const { data: r } = await db.from("restaurants").select("active").eq("id", restaurantId).maybeSingle();
+  return r?.active ? m.role : null;
 }
 
 // Adresse publique du site (pages de retour après Stripe).

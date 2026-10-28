@@ -144,8 +144,10 @@ language sql stable security definer set search_path = public
 as $$
   select case
     when exists (select 1 from public.admins where user_id = auth.uid()) then 'admin'
-    else (select role from public.restaurant_members
-          where restaurant_id = p_restaurant and user_id = auth.uid())
+    -- Restaurant suspendu (désactivé) : l'équipe n'a plus accès, seuls les admins Tapigo gardent la main.
+    else (select m.role from public.restaurant_members m
+          join public.restaurants r on r.id = m.restaurant_id and r.active
+          where m.restaurant_id = p_restaurant and m.user_id = auth.uid())
   end;
 $$;
 
@@ -488,18 +490,24 @@ $$;
 -- Restaurants accessibles au compte connecté (tous pour un admin).
 create or replace function public.my_restaurants()
 returns jsonb
-language sql stable security definer set search_path = public
+language plpgsql stable security definer set search_path = public
 as $$
-  select coalesce(jsonb_agg(jsonb_build_object(
+begin
+  -- plpgsql : la table restaurant_billing (créée plus bas) n'est lue qu'à l'appel.
+  return (select coalesce(jsonb_agg(jsonb_build_object(
            'id', r.id,
            'slug', r.slug,
            'name', coalesce(nullif(r.info ->> 'name', ''), r.slug),
            'active', r.active,
+           'suspendedReason', case when not r.active then nullif(b.suspended_reason, '') end,
+           'suspendedAt', case when not r.active then b.suspended_at end,
            'role', case when public.is_admin() then 'admin' else m.role end
          ) order by coalesce(nullif(r.info ->> 'name', ''), r.slug)), '[]'::jsonb)
   from public.restaurants r
   left join public.restaurant_members m on m.restaurant_id = r.id and m.user_id = auth.uid()
-  where auth.uid() is not null and (m.user_id is not null or public.is_admin());
+  left join public.restaurant_billing b on b.restaurant_id = r.id
+  where auth.uid() is not null and (m.user_id is not null or public.is_admin()));
+end;
 $$;
 
 -- ---------- Administration Tapigo ----------
@@ -535,6 +543,10 @@ as $$
 begin
   if not public.is_admin() then raise exception 'Accès refusé'; end if;
   update public.restaurants set active = p_active, updated_at = now() where id = p_restaurant;
+  if p_active and to_regclass('public.restaurant_billing') is not null then
+    update public.restaurant_billing set suspended_reason = null, suspended_at = null, updated_at = now()
+    where restaurant_id = p_restaurant;
+  end if;
 end;
 $$;
 
@@ -707,6 +719,27 @@ create policy "Abonnements réservés aux admins" on public.restaurant_billing
   for all using (public.is_admin()) with check (public.is_admin());
 revoke all on public.restaurant_billing from anon;
 grant select, insert, update on public.restaurant_billing to authenticated;
+alter table public.restaurant_billing add column if not exists suspended_reason text;
+alter table public.restaurant_billing add column if not exists suspended_at timestamptz;
+
+-- Suspension d'un restaurant (impayé…) : plus de commandes client, et l'équipe du
+-- restaurant n'a plus accès au dashboard (voir member_role). Réactivation : admin_set_active.
+create or replace function public.admin_suspend(p_restaurant uuid, p_reason text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then raise exception 'Accès refusé'; end if;
+  update public.restaurants set active = false, updated_at = now() where id = p_restaurant;
+  if not found then raise exception 'Restaurant introuvable'; end if;
+  insert into public.restaurant_billing (restaurant_id, suspended_reason, suspended_at)
+  values (p_restaurant, left(btrim(coalesce(p_reason, '')), 200), now())
+  on conflict (restaurant_id) do update
+    set suspended_reason = excluded.suspended_reason, suspended_at = now(), updated_at = now();
+end;
+$$;
+revoke all on function public.admin_suspend(uuid, text) from public;
+grant execute on function public.admin_suspend(uuid, text) to authenticated;
 
 -- ---------- Données de démonstration pour les statistiques ----------
 -- Génère des commandes passées (marquées "demo") sur les p_days derniers jours.
