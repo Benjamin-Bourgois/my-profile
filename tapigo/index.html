@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#FBF9F5">
+  <title>Tapigo · Commande NFC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,600&family=Manrope:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="css/tapigo.css?v=14">
+</head>
+<body>
+  <main class="hub">
+    <header class="hub__hero">
+      <div class="logo" style="width:64px;height:64px;font-size:36px">T</div>
+      <p class="eyebrow">Tapigo · Démo interactive</p>
+      <h1>Commander d’un simple geste</h1>
+      <p>Le client approche son téléphone du tag NFC de sa table, consulte la carte, paie et suit sa commande en direct. La cuisine reçoit tout instantanément.</p>
+    </header>
+
+    <div class="hub__cards">
+      <section class="hub-card">
+        <p class="eyebrow">1 · Interface client</p>
+        <h2>Tags NFC des tables</h2>
+        <p>Chaque tag ouvre <code>menu.html?table=X</code>. Touchez une table pour simuler le scan.</p>
+        <div class="nfc-grid" id="nfcGrid"></div>
+      </section>
+
+      <section class="hub-card">
+        <p class="eyebrow">2 · Dashboard restaurateur</p>
+        <h2>Cuisine &amp; Bar</h2>
+        <p>Commandes en temps réel classées par statut ou par table, alertes sonores, changement d’état et édition du menu (prix, ruptures, nouveaux plats).</p>
+        <a class="btn btn--primary btn--block" href="kitchen.html" target="tapigo-kitchen">Ouvrir le dashboard</a>
+        <a class="btn btn--ghost btn--block" href="menu.html">Menu sans table détectée</a>
+      </section>
+    </div>
+
+    <p class="hub__tips">Astuce : ouvrez le menu et le dashboard dans deux onglets (ou côte à côte) du même navigateur : la synchronisation est instantanée.</p>
+  </main>
+
+  <script src="js/config.js?v=14"></script>
+  <script>
+    // En ligne, la racine du site mène directement au menu client.
+    if (window.TAPIGO_CONFIG && TAPIGO_CONFIG.supabaseUrl) location.replace('menu.html' + location.search);
+  </script>
+  <script src="js/data.js?v=14"></script>
+  <script src="js/store.js?v=14"></script>
+  <script>
+    (function () {
+      var n = (Tapigo.getRestaurant().tables || 12);
+      var html = '';
+      for (var i = 1; i <= n; i++) {
+        html += '<a class="nfc-tag" href="menu.html?table=' + i + '" target="tapigo-table-' + i + '"><span><small>Table</small><b>' + i + '</b></span></a>';
+      }
+      document.getElementById('nfcGrid').innerHTML = html;
+    })();
+  </script>
+</body>
+</html>

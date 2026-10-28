@@ -1,0 +1,30 @@
+# Déploie les fonctions serveur (supabase/functions) à chaque modification.
+# Prérequis : secret GitHub SUPABASE_ACCESS_TOKEN (Supabase → Account → Access Tokens).
+name: Fonctions Supabase
+
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/functions/**']
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: frylasycjociuxpcsmvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        with:
+          version: latest
+      - name: Déployer
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        # --no-verify-jwt : chaque fonction vérifie elle-même qui l'appelle
+        # (le webhook Stripe n'envoie pas de jeton Supabase).
+        run: supabase functions deploy --no-verify-jwt --project-ref "$PROJECT_REF"
+      - name: Jeton manquant
+        if: env.SUPABASE_ACCESS_TOKEN == ''
+        run: echo "::warning::Ajoutez le secret SUPABASE_ACCESS_TOKEN dans GitHub (Settings → Secrets → Actions) pour déployer les fonctions."
