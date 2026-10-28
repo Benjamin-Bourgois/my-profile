@@ -69,6 +69,9 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **28/10/2026 · Benjamin** : commandes « paie en ligne » bloquées : boutons « Encaissé à table » (espèces / carte /
+  les deux, page Stripe fermée, action `onsite` de `stripe-checkout` + SQL `payment_onsite`) et « Annuler »
+  (commande supprimée, stock rendu). À faire une fois : relancer `supabase/schema.sql`. Fichiers en `?v=19`.
 - **28/10/2026 · Benjamin** : bouton « Valider la commande » sur chaque ticket, quel que soit l'avancement (passe en
   « Terminée », notée encaissée, avec confirmation si elle n'est pas payée). Fichiers CSS/JS en `?v=18`.
 - **28/10/2026 · Benjamin** : « Payer à table » avec le choix espèces / carte / les deux, affiché au bar. À faire une

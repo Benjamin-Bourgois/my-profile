@@ -8,11 +8,15 @@
 // POST { order_id, action: "sync" }    -> relit le paiement chez Stripe et
 //                                         confirme la commande si elle est payée
 //                                         (filet de sécurité si le webhook est perdu).
+// POST { order_id, action: "onsite", with? }  (équipe connectée) -> le client a
+//                                         finalement réglé à table : la page Stripe
+//                                         est fermée et la commande part en cuisine,
+//                                         payée sur place.
 //
 // La commande a été créée par place_order(..., 'online') : prix recalculés en
 // base, invisible en cuisine tant que Stripe n'a pas confirmé le paiement
 // (voir stripe-webhook). Montants relus en base : le client ne peut rien modifier.
-import { admin, body, HttpError, json, serve, siteUrl, UUID } from "../_shared/util.ts";
+import { admin, body, callerRole, HttpError, json, serve, siteUrl, UUID } from "../_shared/util.ts";
 import { stripe } from "../_shared/stripe.ts";
 
 interface Line {
@@ -33,7 +37,7 @@ interface Session {
 }
 
 serve(async (req) => {
-  const { order_id, action } = await body<{ order_id?: string; action?: string }>(req);
+  const { order_id, action, with: paidWith } = await body<{ order_id?: string; action?: string; with?: string }>(req);
   if (!order_id || !UUID.test(order_id)) throw new HttpError(400, "Commande manquante");
   const db = admin();
 
@@ -68,6 +72,20 @@ serve(async (req) => {
       return json({ cancelled: true });
     }
     return json({ pending: true });
+  }
+
+  // L'équipe encaisse à table une commande restée « paiement en ligne en cours ».
+  if (action === "onsite") {
+    if (!(await callerRole(db, req, order.restaurant_id))) throw new HttpError(403, "Accès refusé");
+    if (sessionId && account) {
+      const s = await stripe<Session>(`checkout/sessions/${sessionId}`, null, { account });
+      if (s.status === "complete") throw new HttpError(409, "Le client a déjà payé en ligne : cliquez sur « Vérifier ».");
+      if (s.status === "open") await stripe(`checkout/sessions/${sessionId}/expire`, {}, { account });
+    }
+    const w = ["cash", "card", "mixed"].includes(String(paidWith)) ? String(paidWith) : null;
+    const { data: ok, error } = await db.rpc("payment_onsite", { p_id: order_id, p_with: w });
+    if (error) throw error;
+    return ok ? json({ onsite: true }) : json({ paid: true });
   }
 
   if (action === "cancel") {

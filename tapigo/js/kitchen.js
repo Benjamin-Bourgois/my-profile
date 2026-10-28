@@ -129,9 +129,44 @@
         '<span class="request__icon" aria-hidden="true">💳</span>' +
         '<span class="request__text"><strong>Table ' + esc(o.table) + '</strong> paie en ligne · ' + fmt(o.total + (o.tip || 0)) +
           '<small>commande n° ' + o.number + ' · il y a ' + T.minutesSince(o.createdAt) + ' min · arrive en cuisine dès le paiement validé</small></span>' +
-        '<button class="btn btn--ghost btn--sm" type="button" data-check-pay="' + esc(o.id) + '">Vérifier</button>' +
+        '<span class="request__actions">' +
+          '<button class="btn btn--ghost btn--sm" type="button" data-check-pay="' + esc(o.id) + '">Vérifier</button>' +
+          '<button class="btn btn--primary btn--sm" type="button" data-pay-onsite="' + esc(o.id) + '">Encaissé à table</button>' +
+          '<button class="btn btn--ghost btn--sm" type="button" data-pay-cancel="' + esc(o.id) + '">Annuler</button>' +
+        '</span>' +
       '</div>';
     }).join('') + '</div>';
+  }
+
+  // Le client devait payer en ligne mais a réglé à table : on note comment, la commande part en cuisine.
+  function openOnsitePay(po) {
+    UI.openSheet({
+      label: 'Encaissé à table',
+      head: '<p class="eyebrow">Table ' + esc(po.table) + ' · commande n° ' + po.number + '</p><h2>Encaissé à table</h2>',
+      body: '<p class="help">Le client a réglé <strong>' + fmt(po.total) + '</strong> sur place. La page de paiement en ligne est fermée et la commande part en cuisine, notée payée.</p>' +
+        '<div class="tip-chips onsite-chips" style="margin-top:14px">' +
+          '<button type="button" class="tip-chip" data-onsite-with="cash"><b>Espèces</b><small>en liquide</small></button>' +
+          '<button type="button" class="tip-chip" data-onsite-with="card"><b>Carte</b><small>terminal</small></button>' +
+          '<button type="button" class="tip-chip" data-onsite-with="mixed"><b>Les deux</b><small>espèces + carte</small></button>' +
+        '</div>',
+      onMount: function (sheet) {
+        sheet.addEventListener('click', function (e) {
+          var b = e.target.closest('[data-onsite-with]');
+          if (!b || b.disabled) return;
+          sheet.querySelectorAll('[data-onsite-with]').forEach(function (x) { x.disabled = true; });
+          b.innerHTML = '<span class="spinner"></span>';
+          T.payments.onsite(po.id, b.dataset.onsiteWith).then(function (r) {
+            UI.closeSheet();
+            UI.toast(r.onsite ? 'Commande n° ' + po.number + ' encaissée à table : elle arrive en cuisine' : 'Déjà payée en ligne : la commande arrive en cuisine', 5000);
+            renderOrders();
+          }, function (err) {
+            UI.closeSheet();
+            UI.toast(esc(err.message), 5000);
+            renderOrders();
+          });
+        });
+      }
+    });
   }
 
   function requestsHTML() {
@@ -1418,6 +1453,21 @@
           UI.toast(r.paid ? 'Paiement confirmé : la commande arrive en cuisine'
             : r.cancelled ? 'Paiement non abouti : commande annulée, stock rendu'
             : 'Le client n’a pas encore payé (page de paiement ouverte)', 5000);
+          renderOrders();
+        }, function (err) { UI.toast(esc(err.message), 5000); renderOrders(); });
+      }
+      if ((t = e.target.closest('[data-pay-onsite]'))) {
+        var po = T.payments.awaiting().filter(function (x) { return x.id === t.dataset.payOnsite; })[0];
+        if (!po) return renderOrders();
+        return openOnsitePay(po);
+      }
+      if ((t = e.target.closest('[data-pay-cancel]'))) {
+        var pc = T.payments.awaiting().filter(function (x) { return x.id === t.dataset.payCancel; })[0];
+        if (!pc) return renderOrders();
+        if (!confirm('Annuler la commande n° ' + pc.number + ' (table ' + pc.table + ', ' + fmt(pc.total) + ') ?\n\nElle n’a pas été payée : elle est supprimée, le stock est rendu et la page de paiement du client est fermée.')) return;
+        t.disabled = true; t.textContent = 'Annulation…';
+        return T.payments.cancel(pc.id).then(function (r) {
+          UI.toast(r && r.paid ? 'Le client vient de payer en ligne : la commande est conservée' : r && r.cancelled === false ? 'Paiement peut-être en cours chez Stripe : réessayez dans une minute' : 'Commande n° ' + pc.number + ' annulée, stock rendu', 5000);
           renderOrders();
         }, function (err) { UI.toast(esc(err.message), 5000); renderOrders(); });
       }

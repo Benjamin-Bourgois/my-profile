@@ -639,6 +639,8 @@
     // Relit l'état du paiement chez Stripe (si la notification de Stripe s'est
     // perdue) : { paid } | { cancelled } | { pending }.
     sync: function (orderId) { return callFunction('stripe-checkout', { order_id: orderId, action: 'sync' }); },
+    // Équipe : le client a finalement réglé à table (espèces, carte ou les deux).
+    onsite: function (orderId, w) { return callFunction('stripe-checkout', { order_id: orderId, action: 'onsite', with: w || null }); },
     // Équipe : commandes payées en ligne dont le paiement n'est pas encore confirmé.
     awaiting: function () { return clone(cache.awaiting); },
     // Client revenu sans payer : la commande est supprimée et le stock rendu.

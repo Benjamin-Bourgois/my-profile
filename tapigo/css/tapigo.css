@@ -870,3 +870,5 @@ button.table-badge:active { transform: scale(.96); }
 .check-line { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.4; cursor: pointer; }
 .check-line input { margin-top: 2px; width: 18px; height: 18px; accent-color: var(--matte); flex: none; }
 .request--pay { border-left-color: var(--info); animation: ticketIn .4s var(--ease); }
+.request__actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+@media (max-width: 640px) { .request--pay { flex-wrap: wrap; } .request--pay .request__actions { width: 100%; justify-content: flex-start; } }
