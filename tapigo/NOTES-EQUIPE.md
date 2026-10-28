@@ -57,11 +57,15 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 ## À faire
 
 - [ ] Choisir et acheter le nom de domaine
-- [ ] Mettre ce dossier en ligne sur Vercel avec ce domaine
+- [x] Mettre ce dossier en ligne sur Vercel : projet « my-profile-tapigo », https://my-profile-tapigo.vercel.app
+- [ ] Brancher le nom de domaine sur ce projet Vercel
+- [ ] Supabase → Edge Functions → Secrets : `SITE_URL` = l'adresse Vercel (quand le paiement en ligne sera branché)
 - [ ] Porter les fonctions de `commande-bar/` listées plus haut
 
 ## Journal
 
 Le plus récent en haut.
 
+- **28/10/2026 · Benjamin** : `tapigo/` en ligne sur Vercel (Root Directory `tapigo`, Framework « Other »). Compte
+  administrateur Benjamin créé dans le Supabase de Tom (table `admins`). Projet Vercel vide « tapigo » à supprimer.
 - **28/10/2026 · Benjamin** : copie de l'application de Tom dans `tapigo/`, `commande-bar/` mise de côté.
