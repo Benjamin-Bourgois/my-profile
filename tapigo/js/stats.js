@@ -71,6 +71,76 @@
     };
   }
 
+  /* ---------------- Bilan du mois ---------------- */
+  var MIN_PER_ORDER = 2; // estimation : minutes de serveur gagnées par commande passée par le client lui-même
+  var MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+
+  function monthStart(offset) { var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(1); d.setMonth(d.getMonth() - offset); return d; }
+
+  // Totaux d'une période [from, to[.
+  function period(orders, from, to) {
+    var p = { revenue: 0, count: 0, self: 0, sugRevenue: 0, sugQty: 0, tips: 0, online: 0, onlineRevenue: 0, items: {}, days: {}, hours: [] };
+    for (var h = 0; h < 24; h++) p.hours.push(0);
+    orders.forEach(function (o) {
+      if (o.createdAt < from || o.createdAt >= to) return;
+      p.revenue += o.total; p.count++;
+      if (o.source !== 'serveur') p.self++;
+      if (o.tip) p.tips += o.tip;
+      if (o.payment && o.payment.method === 'online') { p.online++; p.onlineRevenue += o.total; }
+      var k = dayKey(o.createdAt);
+      p.days[k] = (p.days[k] || 0) + o.total;
+      p.hours[new Date(o.createdAt).getHours()]++;
+      o.lines.forEach(function (l) {
+        var sq = Math.min(l.qty, Number(l.suggested) || 0);
+        if (sq > 0) { p.sugQty += sq; p.sugRevenue += sq * l.unitPrice; }
+        var it = p.items[l.name] || (p.items[l.name] = { name: l.name, qty: 0, revenue: 0 });
+        it.qty += l.qty; it.revenue += l.unitPrice * l.qty;
+      });
+    });
+    p.basket = p.count ? p.revenue / p.count : 0;
+    p.top = Object.keys(p.items).map(function (k) { return p.items[k]; }).sort(function (a, b) { return b.revenue - a.revenue; }).slice(0, 5);
+    var bestDay = Object.keys(p.days).sort(function (a, b) { return p.days[b] - p.days[a]; })[0];
+    p.bestDay = bestDay ? { day: bestDay, revenue: p.days[bestDay] } : null;
+    var peak = p.hours.indexOf(Math.max.apply(null, p.hours));
+    p.peak = p.count ? peak : null;
+    p.openDays = Object.keys(p.days).length;
+    p.minutesSaved = p.self * MIN_PER_ORDER;
+    return p;
+  }
+
+  // Mois en cours : comparé à la même période du mois précédent (du 1er au même jour).
+  // Mois terminé : comparé au mois entier d'avant.
+  function bilan(orders, offset) {
+    var from = monthStart(offset), next = monthStart(offset - 1);
+    var to = offset === 0 ? Date.now() : next.getTime();
+    var prevFrom = monthStart(offset + 1);
+    var prevTo = offset === 0 ? Math.min(from.getTime(), new Date(prevFrom).setDate(new Date().getDate()) + DAY) : from.getTime();
+    return {
+      label: MONTHS[from.getMonth()] + ' ' + from.getFullYear(),
+      prevLabel: MONTHS[prevFrom.getMonth()],
+      running: offset === 0,
+      cur: period(orders, from.getTime(), to),
+      prev: period(orders, prevFrom.getTime(), prevTo)
+    };
+  }
+
+  function evolution(cur, prev) {
+    if (!prev) return '';
+    var pct = Math.round((cur - prev) / prev * 100);
+    return (pct > 0 ? '+' : '') + pct + ' %';
+  }
+
+  function hoursText(min) {
+    if (min < 60) return Math.round(min) + ' min';
+    var h = Math.floor(min / 60), m = Math.round(min % 60);
+    return h + ' h' + (m ? ' ' + String(m).padStart(2, '0') : '');
+  }
+
+  function dayLabel(k) {
+    var d = new Date(k + 'T12:00:00');
+    return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+
   /* ---------------- Graphique en barres (SVG) ---------------- */
   // points : [{ label, value, tip }]
   function barChart(el, points, opts) {
@@ -151,22 +221,89 @@
   /* ---------------- Rendu ---------------- */
   function render(root, opts) {
     var days = opts.days || 30;
+    var monthOffset = 0;
     var orders = [];
 
     function shell(inner) {
       root.innerHTML = '<div class="stats">' +
         '<div class="stats__bar">' +
-          '<div class="seg" role="group" aria-label="Période">' + [[7, '7 jours'], [30, '30 jours'], [90, '90 jours']].map(function (p) {
+          '<div class="seg" role="group" aria-label="Période">' + [['bilan', 'Bilan du mois'], [7, '7 jours'], [30, '30 jours'], [90, '90 jours']].map(function (p) {
             return '<button type="button" data-days="' + p[0] + '" aria-pressed="' + (days === p[0]) + '">' + p[1] + '</button>';
           }).join('') + '</div>' +
+          (days === 'bilan' ? '<div class="seg" role="group" aria-label="Mois">' + [[0, 'Ce mois-ci'], [1, 'Mois dernier']].map(function (p) {
+            return '<button type="button" data-month="' + p[0] + '" aria-pressed="' + (monthOffset === p[0]) + '">' + p[1] + '</button>';
+          }).join('') + '</div>' : '') +
           '<div class="k-top__spacer"></div>' +
-          '<button class="btn btn--ghost btn--sm" type="button" data-export>⬇ Export CSV</button>' +
+          (days === 'bilan' ? '<button class="btn btn--primary btn--sm" type="button" data-print-bilan>🖨 Imprimer / PDF</button>'
+            : '<button class="btn btn--ghost btn--sm" type="button" data-export>⬇ Export CSV</button>') +
           (opts.demoTools ? '<button class="btn btn--soft btn--sm" type="button" data-seed>Générer 30 jours de démo</button>' +
             '<button class="btn btn--danger btn--sm" type="button" data-clear>Supprimer la démo</button>' : '') +
         '</div>' + inner + '</div>';
     }
 
+    function paintBilan() {
+      var b = bilan(orders, monthOffset), c = b.cur, p = b.prev;
+      if (!c.count) {
+        shell('<div class="empty"><h3>Pas encore de commandes en ' + esc(b.label) + '</h3><p>Le bilan se remplit automatiquement au fil des services.</p></div>');
+        return;
+      }
+      var vs = b.running ? 'vs même période de ' + b.prevLabel : 'vs ' + b.prevLabel;
+      var evo = function (cur, prev) { var e = evolution(cur, prev); return e ? e + ' ' + vs : 'pas de comparaison possible'; };
+      var share = c.revenue ? Math.round(c.sugRevenue / c.revenue * 100) : 0;
+      shell(
+        '<section class="bilan">' +
+          '<div class="bilan__hero">' +
+            '<p class="eyebrow">Bilan · ' + esc(b.label) + (b.running ? ' (en cours)' : '') + '</p>' +
+            '<h2>Ce que Tapigo vous a rapporté</h2>' +
+            '<div class="bilan__big">' +
+              '<div><b>' + fmt(c.sugRevenue) + '</b><span>de ventes en plus grâce aux suggestions « Parfait avec »' +
+                (c.sugQty ? ' · ' + c.sugQty + ' article' + (c.sugQty > 1 ? 's' : '') + ' ajouté' + (c.sugQty > 1 ? 's' : '') + ' en un geste' + (share ? ', ' + share + ' % du chiffre d’affaires' : '') : '') + '</span></div>' +
+              '<div><b>' + hoursText(c.minutesSaved) + '</b><span>de service gagné : ' + c.self + ' commande' + (c.self > 1 ? 's' : '') + ' passée' + (c.self > 1 ? 's' : '') + ' par les clients eux-mêmes (estimation : ' + MIN_PER_ORDER + ' min par commande)</span></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="stat-tiles">' +
+            tile('Chiffre d’affaires via Tapigo', fmt(c.revenue), evo(c.revenue, p.revenue)) +
+            tile('Commandes', c.count.toLocaleString('fr-FR'), evo(c.count, p.count)) +
+            tile('Panier moyen', fmt(c.basket), evo(c.basket, p.basket)) +
+            tile('Payées en ligne', c.online ? fmt(c.onlineRevenue) : '—', c.online ? c.online + ' commande' + (c.online > 1 ? 's' : '') + ' encaissée' + (c.online > 1 ? 's' : '') + ' sans terminal' : 'paiement en ligne non utilisé') +
+            (c.tips ? tile('Pourboires pour l’équipe', fmt(c.tips), 'laissés avec le paiement en ligne') : '') +
+          '</div>' +
+          '<div class="stats-grid">' +
+            '<section class="chart-card"><h3>Vos 5 meilleures ventes</h3><ol class="top-list">' + c.top.map(function (it) {
+              return '<li><span class="top-list__name">' + esc(it.name) + '</span><span class="top-list__bar"><span style="width:' + Math.max(2, it.revenue / c.top[0].revenue * 100) + '%"></span></span>' +
+                '<span class="top-list__val">' + it.qty + ' · ' + fmt(it.revenue) + '</span></li>';
+            }).join('') + '</ol></section>' +
+            '<section class="chart-card"><h3>Repères du mois</h3><ul class="bilan__facts">' +
+              (c.bestDay ? '<li><span>Meilleure journée</span><strong>' + esc(dayLabel(c.bestDay.day)) + ' · ' + fmt(c.bestDay.revenue) + '</strong></li>' : '') +
+              (c.peak != null ? '<li><span>Heure de pointe</span><strong>' + c.peak + 'h – ' + (c.peak + 1) + 'h</strong></li>' : '') +
+              '<li><span>Jours avec des commandes</span><strong>' + c.openDays + '</strong></li>' +
+              '<li><span>Commandes prises en salle par un serveur</span><strong>' + (c.count - c.self) + '</strong></li>' +
+            '</ul></section>' +
+          '</div>' +
+          '<p class="help">Ventes en plus : articles ajoutés depuis une suggestion « Parfait avec » de la carte (comptées à partir du 28/10/2026). ' +
+            'Service gagné : estimation à ' + MIN_PER_ORDER + ' minutes de serveur par commande passée directement par le client.</p>' +
+        '</section>'
+      );
+    }
+
+    function printBilan() {
+      var view = root.querySelector('.bilan');
+      if (!view) return;
+      var w = window.open('', '_blank');
+      if (!w) return UI.toast('Autorisez les fenêtres pour imprimer le bilan');
+      // Styles recopiés tels quels (la fenêtre d'impression n'a pas d'adresse propre).
+      var css = '<style>' + Array.prototype.map.call(document.styleSheets, function (sh) {
+        try { return Array.prototype.map.call(sh.cssRules, function (r) { return r.cssText; }).join('\n'); } catch (err) { return ''; }
+      }).join('\n') + '</style>';
+      w.document.write('<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Bilan Tapigo · ' + esc(opts.restaurantName || '') + '</title>' + css +
+        '<style>body{background:#fff;padding:24px}.bilan{max-width:900px;margin:0 auto}@media print{body{padding:0}}</style></head><body>' +
+        '<p class="eyebrow" style="text-align:center;margin-bottom:12px">' + esc(opts.restaurantName || '') + '</p>' + view.outerHTML + '</body></html>');
+      w.document.close();
+      w.onload = function () { w.focus(); w.print(); };
+    }
+
     function paint() {
+      if (days === 'bilan') return paintBilan();
       var s = compute(orders, days);
       if (!s.count) {
         shell('<div class="empty"><h3>Pas encore de commandes sur la période</h3><p>Les statistiques se remplissent automatiquement au fil des services.' +
@@ -239,13 +376,18 @@
 
     function load() {
       shell('<div class="empty"><span class="spinner" style="display:inline-block;border-color:var(--line);border-top-color:var(--ink)"></span><p style="margin-top:10px">Calcul des statistiques…</p></div>');
-      opts.load(days).then(function (list) { orders = list; paint(); })
+      // Bilan : mois en cours, mois dernier et celui d'avant (comparaison).
+      var span = days === 'bilan' ? Math.ceil((Date.now() - monthStart(2).getTime()) / DAY) + 1 : days;
+      opts.load(span).then(function (list) { orders = list; paint(); })
         .catch(function (err) { shell('<div class="empty"><h3>Statistiques indisponibles</h3><p>' + esc(err.message) + '</p></div>'); });
     }
 
     root.onclick = function (e) {
       var b = e.target.closest('[data-days]');
-      if (b) { days = +b.dataset.days; return load(); }
+      if (b) { days = b.dataset.days === 'bilan' ? 'bilan' : +b.dataset.days; return load(); }
+      var mo = e.target.closest('[data-month]');
+      if (mo) { monthOffset = +mo.dataset.month; return paint(); }
+      if (e.target.closest('[data-print-bilan]')) return printBilan();
       if (e.target.closest('[data-export]')) {
         if (!orders.length) return UI.toast('Aucune commande sur la période');
         return exportCSV(orders, opts.restaurantName || 'restaurant');

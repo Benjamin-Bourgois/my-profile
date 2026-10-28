@@ -872,3 +872,18 @@ button.table-badge:active { transform: scale(.96); }
 .request--pay { border-left-color: var(--info); animation: ticketIn .4s var(--ease); }
 .request__actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 @media (max-width: 640px) { .request--pay { flex-wrap: wrap; } .request--pay .request__actions { width: 100%; justify-content: flex-start; } }
+
+/* ---------- Bilan du mois ---------- */
+.bilan { display: grid; gap: 16px; }
+.bilan__hero { padding: 24px; border-radius: var(--r-lg); background: var(--matte); color: var(--sand); }
+.bilan__hero .eyebrow { color: var(--gold); }
+.bilan__hero h2 { color: #fff; font-size: 30px; margin-top: 4px; }
+.bilan__big { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-top: 16px; }
+.bilan__big > div { display: grid; gap: 4px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, .15); }
+.bilan__big b { font-family: var(--serif); font-size: 44px; line-height: 1; color: var(--gold); font-variant-numeric: lining-nums tabular-nums; }
+.bilan__big span { font-size: 14px; line-height: 1.45; color: rgba(255, 255, 255, .8); }
+.bilan__facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.bilan__facts li { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.bilan__facts li span { color: var(--ink-2); }
+.bilan__facts li strong { text-align: right; }
+@media print { .bilan__hero { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

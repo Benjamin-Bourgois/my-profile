@@ -32,10 +32,11 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
   `stock_scans`, fonction SQL `add_delivery_stock`, bloc « Bon de livraison » de l'onglet Stocks
 - [x] Règlement au serveur : espèces, carte ou les deux (`place_order` accepte `cash`, `card`, `mixed` ;
   `payment.with` ; réglage `info.onsiteWith` dans Établissement)
-- [ ] Paiement simulé pour les bars de démonstration
+- [ ] ~~Paiement simulé pour les bars de démonstration~~ (abandonné le 28/10/2026)
 - [x] Suspension d'un bar depuis l'espace admin (impayé) : `admin_suspend` (motif dans `restaurant_billing`),
   `member_role` refuse l'équipe d'un restaurant suspendu, écran « Accès suspendu » dans le dashboard
-- [ ] Bilan mensuel « ce que l'application vous a rapporté »
+- [x] Bilan mensuel « ce que l'application vous a rapporté » : Statistiques → « Bilan du mois » ; lignes de commande
+  avec `suggested` (quantité ajoutée depuis « Parfait avec »)
 
 ## Règles de travail
 
@@ -70,6 +71,8 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **28/10/2026 · Benjamin** : bilan du mois dans Statistiques. Paiement simulé de démo abandonné (décision). À faire
+  une fois : relancer `supabase/schema.sql`. Fichiers en `?v=22`.
 - **28/10/2026 · Benjamin** : suspension d'un bar (admin.html → « Suspendre » / « Réactiver »). À faire une fois :
   relancer `supabase/schema.sql`. Fichiers en `?v=21`.
 - **28/10/2026 · Benjamin** : le bandeau « paie en ligne » disparaît après « Annuler », « Encaissé à table » ou un

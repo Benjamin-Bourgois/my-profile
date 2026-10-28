@@ -301,7 +301,7 @@
   // Client : envoie le panier, le serveur recalcule les prix et crée la commande.
   T.createOrder = function (payload) {
     var items = (payload.lines || []).filter(Boolean).map(function (l) {
-      return { itemId: l.itemId, qty: l.qty, selections: l.selections || {}, note: l.note || '' };
+      return { itemId: l.itemId, qty: l.qty, selections: l.selections || {}, note: l.note || '', suggested: l.suggested || 0 };
     });
     var args = {
       p_restaurant: current.slug,
