@@ -18,16 +18,18 @@ travaille désormais.**
 - Base de données et partie serveur : Supabase (projet `frylasycjociuxpcsmvc`, celui de Tom). Les fonctions
   serveur (Stripe Connect, paiement, webhook, prévision IA du stock) sont dans `supabase/functions/`.
 - La charte graphique est dans `DESIGN.md` : à respecter strictement.
-- Le fichier `.github/workflows/supabase-functions.yml` ne s'exécute pas depuis ce sous-dossier (GitHub ne lit
-  que le dossier `.github` à la racine du dépôt). Les fonctions sont déployées depuis le dépôt de Tom tant
-  qu'on n'a pas décidé du dépôt définitif.
+- Les fonctions serveur sont déployées par `.github/workflows/tapigo-supabase-functions.yml`, à la racine du
+  dépôt, à chaque modification de `tapigo/supabase/functions/` sur `main` (secret GitHub
+  `SUPABASE_ACCESS_TOKEN` requis). Le fichier `tapigo/.github/` est celui d'origine de Tom et ne s'exécute pas.
+  Ne plus modifier les fonctions dans le dépôt de Tom : son déploiement écraserait celui-ci.
 
 ## L'ancienne application : `commande-bar/` (mise de côté)
 
 Application Next.js + Vercel construite par Benjamin, toujours en ligne sur https://commande-bar.vercel.app.
 **On n'y touche plus** ; elle sert de réserve. Fonctions à y reprendre pour les porter dans `tapigo/` :
 
-- [ ] Scan des bons de livraison par l'IA (photo du bon → mise à jour du stock)
+- [x] Scan des bons de livraison par l'IA (photo du bon → mise à jour du stock) : fonction `stock-scan`, table
+  `stock_scans`, fonction SQL `add_delivery_stock`, bloc « Bon de livraison » de l'onglet Stocks
 - [ ] Règlement au serveur : espèces, carte ou les deux
 - [ ] Paiement simulé pour les bars de démonstration
 - [ ] Suspension d'un bar depuis l'espace admin (impayé)
@@ -66,6 +68,9 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **28/10/2026 · Benjamin** : scan des bons de livraison par l'IA dans l'onglet Stocks. À faire une fois : relancer
+  `supabase/schema.sql`, ajouter le secret GitHub `SUPABASE_ACCESS_TOKEN`, vérifier le secret Supabase
+  `ANTHROPIC_API_KEY`. Fichiers CSS/JS en `?v=15`.
 - **28/10/2026 · Benjamin** : `tapigo/` en ligne sur Vercel (Root Directory `tapigo`, Framework « Other »). Compte
   administrateur Benjamin créé dans le Supabase de Tom (table `admins`). Projet Vercel vide « tapigo » à supprimer.
 - **28/10/2026 · Benjamin** : copie de l'application de Tom dans `tapigo/`, `commande-bar/` mise de côté.
