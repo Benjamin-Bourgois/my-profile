@@ -70,6 +70,7 @@ Le **mode en ligne** s'appuie sur [Supabase](https://supabase.com) et gère plus
 - Bouton **Pause** pour suspendre les commandes en ligne lors d'un coup de feu.
 - Carte : catégories (ajout, renommage, ordre), photos envoyées depuis le téléphone, allergènes, suggestions, prix et ruptures en direct.
 - **Bilan du mois** (Statistiques → « Bilan du mois ») : ce que Tapigo a rapporté (ventes en plus grâce aux suggestions « Parfait avec », temps de service gagné), chiffre d'affaires, commandes et panier moyen comparés au mois précédent, meilleures ventes et repères, à imprimer ou enregistrer en PDF.
+- **Dates limites (onglet Dates)** : produits datés de la cuisine et du bar (DLC ou DDM / DLUO, quantité, note), classés « Dépassées », « Aujourd'hui et demain », « Dans les 7 jours », « Plus tard », avec un compteur sur l'onglet. Boutons Utilisé / Jeté (suivi du gaspillage du mois). Un compte équipe ne voit que son poste (réglé dans admin.html : Cuisine, Bar ou les deux) ; le gérant voit tout.
 - **Statistiques** : chiffre d'affaires par jour, affluence par heure, plats les plus vendus, panier moyen, temps de préparation, part cuisine / bar, export CSV.
 - **Serveurs des tables** : on choisit un prénom, on touche les tables, c'est affiché au client et sur les tickets. Modifiable en direct depuis la vue « Par table ».
 - **Prise de commande en salle** (tous les rôles) : le serveur choisit la table, ajoute les plats et leurs options, note pour la cuisine, puis envoie. Commande marquée « Prise en salle », non bloquée par la pause ni par l'anti-abus, stocks vérifiés.

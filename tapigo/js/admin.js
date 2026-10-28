@@ -98,7 +98,13 @@
     if (!list.length) return '<p class="help">Aucun accès pour l’instant.</p>';
     return list.map(function (m) {
       return '<div class="order-link"><span><strong>' + esc(m.email) + '</strong></span>' +
-        '<span style="display:flex;gap:10px;align-items:center"><span class="badge">' + esc(ROLE_LABEL[m.role] || m.role) + '</span>' +
+        '<span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="badge">' + esc(ROLE_LABEL[m.role] || m.role) + '</span>' +
+        (m.role === 'equipe'
+          ? '<select class="member-station" data-station="' + esc(m.user_id) + '" aria-label="Poste" title="Poste : ce que ce compte voit dans les dates limites">' +
+              [['all', 'Cuisine et bar'], ['cuisine', 'Cuisine'], ['bar', 'Bar']].map(function (o) {
+                return '<option value="' + o[0] + '"' + ((m.station || 'all') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+              }).join('') + '</select>'
+          : '') +
         '<button class="link-btn link-btn--danger" type="button" data-remove="' + esc(m.user_id) + '" data-email="' + esc(m.email) + '">Retirer</button></span></div>';
     }).join('');
   }
@@ -224,6 +230,14 @@
           return loadMembers(card);
         }).catch(function (err) { UI.toast(esc(err.message), 5000); });
       }
+    });
+
+    view.addEventListener('change', function (e) {
+      if (!e.target.matches('[data-station]')) return;
+      var card = e.target.closest('[data-rid]');
+      T.admin.setStation(card.dataset.rid, e.target.dataset.station, e.target.value).then(function () {
+        UI.toast('Poste enregistré');
+      }).catch(function (err) { UI.toast(esc(err.message), 5000); return loadMembers(card); });
     });
 
     view.addEventListener('click', function (e) {

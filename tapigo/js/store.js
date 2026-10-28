@@ -32,7 +32,8 @@
     requests: NS + 'requests',
     stock: NS + 'stock',
     forecast: NS + 'forecast',
-    servers: NS + 'servers'
+    servers: NS + 'servers',
+    expiry: NS + 'expiry'
   };
 
   var memory = {};
@@ -449,6 +450,45 @@
   }
 
   // Commandes passées fictives pour voir les statistiques en démo.
+  /* ---------------- Dates limites (DLC / DDM), démo ---------------- */
+  function isoDay(offset) {
+    var d = new Date(); d.setDate(d.getDate() + offset);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function expiryList() {
+    var list = read(K.expiry, null);
+    if (!list) {
+      // Quelques produits datés pour la démonstration.
+      list = [
+        ['cuisine', 'Burrata des Pouilles', 'dlc', -1, '3 pièces'], ['cuisine', 'Crème liquide 35 %', 'dlc', 0, '1 L'],
+        ['cuisine', 'Saumon frais (tartare)', 'dlc', 1, '1,2 kg'], ['cuisine', 'Pâte feuilletée', 'dlc', 4, '2 rouleaux'],
+        ['bar', 'Lait entier', 'dlc', 2, '3 bouteilles'], ['bar', 'Citrons (citronnade)', 'ddm', 5, '2 kg'],
+        ['bar', 'Sirop de framboise', 'ddm', 60, '1 bouteille'], ['bar', 'Prosecco ouvert', 'ddm', 1, '1 bouteille', 'Ouvert hier']
+      ].map(function (x, i) {
+        return { id: 'exp_demo_' + i, station: x[0], label: x[1], itemId: null, kind: x[2], expiresOn: isoDay(x[3]), quantity: x[4], note: x[5] || '', status: 'actif', closedAt: null };
+      });
+      write(K.expiry, list);
+    }
+    return list;
+  }
+  var expiry = {
+    station: function () { return 'all'; },
+    list: function () { return clone(expiryList()); },
+    add: function (e) {
+      var list = expiryList();
+      var row = { id: 'exp_' + Date.now().toString(36), station: e.station, label: e.label, itemId: e.itemId || null, kind: e.kind,
+        expiresOn: e.expiresOn, quantity: e.quantity || '', note: e.note || '', status: 'actif', closedAt: null };
+      list.push(row); write(K.expiry, list); emit('expiry:updated', null);
+      return Promise.resolve(clone(row));
+    },
+    close: function (id, status) {
+      var list = expiryList().filter(function (x) { return status !== 'supprime' || x.id !== id; });
+      list.forEach(function (x) { if (x.id === id && status !== 'supprime') { x.status = status; x.closedAt = Date.now(); } });
+      write(K.expiry, list); emit('expiry:updated', null);
+      return Promise.resolve();
+    }
+  };
+
   function seedDemoOrders(days) {
     var items = window.Tapigo.getMenu().items.filter(function (i) { return i.available !== false; });
     if (!items.length) return 0;
@@ -573,6 +613,7 @@
     setOrdersPaused: setOrdersPaused,
     loadStats: loadStats,
     forecast: forecast,
+    expiry: expiry,
     getTableServers: getTableServers,
     getTableServer: getTableServer,
     setTableServers: setTableServers,
