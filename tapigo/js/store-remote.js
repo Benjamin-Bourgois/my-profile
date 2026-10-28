@@ -67,7 +67,7 @@
     var msg = reason === 'old-link'
       ? 'Ce lien ne précise pas le restaurant (ancien format, sans « ?r= »). Reprogrammez la plaque NFC avec le lien copié depuis l’espace admin.'
       : reason === 'closed'
-        ? 'Le restaurant « ' + slug + ' » est momentanément fermé aux commandes en ligne.'
+        ? 'La commande en ligne est momentanément indisponible dans ce restaurant. Adressez-vous au serveur, il prend votre commande.'
         : 'Aucun restaurant ne correspond à l’identifiant « ' + slug + ' ». Vérifiez le lien de la plaque NFC.';
     var e = new Error(msg);
     e.code = 'NOT_FOUND';
@@ -732,6 +732,8 @@
       return rpc('admin_create_restaurant', { p_name: name, p_slug: slug, p_tables: tables, p_menu: menu || null });
     },
     setActive: function (id, active) { return rpc('admin_set_active', { p_restaurant: id, p_active: active }); },
+    // Suspension (impayé…) : plus de commandes, plus d'accès au dashboard pour l'équipe du restaurant.
+    suspend: function (id, reason) { return rpc('admin_suspend', { p_restaurant: id, p_reason: reason || '' }); },
     listMembers: function (id) { return rpc('admin_list_members', { p_restaurant: id }); },
     addMember: function (id, email, role) { return rpc('admin_add_member', { p_restaurant: id, p_email: email, p_role: role }); },
     removeMember: function (id, userId) { return rpc('admin_remove_member', { p_restaurant: id, p_user: userId }); },

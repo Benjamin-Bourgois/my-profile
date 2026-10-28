@@ -80,6 +80,7 @@ Le **mode en ligne** s'appuie sur [Supabase](https://supabase.com) et gère plus
 
 **Tapigo** (`admin.html`)
 - Création des restaurants, gestion des accès, lien NFC unique par restaurant.
+- **Suspension** (impayé…) : bouton « Suspendre » avec un motif. Les clients ne peuvent plus commander et l'équipe du restaurant voit un écran « Accès suspendu » (motif et date) au lieu du dashboard ; la base refuse ses actions. « Réactiver » rend l'accès, sans perte de données.
 - **Abonnements** : formule, prix mensuel, statut (essai, à jour, en retard, résilié), échéance, revenu mensuel total. Aucune commission sur les ventes.
 - Génération de **30 jours de données de démonstration** pour présenter les statistiques (marquées « démo », supprimables).
 

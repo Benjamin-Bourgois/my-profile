@@ -1673,10 +1673,51 @@
   function enter(restaurant) {
     try { localStorage.setItem(CHOICE_KEY, restaurant.slug); } catch (e) { /* ignore */ }
     return T.startStaff(restaurant).then(function () {
+      watchSuspension();
       $('#login').hidden = true;
       $('.kds').hidden = false;
       start();
     });
+  }
+
+  // Restaurant suspendu par Tapigo (impayé…) : l'équipe n'a plus accès, les admins Tapigo gardent la main.
+  function suspended(r) { return r && r.active === false && r.role !== 'admin'; }
+
+  function showSuspended(r, canSwitch) {
+    var form = $('#loginForm');
+    $('#login').hidden = false;
+    $('.kds').hidden = true;
+    var since = r.suspendedAt ? new Date(r.suspendedAt).toLocaleDateString('fr-FR') : '';
+    form.innerHTML = '<div class="logo" aria-hidden="true">T</div><p class="eyebrow">' + esc(r.name) + '</p><h1>Accès suspendu</h1>' +
+      '<p class="login__error">Le service Tapigo de ce restaurant est suspendu' + (since ? ' depuis le ' + esc(since) : '') + '.' +
+        (r.suspendedReason ? '<br><strong>Motif :</strong> ' + esc(r.suspendedReason) : '') + '</p>' +
+      '<p class="help">Les clients ne peuvent plus commander en ligne et le dashboard est indisponible. ' +
+        'Contactez l’équipe Tapigo pour régulariser la situation : l’accès revient dès la réactivation, avec toutes vos données.</p>' +
+      (canSwitch ? '<button class="btn btn--ghost btn--block" type="button" id="suspSwitch">Choisir un autre restaurant</button>' : '') +
+      '<button class="link-btn" type="button" id="suspLogout">Se déconnecter</button>';
+    form.onsubmit = function (e) { e.preventDefault(); };
+    form.onclick = function (e) {
+      if (e.target.closest('#suspSwitch')) {
+        try { localStorage.removeItem(CHOICE_KEY); } catch (err) { /* ignore */ }
+        location.href = location.pathname;
+      }
+      if (e.target.closest('#suspLogout')) {
+        try { localStorage.removeItem(CHOICE_KEY); } catch (err) { /* ignore */ }
+        T.auth.signOut().then(function () { location.reload(); });
+      }
+    };
+  }
+
+  // Suspension pendant le service : l'écran passe sur « Accès suspendu » sans attendre un rechargement.
+  function watchSuspension() {
+    setInterval(function () {
+      var cur = T.currentRestaurant && T.currentRestaurant();
+      if (!cur || cur.role === 'admin' || document.hidden) return;
+      T.auth.myRestaurants().then(function (list) {
+        var me = list.filter(function (r) { return r.id === cur.id; })[0];
+        if (!me || suspended(me)) location.reload();
+      }, function () { /* hors ligne : on réessaiera */ });
+    }, 120000);
   }
 
   function showPicker(list) {
@@ -1685,14 +1726,16 @@
     form.innerHTML = '<div class="logo" aria-hidden="true">T</div><p class="eyebrow">Espace restaurateur</p><h1>Quel restaurant ?</h1>' +
       '<div class="order-list">' + list.map(function (r) {
         return '<button class="order-link" type="button" data-pick="' + esc(r.id) + '"><span><strong>' + esc(r.name) + '</strong><br>' +
-          '<small style="color:var(--muted)">' + esc(r.slug) + (r.active ? '' : ' · désactivé') + '</small></span>' +
+          '<small style="color:var(--muted)">' + esc(r.slug) + (r.active ? '' : ' · suspendu') + '</small></span>' +
           '<span class="badge">' + esc(ROLE_LABEL[r.role] || r.role) + '</span></button>';
       }).join('') + '</div>' +
       '<button class="link-btn" type="button" id="pickerLogout">Se déconnecter</button>';
     form.onsubmit = function (e) { e.preventDefault(); };
     form.addEventListener('click', function (e) {
       var b = e.target.closest('[data-pick]');
-      if (b) enter(list.filter(function (r) { return r.id === b.dataset.pick; })[0]).catch(fatal);
+      var picked = b && list.filter(function (r) { return r.id === b.dataset.pick; })[0];
+      if (picked && suspended(picked)) return showSuspended(picked, true);
+      if (picked) enter(picked).catch(fatal);
       if (e.target.closest('#pickerLogout')) T.auth.signOut().then(function () { location.reload(); });
     });
   }
@@ -1710,6 +1753,7 @@
       try { saved = localStorage.getItem(CHOICE_KEY); } catch (e) { /* ignore */ }
       var pick = function (slug) { return list.filter(function (r) { return r.slug === slug; })[0]; };
       var choice = (wanted && pick(wanted)) || (list.length === 1 ? list[0] : (saved && pick(saved)));
+      if (choice && suspended(choice)) return showSuspended(choice, list.length > 1);
       if (choice) return enter(choice);
       showPicker(list);
     });
