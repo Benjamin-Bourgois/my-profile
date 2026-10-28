@@ -54,7 +54,7 @@ Le **mode en ligne** s'appuie sur [Supabase](https://supabase.com) et gère plus
 - Numéro de table saisi à l'arrivée et vérifié, modifiable via le badge.
 - Carte par catégories personnalisables, filtres rapides, recherche, photos.
 - Fiche produit : options et suppléments, **14 allergènes réglementaires**, suggestions « Parfait avec ».
-- Panier avec notes pour la cuisine. **Payer à table** (terminal du restaurant) ou, si le restaurant l'active, **Payer maintenant** depuis le téléphone (carte, Apple Pay, Google Pay via Stripe). La commande part en cuisine dès le paiement validé.
+- Panier avec notes pour la cuisine. **Payer à table** : le client indique s'il réglera en **espèces, par carte ou les deux** (moyens acceptés réglables dans Établissement), affiché au bar sur le ticket et sur la table (« À encaisser · Espèces ») ou, si le restaurant l'active, **Payer maintenant** depuis le téléphone (carte, Apple Pay, Google Pay via Stripe). La commande part en cuisine dès le paiement validé.
 - **Bouton Service** : « Appeler un serveur » ou « Demander l'addition ».
 - **Pourboire** avec le paiement en ligne : 5 %, 10 %, 15 % ou montant libre, ajouté au paiement Stripe et reversé au restaurant (désactivable dans Établissement).
 - **Serveur de la table** affiché au client (« Votre serveur : Marco »), attribué depuis le dashboard.

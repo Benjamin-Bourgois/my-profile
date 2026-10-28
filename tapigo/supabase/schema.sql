@@ -287,6 +287,19 @@ begin
       raise exception 'Le paiement en ligne n''est pas disponible dans ce restaurant. Choisissez « Payer à table ».';
     end if;
     v_payment := '{"method": "online", "status": "awaiting"}'::jsonb;
+  elsif p_pay in ('cash', 'card', 'mixed') then
+    -- Payer à table : le client annonce comment il va régler (espèces, carte ou
+    -- les deux), pour que le serveur vienne avec le terminal ou la monnaie.
+    if p_pay <> 'mixed' and jsonb_typeof(v_info -> 'onsiteWith') = 'array'
+       and not (v_info -> 'onsiteWith') ? p_pay then
+      raise exception '%', case p_pay when 'cash' then 'Ce restaurant n''accepte pas les espèces.'
+                                      else 'Ce restaurant n''accepte pas la carte bancaire.' end;
+    end if;
+    if p_pay = 'mixed' and jsonb_typeof(v_info -> 'onsiteWith') = 'array'
+       and not ((v_info -> 'onsiteWith') ? 'cash' and (v_info -> 'onsiteWith') ? 'card') then
+      raise exception 'Ce restaurant n''accepte pas le paiement en espèces et carte.';
+    end if;
+    v_payment := jsonb_build_object('method', 'onsite', 'status', 'pending', 'with', p_pay);
   elsif p_pay <> 'onsite' then
     raise exception 'Moyen de paiement invalide';
   end if;
