@@ -772,6 +772,37 @@
     }
   };
 
+  /* ---------------- Fiches techniques et marges (gérant) ---------------- */
+  T.margins = {
+    // { ingredients: [{ id, name, unit, cost, prevCost, costUpdatedAt, source }], recipes: { itemId: {...} }, itemCosts: { itemId: coût } }
+    load: function () {
+      var q = function (t) { return sb.from(t).select('*').eq('restaurant_id', current.id); };
+      return Promise.all([q('ingredients'), q('recipes'), q('item_costs')]).then(function (r) {
+        var bad = r.filter(function (x) { return x.error; })[0];
+        if (bad) throw new Error(/ingredients|recipes|item_costs/.test(bad.error.message) ? 'Relancez supabase/schema.sql pour activer les fiches techniques.' : bad.error.message);
+        var recipes = {}, costs = {};
+        r[1].data.forEach(function (x) {
+          recipes[x.item_id] = { mode: x.mode, vat: Number(x.vat), lines: x.lines || [], purchaseCost: x.purchase_cost == null ? null : Number(x.purchase_cost) };
+        });
+        r[2].data.forEach(function (x) { costs[x.item_id] = Number(x.cost_per_portion); });
+        return {
+          ingredients: r[0].data.map(function (x) {
+            return { id: x.id, name: x.name, unit: x.unit, cost: x.cost == null ? null : Number(x.cost), prevCost: x.prev_cost == null ? null : Number(x.prev_cost),
+              costUpdatedAt: x.cost_updated_at ? Date.parse(x.cost_updated_at) : null, source: x.source };
+          }).sort(function (a, b) { return a.name.localeCompare(b.name, 'fr'); }),
+          recipes: recipes, itemCosts: costs
+        };
+      });
+    },
+    saveIngredient: function (id, name, unit, cost) { return rpc('save_ingredient', { p_restaurant: current.id, p_id: id || null, p_name: name, p_unit: unit, p_cost: cost }); },
+    deleteIngredient: function (id) { return rpc('delete_ingredient', { p_restaurant: current.id, p_id: id }); },
+    saveRecipe: function (itemId, mode, vat, lines, purchaseCost) {
+      return rpc('save_recipe', { p_restaurant: current.id, p_item: itemId, p_mode: mode, p_vat: vat, p_lines: lines, p_purchase_cost: purchaseCost });
+    },
+    // Prix relevés sur un bon : [{ name, total, amount, unit }].
+    recordPrices: function (lines) { return rpc('record_ingredient_prices', { p_restaurant: current.id, p_lines: lines }); }
+  };
+
   /* ---------------- Administration Tapigo ---------------- */
   function rpc(name, args) {
     return sb.rpc(name, args || {}).then(function (r) {

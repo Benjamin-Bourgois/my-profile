@@ -1254,11 +1254,15 @@
     sc.applying = true;
     renderStock();
     var dated = sc.result.lines.filter(function (l) { return l.expires_on; });
+    // Prix d'achat des lignes chiffrées : mis à jour dans les fiches techniques (onglet Marges).
+    var priced = sc.result.lines.filter(function (l) { return l.total_ht != null && l.amount > 0 && l.amount_unit; })
+      .map(function (l) { return { name: l.label, total: l.total_ht, amount: l.amount, unit: l.amount_unit }; });
     // Coût d'achat d'une portion : total HT de la ligne ÷ portions livrées.
     T.scan.apply(sc.result.scan_id, todo.map(function (l) {
       return { itemId: l.item_id, quantity: l.quantity, unitCost: l.total_ht != null && l.quantity > 0 ? Math.round(l.total_ht / l.quantity * 10000) / 10000 : null };
     })).then(function (n) {
       UI.toast('Livraison ajoutée au stock · ' + n + ' produit' + (n > 1 ? 's' : ''));
+      if (priced.length && T.margins) T.margins.recordPrices(priced).catch(function () { /* facultatif */ });
       sc.result = null;
       // Dates limites imprimées sur le bon : proposées pour l'onglet Dates.
       sc.dated = T.expiry && dated.length ? datedFromScan(dated) : null;
@@ -1854,10 +1858,12 @@
     $('#statsView').hidden = v !== 'stats';
     $('#stockView').hidden = v !== 'stock';
     $('#datesView').hidden = v !== 'dates';
+    $('#marginsView').hidden = v !== 'margins';
     if (v === 'orders') renderOrders();
     else if (v === 'dates') renderDates();
     else if (v === 'menu') renderMenuEditor();
     else if (v === 'stock') renderStock();
+    else if (v === 'margins') window.TapigoMargins.mount($('#marginsView'));
     else renderStats();
   }
 
@@ -2128,6 +2134,7 @@
       // L'équipe ne gère que les commandes.
       document.querySelector('.k-tab[data-view="menu"]').hidden = cur.role === 'equipe';
       document.querySelector('.k-tab[data-view="stats"]').hidden = cur.role === 'equipe';
+      document.querySelector('.k-tab[data-view="margins"]').hidden = cur.role === 'equipe';
       var sub = document.querySelector('.k-brand p');
       sub.textContent = ROLE_LABEL[cur.role] + ' · Cuisine & Bar';
       if (myRestaurants.length > 1) {

@@ -34,7 +34,8 @@
     forecast: NS + 'forecast',
     servers: NS + 'servers',
     expiry: NS + 'expiry',
-    moves: NS + 'expiry-moves'
+    moves: NS + 'expiry-moves',
+    margins: NS + 'margins'
   };
 
   var memory = {};
@@ -561,6 +562,61 @@
     }
   };
 
+  /* ---------------- Fiches techniques et marges, démo ---------------- */
+  function marginsData() {
+    var m = read(K.margins, null);
+    if (!m) {
+      var ing = function (id, name, unit, cost, prev) {
+        return { id: id, name: name, unit: unit, cost: cost, prevCost: prev || null, costUpdatedAt: Date.now() - 86400000 * (prev ? 3 : 20), source: 'bon' };
+      };
+      m = {
+        ingredients: [
+          ing('i_prosecco', 'Prosecco DOC', 'l', 8.67, 7.9), ing('i_aperol', 'Aperol', 'l', 19.86), ing('i_eau', 'Eau gazeuse', 'l', 0.8),
+          ing('i_orange', 'Oranges', 'kg', 2.4), ing('i_boeuf', 'Bœuf haché', 'kg', 14.5), ing('i_pain', 'Pain burger', 'piece', 0.45),
+          ing('i_cheddar', 'Cheddar', 'kg', 16.2, 15.1), ing('i_frites', 'Frites surgelées', 'kg', 2.1), ing('i_entrecote', 'Entrecôte maturée', 'kg', 32.5),
+          ing('i_citron', 'Citrons jaunes', 'kg', 2.9), ing('i_sucre', 'Sucre de canne', 'kg', 1.6)
+        ],
+        recipes: {}, itemCosts: { burrata: 2.85 }
+      };
+      var rec = function (id, vat, lines) { m.recipes[id] = { mode: 'recette', vat: vat, lines: lines, purchaseCost: null }; };
+      var l = function (i, q, u) { return { ingredientId: i, qty: q, unit: u }; };
+      rec('spritz', 20, [l('i_prosecco', 9, 'cl'), l('i_aperol', 6, 'cl'), l('i_eau', 3, 'cl'), l('i_orange', 30, 'g')]);
+      rec('burger', 10, [l('i_boeuf', 180, 'g'), l('i_pain', 1, 'piece'), l('i_cheddar', 30, 'g'), l('i_frites', 200, 'g')]);
+      rec('entrecote', 10, [l('i_entrecote', 300, 'g'), l('i_frites', 200, 'g')]);
+      rec('citronnade', 10, [l('i_citron', 80, 'g'), l('i_sucre', 20, 'g')]);
+      write(K.margins, m);
+    }
+    return m;
+  }
+  var margins = {
+    load: function () { return Promise.resolve(clone(marginsData())); },
+    saveIngredient: function (id, name, unit, cost) {
+      var m = marginsData(), x = id && m.ingredients.filter(function (i) { return i.id === id; })[0];
+      if (m.ingredients.some(function (i) { return i.id !== id && i.name.toLowerCase() === String(name).trim().toLowerCase(); })) {
+        return Promise.reject(new Error('Un ingrédient porte déjà ce nom.'));
+      }
+      if (x) { if (x.cost !== cost) { x.prevCost = x.cost; x.costUpdatedAt = Date.now(); x.source = 'manuel'; } x.name = name; x.unit = unit; x.cost = cost; }
+      else { x = { id: 'i_' + Date.now().toString(36), name: name, unit: unit, cost: cost, prevCost: null, costUpdatedAt: Date.now(), source: 'manuel' }; m.ingredients.push(x); }
+      write(K.margins, m);
+      return Promise.resolve(clone(x));
+    },
+    deleteIngredient: function (id) {
+      var m = marginsData();
+      var used = Object.keys(m.recipes).some(function (k) { return m.recipes[k].lines.some(function (l) { return l.ingredientId === id; }); });
+      if (used) return Promise.reject(new Error('Cet ingrédient est utilisé dans une fiche technique : retirez-le d’abord de la fiche.'));
+      m.ingredients = m.ingredients.filter(function (i) { return i.id !== id; });
+      write(K.margins, m);
+      return Promise.resolve();
+    },
+    saveRecipe: function (itemId, mode, vat, lines, purchaseCost) {
+      var m = marginsData();
+      m.recipes[itemId] = { mode: mode, vat: vat, lines: lines, purchaseCost: purchaseCost };
+      write(K.margins, m);
+      return Promise.resolve();
+    },
+    recordPrices: function () { return Promise.resolve(0); }
+  };
+
   function seedDemoOrders(days) {
     var items = window.Tapigo.getMenu().items.filter(function (i) { return i.available !== false; });
     if (!items.length) return 0;
@@ -686,6 +742,7 @@
     loadStats: loadStats,
     forecast: forecast,
     expiry: expiry,
+    margins: margins,
     getTableServers: getTableServers,
     getTableServer: getTableServer,
     setTableServers: setTableServers,
