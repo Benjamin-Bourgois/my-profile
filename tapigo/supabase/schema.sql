@@ -1792,19 +1792,45 @@ create table if not exists public.haccp_receptions (
 );
 create index if not exists haccp_receptions_idx on public.haccp_receptions (restaurant_id, created_at desc);
 
-do $$
-declare
-  t text;
-begin
-  foreach t in array array['haccp_equipment', 'haccp_readings', 'haccp_tasks', 'haccp_cleanings', 'haccp_receptions'] loop
-    execute format('alter table public.%I enable row level security', t);
-    execute format('drop policy if exists "HACCP visible par le poste concerné" on public.%I', t);
-    execute format('create policy "HACCP visible par le poste concerné" on public.%I for select using (public.member_station(restaurant_id) in (''all'', station))', t);
-    execute format('revoke all on public.%I from anon', t);
-    execute format('revoke insert, update, delete on public.%I from authenticated', t);
-    execute format('grant select on public.%I to authenticated', t);
-  end loop;
-end $$;
+alter table public.haccp_equipment enable row level security;
+drop policy if exists "HACCP visible par le poste concerné" on public.haccp_equipment;
+create policy "HACCP visible par le poste concerné" on public.haccp_equipment
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.haccp_equipment from anon;
+revoke insert, update, delete on public.haccp_equipment from authenticated;
+grant select on public.haccp_equipment to authenticated;
+
+alter table public.haccp_readings enable row level security;
+drop policy if exists "HACCP visible par le poste concerné" on public.haccp_readings;
+create policy "HACCP visible par le poste concerné" on public.haccp_readings
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.haccp_readings from anon;
+revoke insert, update, delete on public.haccp_readings from authenticated;
+grant select on public.haccp_readings to authenticated;
+
+alter table public.haccp_tasks enable row level security;
+drop policy if exists "HACCP visible par le poste concerné" on public.haccp_tasks;
+create policy "HACCP visible par le poste concerné" on public.haccp_tasks
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.haccp_tasks from anon;
+revoke insert, update, delete on public.haccp_tasks from authenticated;
+grant select on public.haccp_tasks to authenticated;
+
+alter table public.haccp_cleanings enable row level security;
+drop policy if exists "HACCP visible par le poste concerné" on public.haccp_cleanings;
+create policy "HACCP visible par le poste concerné" on public.haccp_cleanings
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.haccp_cleanings from anon;
+revoke insert, update, delete on public.haccp_cleanings from authenticated;
+grant select on public.haccp_cleanings to authenticated;
+
+alter table public.haccp_receptions enable row level security;
+drop policy if exists "HACCP visible par le poste concerné" on public.haccp_receptions;
+create policy "HACCP visible par le poste concerné" on public.haccp_receptions
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.haccp_receptions from anon;
+revoke insert, update, delete on public.haccp_receptions from authenticated;
+grant select on public.haccp_receptions to authenticated;
 
 -- Contrôle commun : membre du restaurant, autorisé sur ce poste.
 create or replace function public.haccp_check_station(p_restaurant uuid, p_station text)
