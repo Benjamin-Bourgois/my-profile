@@ -942,7 +942,7 @@
           '<span class="pad-item__name">' + esc(i.name) +
             ((i.options || []).length ? ' <small>options</small>' : '') + '</span>' +
           (st != null ? '<span class="badge ' + (st <= 5 ? 'badge--warn' : '') + '">' + st + ' rest.</span>' : '') +
-          '<span class="pad-item__price">' + fmt(i.price) + '</span>' +
+          '<span class="pad-item__price">' + fmt(T.itemPrice(i)) + '</span>' +
           (n ? '<span class="pad-item__qty">' + n + '</span>' : '<span class="pad-item__plus" aria-hidden="true">+</span>') +
         '</button>';
       if (pad.open === i.id) {
@@ -1540,6 +1540,7 @@
         '<div class="stat-tile"><span>Suivis</span><b>' + shown.length + '</b><small>produits datés en stock</small></div>' +
         '<div class="stat-tile"><span>Jetés ce mois-ci</span><b>' + thrown + '</b><small>pour suivre le gaspillage</small></div>' +
       '</div>' +
+      (window.TapigoAntigaspi ? '<div id="antigaspiBlock"></div>' : '') +
       (shown.length ? groups.map(function (g) {
         var rows = shown.filter(function (x) { return g[1](daysLeft(x.expiresOn)); });
         return rows.length ? '<section class="editor-cat"><h2>' + g[0] + '</h2><div class="editor-list">' + rows.map(dateRowHTML).join('') + '</div></section>' : '';
@@ -1549,6 +1550,9 @@
         'Pensez à dater aussi les produits ouverts (sauces, lait, bouteilles entamées). ' +
         'Un lot rattaché à un produit de la carte se décompte tout seul à chaque commande, le plus proche de sa date d’abord.</p>' +
     '</div>';
+    if ($('#antigaspiBlock')) window.TapigoAntigaspi.mount($('#antigaspiBlock'), {
+      manager: !LIVE || T.currentRestaurant().role !== 'equipe', zone: zone, daysLeft: daysLeft
+    });
   }
 
   /* ---------------- Utilisé / Jeté : quantité et motif ---------------- */

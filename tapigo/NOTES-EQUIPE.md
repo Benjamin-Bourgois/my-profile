@@ -71,6 +71,9 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **29/10/2026 · Benjamin** : anti-gaspillage : plats à écouler (onglet Dates), mise en avant sur la carte client avec
+  remise facultative (`promo` dans la carte, appliquée par `place_order`, lignes `antigaspi` / `promo`). À faire une
+  fois : relancer `supabase/schema.sql`. Fichiers en `?v=32`.
 - **29/10/2026 · Benjamin** : commandes fournisseurs dans l'onglet Stocks (bon préparé depuis le stock conseillé,
   envoi e-mail / WhatsApp / copie / impression), fournisseurs appris au scan. Tables `suppliers`, `supplier_products`,
   `supplier_orders`. À faire une fois : relancer `supabase/schema.sql`. Fichiers en `?v=31`.
