@@ -1258,6 +1258,7 @@
     sc.applying = true;
     renderStock();
     var dated = sc.result.lines.filter(function (l) { return l.expires_on; });
+    var supplierName = sc.result.supplier;
     // Prix d'achat des lignes chiffrées : mis à jour dans les fiches techniques (onglet Marges).
     var priced = sc.result.lines.filter(function (l) { return l.total_ht != null && l.amount > 0 && l.amount_unit; })
       .map(function (l) { return { name: l.label, total: l.total_ht, amount: l.amount, unit: l.amount_unit }; });
@@ -1267,6 +1268,8 @@
     })).then(function (n) {
       UI.toast('Livraison ajoutée au stock · ' + n + ' produit' + (n > 1 ? 's' : ''));
       if (priced.length && T.margins) T.margins.recordPrices(priced).catch(function () { /* facultatif */ });
+      // Fournisseur du bon : enregistré et rattaché aux produits livrés (commandes fournisseurs).
+      if (window.TapigoSuppliers) window.TapigoSuppliers.learn(supplierName, todo.map(function (l) { return l.item_id; }));
       sc.result = null;
       // Dates limites imprimées sur le bon : proposées pour l'onglet Dates.
       sc.dated = T.expiry && dated.length ? datedFromScan(dated) : null;
@@ -1385,6 +1388,7 @@
         '<div class="stat-tile"><span>Suivis en quantité</span><b>' + Object.keys(T.getStocks()).length + '</b><small>les autres sont illimités</small></div>' +
       '</div>' +
       forecastHTML() +
+      (T.suppliers && window.TapigoSuppliers ? '<div id="supplierBlock"></div>' : '') +
       scanHTML() +
       '<p class="help">Indiquez combien de portions il reste : chaque commande les décompte automatiquement et, à 0, le plat disparaît de la carte client. ' +
         'Laissez vide pour un stock illimité. Toute l’équipe peut gérer les stocks ; les prix et la carte restent réservés au gérant.</p>' +
@@ -1402,6 +1406,9 @@
     var caret = active ? document.activeElement.selectionStart : 0;
     var typed = $('#fcContext') ? $('#fcContext').value : null;
     view.innerHTML = html;
+    if ($('#supplierBlock')) window.TapigoSuppliers.mount($('#supplierBlock'), {
+      manager: !LIVE || T.currentRestaurant().role !== 'equipe', advice: advice, hasForecast: function () { return !!fc.data; }
+    });
     if (typed !== null && $('#fcContext')) $('#fcContext').value = typed;
     if (active) { var s = $('#' + active); s.focus(); s.setSelectionRange(caret, caret); }
     updateStockBadge();

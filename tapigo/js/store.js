@@ -36,7 +36,8 @@
     expiry: NS + 'expiry',
     moves: NS + 'expiry-moves',
     margins: NS + 'margins.v2',
-    haccp: NS + 'haccp'
+    haccp: NS + 'haccp',
+    suppliers: NS + 'suppliers'
   };
 
   var memory = {};
@@ -594,6 +595,71 @@
     }
     return m;
   }
+  // Fournisseurs de démonstration.
+  function suppliersData() {
+    var d = read(K.suppliers, null);
+    if (d) return d;
+    d = {
+      suppliers: [
+        { id: 'sp1', name: 'DistriFrais 33', email: 'commandes@distrifrais.example', phone: '', coverDays: 2, note: 'Livre du lundi au samedi, commande avant 18 h' },
+        { id: 'sp2', name: 'Boissons du Sud-Ouest', email: '', phone: '', coverDays: 7, note: 'Livraison le mardi' }
+      ],
+      products: {
+        burrata: { supplierId: 'sp1', packSize: 6, packLabel: 'carton de 6', ref: 'BUR125' },
+        entrecote: { supplierId: 'sp1', packSize: 1, packLabel: 'pièce de 300 g', ref: '' },
+        spritz: { supplierId: 'sp2', packSize: 8, packLabel: 'bouteille de prosecco (8 verres)', ref: 'PRO75' },
+        citronnade: { supplierId: 'sp2', packSize: 10, packLabel: 'filet de citrons (10 verres)', ref: '' }
+      },
+      orders: []
+    };
+    write(K.suppliers, d);
+    return d;
+  }
+  var suppliers = {
+    load: function () {
+      var d = suppliersData();
+      return Promise.resolve(clone({ suppliers: d.suppliers, products: d.products, orders: d.orders }));
+    },
+    save: function (x) {
+      var d = suppliersData();
+      if (d.suppliers.some(function (s) { return s.id !== x.id && s.name.toLowerCase() === x.name.trim().toLowerCase(); })) return Promise.reject(new Error('Un fournisseur porte déjà ce nom.'));
+      var row = x.id && d.suppliers.filter(function (s) { return s.id === x.id; })[0];
+      if (!row) { row = { id: 'sp_' + Date.now().toString(36) }; d.suppliers.push(row); }
+      Object.assign(row, { name: x.name.trim(), email: x.email || '', phone: x.phone || '', coverDays: x.coverDays, note: x.note || '' });
+      write(K.suppliers, d); return Promise.resolve(clone(row));
+    },
+    remove: function (id) {
+      var d = suppliersData();
+      d.suppliers = d.suppliers.filter(function (s) { return s.id !== id; });
+      Object.keys(d.products).forEach(function (k) { if (d.products[k].supplierId === id) delete d.products[k]; });
+      write(K.suppliers, d); return Promise.resolve();
+    },
+    setProduct: function (itemId, supplierId, packSize, packLabel, ref) {
+      var d = suppliersData();
+      if (!supplierId) delete d.products[itemId];
+      else d.products[itemId] = { supplierId: supplierId, packSize: packSize || 1, packLabel: packLabel || '', ref: ref || '' };
+      write(K.suppliers, d); return Promise.resolve();
+    },
+    learn: function (name, itemIds) {
+      var d = suppliersData(), n = String(name || '').trim();
+      if (!n) return Promise.resolve(null);
+      var row = d.suppliers.filter(function (s) { return s.name.toLowerCase() === n.toLowerCase(); })[0];
+      if (!row) { row = { id: 'sp_' + Date.now().toString(36), name: n, email: '', phone: '', coverDays: 2, note: '' }; d.suppliers.push(row); }
+      (itemIds || []).forEach(function (id) { if (!d.products[id]) d.products[id] = { supplierId: row.id, packSize: 1, packLabel: '', ref: '' }; });
+      write(K.suppliers, d); return Promise.resolve(row.id);
+    },
+    recordOrder: function (supplierId, lines, note, via) {
+      var d = suppliersData(), sup = d.suppliers.filter(function (s) { return s.id === supplierId; })[0];
+      var row = { id: 'so_' + Date.now().toString(36), supplierId: supplierId, supplierName: sup ? sup.name : '', lines: lines, note: note || '', via: via, status: 'envoyee', at: Date.now() };
+      d.orders.unshift(row); write(K.suppliers, d); return Promise.resolve(clone(row));
+    },
+    closeOrder: function (id, status) {
+      var d = suppliersData();
+      d.orders.forEach(function (o) { if (o.id === id && o.status === 'envoyee') o.status = status; });
+      write(K.suppliers, d); return Promise.resolve();
+    }
+  };
+
   // Pack HACCP de démonstration : plan type et deux semaines de relevés.
   function haccpData() {
     var h = read(K.haccp, null);
@@ -843,6 +909,7 @@
     expiry: expiry,
     margins: margins,
     haccp: haccp,
+    suppliers: suppliers,
     getTableServers: getTableServers,
     getTableServer: getTableServer,
     setTableServers: setTableServers,

@@ -804,6 +804,47 @@
     recordPrices: function (lines) { return rpc('record_ingredient_prices', { p_restaurant: current.id, p_lines: lines }); }
   };
 
+  /* ---------------- Commandes fournisseurs ---------------- */
+  T.suppliers = {
+    // { suppliers: [...], products: { itemId: { supplierId, packSize, packLabel, ref } }, orders: [...] (60 derniers jours) }
+    load: function () {
+      var since = new Date(Date.now() - 60 * 86400000).toISOString();
+      return Promise.all([
+        sb.from('suppliers').select('*').eq('restaurant_id', current.id).order('name'),
+        sb.from('supplier_products').select('*').eq('restaurant_id', current.id),
+        sb.from('supplier_orders').select('*').eq('restaurant_id', current.id).gte('created_at', since).order('created_at', { ascending: false }).limit(200)
+      ]).then(function (r) {
+        var bad = r.filter(function (x) { return x.error; })[0];
+        if (bad) throw new Error(/supplier/.test(bad.error.message) ? 'Relancez supabase/schema.sql pour activer les commandes fournisseurs.' : bad.error.message);
+        var products = {};
+        r[1].data.forEach(function (x) { products[x.item_id] = { supplierId: x.supplier_id, packSize: x.pack_size, packLabel: x.pack_label, ref: x.ref }; });
+        return {
+          suppliers: r[0].data.map(function (x) { return { id: x.id, name: x.name, email: x.email, phone: x.phone, coverDays: x.cover_days, note: x.note }; }),
+          products: products,
+          orders: r[2].data.map(function (x) {
+            return { id: x.id, supplierId: x.supplier_id, supplierName: x.supplier_name, lines: x.lines || [], note: x.note, via: x.sent_via,
+              status: x.status, at: Date.parse(x.created_at) };
+          })
+        };
+      });
+    },
+    save: function (x) {
+      return rpc('save_supplier', { p_restaurant: current.id, p_id: x.id || null, p_name: x.name, p_email: x.email || '', p_phone: x.phone || '',
+        p_cover_days: x.coverDays, p_note: x.note || '' });
+    },
+    remove: function (id) { return rpc('delete_supplier', { p_restaurant: current.id, p_id: id }); },
+    setProduct: function (itemId, supplierId, packSize, packLabel, ref) {
+      return rpc('set_supplier_product', { p_restaurant: current.id, p_item: itemId, p_supplier: supplierId || null, p_pack_size: packSize || 1,
+        p_pack_label: packLabel || '', p_ref: ref || '' });
+    },
+    // Après un bon scanné : fournisseur appris et rattaché aux produits livrés.
+    learn: function (name, itemIds) { return rpc('learn_supplier', { p_restaurant: current.id, p_name: name, p_items: itemIds }); },
+    recordOrder: function (supplierId, lines, note, via) {
+      return rpc('record_supplier_order', { p_restaurant: current.id, p_supplier: supplierId, p_lines: lines, p_note: note || '', p_via: via });
+    },
+    closeOrder: function (id, status) { return rpc('close_supplier_order', { p_restaurant: current.id, p_id: id, p_status: status }); }
+  };
+
   /* ---------------- Pack HACCP ---------------- */
   // Le poste du compte filtre côté base (un compte « bar » ne voit que le bar).
   function haccpRow(x) {
