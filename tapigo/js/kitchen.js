@@ -1863,11 +1863,15 @@
     $('#stockView').hidden = v !== 'stock';
     $('#datesView').hidden = v !== 'dates';
     $('#marginsView').hidden = v !== 'margins';
+    $('#haccpView').hidden = v !== 'haccp';
     if (v === 'orders') renderOrders();
     else if (v === 'dates') renderDates();
     else if (v === 'menu') renderMenuEditor();
     else if (v === 'stock') renderStock();
     else if (v === 'margins') window.TapigoMargins.mount($('#marginsView'));
+    else if (v === 'haccp') window.TapigoHaccp.mount($('#haccpView'), {
+      manager: !LIVE || T.currentRestaurant().role !== 'equipe', zone: myZone(), restaurantName: (T.getRestaurant() || {}).name || ''
+    });
     else renderStats();
   }
 
@@ -2158,6 +2162,12 @@
     updateDatesBadge();
     // Les échéances changent avec la date du jour (passage de minuit, tablette allumée toute la nuit).
     setInterval(function () { updateDatesBadge(); if (state.view === 'dates') renderDates(); }, 10 * 60000);
+    // Pack HACCP : relevés et nettoyages en attente sur l'onglet.
+    if (T.haccp && window.TapigoHaccp) {
+      var haccpZone = function () { return { zone: myZone() }; };
+      window.TapigoHaccp.badge(haccpZone());
+      setInterval(function () { window.TapigoHaccp.badge(haccpZone()); }, 10 * 60000);
+    }
     setView('orders');
     tickTimers();
     stripeReturn();
