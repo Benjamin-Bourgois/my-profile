@@ -994,3 +994,13 @@ button.table-badge:active { transform: scale(.96); }
   .sup-product { grid-template-columns: 1fr 1fr; }
   .sup-product > strong { grid-column: 1 / -1; }
 }
+
+/* ---------- Anti-gaspillage ---------- */
+.badge--promo { background: var(--ok-soft); color: var(--ok); }
+.price--promo { color: var(--ok); }
+.price-old { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dish__meta .price-old { margin-left: -4px; }
+.c-section--promo { padding: 14px 14px 4px; margin: 0 -14px 8px; border-radius: var(--r-lg); background: var(--ok-soft); }
+.c-section__note { margin: -4px 0 10px; font-size: 13px; color: var(--ink-2); }
+.sheet-price { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.antigaspi { border-color: var(--ok); }

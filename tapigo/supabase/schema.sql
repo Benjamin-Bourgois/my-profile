@@ -260,6 +260,7 @@ declare
   v_options jsonb;
   v_lines   jsonb := '[]'::jsonb;
   v_unit    numeric;
+  v_promo   int;
   v_qty     int;
   v_total   numeric := 0;
   v_number  int;
@@ -364,6 +365,13 @@ begin
     v_qty := least(greatest(coalesce((v_req ->> 'qty')::int, 1), 1), 20);
     v_need := jsonb_set(v_need, array[v_item ->> 'id'], to_jsonb(coalesce((v_need ->> (v_item ->> 'id'))::int, 0) + v_qty));
     v_unit := coalesce((v_item ->> 'price')::numeric, 0);
+    -- Anti-gaspillage : remise du gérant sur le prix du plat (pas sur les options), jusqu'à l'heure prévue.
+    v_promo := case when jsonb_typeof(v_item -> 'promo') = 'object'
+                     and coalesce(v_item -> 'promo' ->> 'until', '') ~ '^\d{4}-\d{2}-\d{2}T'
+                     and (v_item -> 'promo' ->> 'until')::timestamptz > now()
+                     and coalesce(v_item -> 'promo' ->> 'pct', '0') ~ '^[0-9]{1,2}$'
+                    then least((v_item -> 'promo' ->> 'pct')::int, 70) end;
+    if v_promo > 0 then v_unit := round(v_unit * (100 - v_promo) / 100.0, 2); end if;
     v_options := '[]'::jsonb;
 
     for v_group in select value from jsonb_array_elements(coalesce(v_item -> 'options', '[]'::jsonb)) loop
@@ -403,6 +411,9 @@ begin
       'unitPrice', round(v_unit, 2),
       'options', v_options,
       'note', left(coalesce(v_req ->> 'note', ''), 140),
+      -- Plat mis en avant contre le gaspillage (remise en %, 0 = simple mise en avant).
+      'antigaspi', v_promo is not null,
+      'promo', coalesce(v_promo, 0),
       -- Quantité ajoutée depuis « Parfait avec » (bilan mensuel du gérant).
       'suggested', least(greatest(coalesce(case when v_req ->> 'suggested' ~ '^[0-9]{1,3}$' then (v_req ->> 'suggested')::int end, 0), 0), v_qty)
     ));

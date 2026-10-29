@@ -215,17 +215,28 @@
 
   function lowStock(id) { var st = T.getStock(id); return st != null && st > 0 && st <= 5; }
 
+  // Prix affiché : barré avec le prix remisé quand le plat est en anti-gaspi.
+  function priceHTML(item) {
+    var p = T.promoOf(item);
+    if (!p || !p.pct) return '<span class="price">' + fmt(item.price) + '</span>';
+    return '<span class="price price--promo">' + fmt(T.itemPrice(item)) + '</span><s class="price-old">' + fmt(item.price) + '</s>';
+  }
+  function promoBadge(item) {
+    var p = T.promoOf(item);
+    return p ? '<span class="badge badge--promo">' + (p.pct ? '−' + p.pct + ' % aujourd’hui' : 'Suggestion du chef') + '</span>' : '';
+  }
+
   function dishHTML(item, idx) {
     var tags = state.menu.tags || {};
     var q = qtyInCart(item.id);
     var signature = (item.tags || []).indexOf('signature') >= 0;
     var tagText = (item.tags || []).filter(function (t) { return t !== 'signature'; })
       .map(function (t) { return tagIcon(t) + ' ' + esc(tags[t] || t); }).join(' · ');
-    return '<article class="dish" tabindex="0" role="button" data-id="' + esc(item.id) + '" style="animation-delay:' + Math.min(idx * 35, 400) + 'ms" aria-label="' + esc(item.name) + ', ' + fmt(item.price) + '">' +
+    return '<article class="dish" tabindex="0" role="button" data-id="' + esc(item.id) + '" style="animation-delay:' + Math.min(idx * 35, 400) + 'ms" aria-label="' + esc(item.name) + ', ' + fmt(T.itemPrice(item)) + '">' +
       '<div class="dish__body">' +
-        '<div class="dish__title"><h3>' + esc(item.name) + '</h3>' + (signature ? '<span class="badge badge--gold">Signature</span>' : '') + '</div>' +
+        '<div class="dish__title"><h3>' + esc(item.name) + '</h3>' + (signature ? '<span class="badge badge--gold">Signature</span>' : '') + promoBadge(item) + '</div>' +
         '<p class="dish__desc">' + esc(item.description) + '</p>' +
-        '<div class="dish__meta"><span class="price">' + fmt(item.price) + '</span>' +
+        '<div class="dish__meta">' + priceHTML(item) +
           (lowStock(item.id) ? '<span class="badge badge--warn">Plus que ' + T.getStock(item.id) + '</span>' : '') +
           (item.options && item.options.length ? '<span class="dish__tags">Personnalisable</span>' : '') +
           (tagText ? '<span class="dish__tags">' + tagText + '</span>' : '') +
@@ -243,7 +254,13 @@
     var items = availableItems().filter(matches);
     var cats = state.menu.categories.filter(function (c) { return state.cat === 'all' || c.id === state.cat; });
     var idx = 0;
-    var html = cats.map(function (c) {
+    // Anti-gaspillage : plats mis en avant par le gérant, en tête de carte.
+    var promos = state.cat === 'all' ? items.filter(function (i) { return T.promoOf(i); }) : [];
+    var html = (promos.length ? '<section class="c-section c-section--promo" id="cat-antigaspi">' +
+        '<div class="c-section__head"><h2>À ne pas manquer aujourd’hui</h2><span class="c-section__count">anti-gaspi</span></div>' +
+        '<p class="c-section__note">Des produits frais à écouler aujourd’hui : moins de gaspillage, et un petit prix pour vous.</p>' +
+        '<div class="dish-list">' + promos.map(function (i) { return dishHTML(i, idx++); }).join('') + '</div></section>' : '') +
+      cats.map(function (c) {
       var list = items.filter(function (i) { return i.category === c.id; });
       if (!list.length) return '';
       return '<section class="c-section" id="cat-' + esc(c.id) + '">' +
@@ -288,7 +305,7 @@
     if (!list.length) return '';
     return '<div class="pairings"><p class="eyebrow">Parfait avec</p>' + list.map(function (p) {
       return '<button class="pair" type="button" data-pair="' + esc(p.id) + '">' + UI.media(p, 'pair__media') +
-        '<span class="pair__name">' + esc(p.name) + '<small>' + fmt(p.price) + '</small></span><span class="pair__add" aria-hidden="true">+</span></button>';
+        '<span class="pair__name">' + esc(p.name) + '<small>' + fmt(T.itemPrice(p)) + '</small></span><span class="pair__add" aria-hidden="true">+</span></button>';
     }).join('') + '</div>';
   }
 
@@ -319,7 +336,7 @@
         '<div class="check-row" style="margin-bottom:10px">' + (item.tags || []).map(function (t) {
           return '<span class="badge' + (t === 'signature' ? ' badge--gold' : '') + '">' + tagIcon(t) + ' ' + esc(tags[t] || t) + '</span>';
         }).join('') + '</div>' +
-        '<h2>' + esc(item.name) + '</h2>',
+        '<h2>' + esc(item.name) + '</h2>' + (T.promoOf(item) ? '<p class="sheet-price">' + promoBadge(item) + ' ' + priceHTML(item) + '</p>' : ''),
       body:
         '<p class="product-desc">' + esc(item.description) + '</p>' +
         (lowStock(item.id) ? '<p><span class="badge badge--warn">Plus que ' + T.getStock(item.id) + ' disponible' + (T.getStock(item.id) > 1 ? 's' : '') + '</span></p>' : '') +

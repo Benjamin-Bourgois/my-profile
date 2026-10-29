@@ -208,12 +208,25 @@
     saveItem(item);
   }
 
+  /* ---------------- Anti-gaspillage ---------------- */
+  // Mise en avant d'un plat par le gérant : { pct (remise en %, 0 = mise en avant seule), until (ISO) }.
+  // Le serveur applique la même règle au moment de la commande.
+  function promoOf(item) {
+    var p = item && item.promo;
+    if (!p || !p.until || !(Date.parse(p.until) > Date.now())) return null;
+    return { pct: Math.max(0, Math.min(70, parseInt(p.pct, 10) || 0)), until: p.until };
+  }
+  function itemPrice(item) {
+    var p = promoOf(item);
+    return p && p.pct ? Math.round(item.price * (100 - p.pct)) / 100 : item.price;
+  }
+
   /* ---------------- Commandes ---------------- */
   // selections : { groupId: [label, ...] }
   function buildLine(itemId, qty, selections, note) {
     var item = window.Tapigo.getItem(itemId);
     if (!item) return null;
-    var unit = item.price;
+    var unit = itemPrice(item), promo = promoOf(item);
     var options = [];
     (item.options || []).forEach(function (g) {
       var picked = (selections && selections[g.id]) || [];
@@ -232,7 +245,9 @@
       unitPrice: Math.round(unit * 100) / 100,
       options: options,
       selections: selections || {},
-      note: note || ''
+      note: note || '',
+      antigaspi: !!promo,
+      promo: promo ? promo.pct : 0
     };
   }
 
@@ -890,6 +905,8 @@
     replaceMenu: replaceMenu,
     setAvailable: setAvailable,
     buildLine: buildLine,
+    promoOf: promoOf,
+    itemPrice: itemPrice,
     getOrders: getOrders,
     getOrder: getOrder,
     createOrder: createOrder,
