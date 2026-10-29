@@ -35,7 +35,8 @@
       id: 'table-de-sable',
       name: 'La Table de Sable',
       tagline: 'Cuisine de saison · Paris 7e',
-      tables: 12
+      tables: 12,
+      languages: ['en']
     },
 
     categories: [
@@ -255,4 +256,44 @@
     burrata: ['spritz'], fondant: ['espresso'], 'tarte-citron': ['espresso'], dorade: ['bordeaux']
   };
   window.TAPIGO_DEMO.items.forEach(function (i) { if (PAIRINGS[i.id]) i.pairings = PAIRINGS[i.id]; });
+
+  // Carte de démonstration traduite en anglais (en ligne, la traduction est faite par l'IA).
+  var EN = {
+    burrata: ['Burrata from Puglia', 'Creamy burrata, heirloom tomatoes, fresh basil and extra virgin olive oil.'],
+    carpaccio: ['Beef carpaccio', 'Thin slices of Charolais beef, parmesan shavings, rocket and capers.'],
+    veloute: ['Red kuri squash velouté', 'Silky velouté, chestnut cream and toasted seeds.'],
+    'tartare-saumon': ['Salmon tartare', 'Label Rouge salmon, avocado, citrus and black sesame.'],
+    entrecote: ['Dry-aged rib-eye steak 300 g', 'Beef aged 30 days, grilled over a wood fire, Guérande fleur de sel.'],
+    burger: ['Tapigo burger', 'Toasted brioche, freshly minced beef, 18-month Comté, caramelised onions.'],
+    risotto: ['Porcini risotto', 'Carnaroli rice, pan-fried porcini, 24-month parmesan and flat-leaf parsley.'],
+    dorade: ['Royal sea bream', 'Seared fillet, citrus beurre blanc, roasted fennel.'],
+    fondant: ['Chocolate fondant', 'Molten Guanaja 70 % centre, served warm.'],
+    'tarte-citron': ['Lemon meringue tart', 'Shortcrust pastry, Menton lemon cream, flamed Italian meringue.'],
+    'cafe-gourmand': ['Café gourmand', 'Espresso with three small sweets of the moment.'],
+    spritz: ['House spritz', 'Aperol, prosecco, sparkling water, blood orange.'],
+    bordeaux: ['Bordeaux — Saint-Émilion', 'Château La Rose, 2019 vintage. Notes of black fruit and cedar.'],
+    citronnade: ['Homemade lemonade', 'Freshly squeezed lemon, fresh mint, agave syrup.'],
+    eau: ['Mineral water 75 cl', 'Chilled, served in a glass carafe.'],
+    espresso: ['Espresso', 'Artisan roast, Ethiopian origin.']
+  };
+  var items = {};
+  window.TAPIGO_DEMO.items.forEach(function (i) {
+    if (EN[i.id]) items[i.id] = { name: EN[i.id][0], description: EN[i.id][1], src: i.name + '\n' + (i.description || '') };
+  });
+  window.TAPIGO_DEMO.i18n = {
+    en: {
+      items: items,
+      cats: { 'Entrées': 'Starters', 'Plats': 'Mains', 'Desserts': 'Desserts', 'Boissons': 'Drinks' },
+      tags: { 'Signature': 'Signature', 'Végétarien': 'Vegetarian', 'Sans gluten': 'Gluten-free' },
+      groups: { 'Cuisson': 'Cooking', 'Accompagnement': 'Side', 'Sauce': 'Sauce', 'Suppléments': 'Extras', 'Supplément': 'Extra',
+        'Contenance': 'Size', 'Type': 'Type' },
+      choices: { 'Bleue': 'Blue', 'Saignante': 'Rare', 'À point': 'Medium', 'Bien cuite': 'Well done',
+        'Frites maison': 'Homemade fries', 'Purée à la truffe': 'Truffle mash', 'Salade verte': 'Green salad', 'Légumes de saison': 'Seasonal vegetables',
+        'Poivre vert': 'Green peppercorn', 'Béarnaise': 'Béarnaise', 'Beurre d’échalote': 'Shallot butter',
+        'Bacon fumé': 'Smoked bacon', 'Cheddar affiné': 'Aged cheddar', 'Œuf au plat': 'Fried egg', 'Truffe noire râpée': 'Grated black truffle',
+        'Glace vanille': 'Vanilla ice cream', 'Crème anglaise': 'Custard', 'Chantilly maison': 'Homemade whipped cream',
+        'Verre 12 cl': 'Glass 12 cl', 'Pichet 46 cl': 'Carafe 46 cl', 'Bouteille 75 cl': 'Bottle 75 cl', 'Plate': 'Still', 'Pétillante': 'Sparkling' },
+      tagline: { src: 'Cuisine de saison · Paris 7e', text: 'Seasonal cooking · Paris 7th' }
+    }
+  };
 })();
