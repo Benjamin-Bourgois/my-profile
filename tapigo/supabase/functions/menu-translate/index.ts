@@ -10,7 +10,8 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { admin, body, callerRole, HttpError, json, serve, UUID } from "../_shared/util.ts";
 
-const MODEL = Deno.env.get("TRANSLATE_MODEL") || "claude-opus-5-5";
+// Traduction de textes courts : Claude Sonnet 5.5 (secret TRANSLATE_MODEL pour changer).
+const MODEL = Deno.env.get("TRANSLATE_MODEL") || "claude-sonnet-5-5";
 const LANGS: Record<string, string> = { en: "anglais (britannique)", es: "espagnol", de: "allemand", it: "italien" };
 const PER_DAY = 30;
 const MAX_ITEMS = 400;
@@ -109,7 +110,7 @@ serve(async (req) => {
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         system: system(LANGS[lang]),
-        output_config: { format: { type: "json_schema", schema: SCHEMA } },
+        output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
         messages: [{
           role: "user",
           content: JSON.stringify({

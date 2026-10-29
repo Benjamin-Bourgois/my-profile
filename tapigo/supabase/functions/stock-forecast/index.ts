@@ -13,7 +13,8 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { admin, body, callerRole, type Db, HttpError, json, serve, UUID } from "../_shared/util.ts";
 
-const MODEL = Deno.env.get("FORECAST_MODEL") || "claude-opus-5-5";
+// Calcul sur des chiffres de ventes : Claude Sonnet 5.5 suffit (secret FORECAST_MODEL pour changer).
+const MODEL = Deno.env.get("FORECAST_MODEL") || "claude-sonnet-5-5";
 const TZ = "Europe/Paris";
 const DAYS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 

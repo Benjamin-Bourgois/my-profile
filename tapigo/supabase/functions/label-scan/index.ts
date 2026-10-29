@@ -9,8 +9,8 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { admin, body, callerRole, HttpError, json, serve, UUID } from "../_shared/util.ts";
 
-// Même modèle que la lecture des bons (secret LABEL_MODEL pour en choisir un plus économique).
-const MODEL = Deno.env.get("LABEL_MODEL") || "claude-opus-5-5";
+// Lecture simple : Claude Sonnet 5.5, rapide et deux fois moins cher qu'Opus (secret LABEL_MODEL pour changer).
+const MODEL = Deno.env.get("LABEL_MODEL") || "claude-sonnet-5-5";
 const MEDIA = ["image/jpeg", "image/png", "image/webp"];
 const MAX_BYTES = 5 * 1024 * 1024;
 const PER_HOUR = 60;
@@ -76,7 +76,7 @@ serve(async (req) => {
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
       system: SYSTEM,
-      output_config: { format: { type: "json_schema", schema: SCHEMA } },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
       messages: [{
         role: "user",
         content: [

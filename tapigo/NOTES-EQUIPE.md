@@ -71,6 +71,10 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **29/10/2026 · Benjamin** : modèles d'IA par tâche : Claude Opus 5.5 pour la lecture des bons (`stock-scan`), Claude
+  Sonnet 5.5 pour les étiquettes, la prévision du stock et la traduction de la carte (deux fois moins cher). Chaque
+  modèle se change sans toucher au code avec les secrets Supabase `SCAN_MODEL`, `LABEL_MODEL`, `FORECAST_MODEL`,
+  `TRANSLATE_MODEL`. Pas de changement SQL.
 - **29/10/2026 · Benjamin** : carte multilingue (EN, ES, DE, IT) : `js/i18n.js` pour les textes de la page client, fonction
   `menu-translate` (IA) pour le contenu de la carte (`menu.i18n`), langues choisies dans Menu → « Langues ». Pas de
   changement SQL. La fonction se déploie toute seule après la fusion (GitHub Actions). Fichiers en `?v=33`.
