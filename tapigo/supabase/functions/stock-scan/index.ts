@@ -13,6 +13,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { admin, body, callerRole, HttpError, json, serve, UUID } from "../_shared/util.ts";
 
+// Tâche la plus difficile (photos, conversions en portions, DLC) : Claude Opus 5.5 (secret SCAN_MODEL pour changer).
 const MODEL = Deno.env.get("SCAN_MODEL") || "claude-opus-5-5";
 const MEDIA = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const MAX_PAGES = 4;
