@@ -71,6 +71,10 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **29/10/2026 · Benjamin** : case « Contient de l'alcool » sur les produits (`alcohol` dans la carte : TVA 20 % / 10 %,
+  mention sur la carte client) ; coût des options et suppléments dans les fiches techniques (`recipes.options`,
+  `save_recipe` à 7 paramètres), marge brute calculée sur le prix payé. À faire une fois : relancer
+  `supabase/schema.sql`. Fichiers en `?v=30`.
 - **29/10/2026 · Benjamin** : onglet « Marges » (gérant) : fiches techniques (recette d'ingrédients ou produit acheté
   tel quel), marge HT, ratio matière, marge brute 30 jours, alertes de hausse des prix d'achat. Tables `ingredients`,
   `recipes` ; prix des ingrédients relevés à chaque scan de bon. À faire une fois : relancer `supabase/schema.sql`.

@@ -35,7 +35,7 @@
     servers: NS + 'servers',
     expiry: NS + 'expiry',
     moves: NS + 'expiry-moves',
-    margins: NS + 'margins'
+    margins: NS + 'margins.v2'
   };
 
   var memory = {};
@@ -574,15 +574,20 @@
           ing('i_prosecco', 'Prosecco DOC', 'l', 8.67, 7.9), ing('i_aperol', 'Aperol', 'l', 19.86), ing('i_eau', 'Eau gazeuse', 'l', 0.8),
           ing('i_orange', 'Oranges', 'kg', 2.4), ing('i_boeuf', 'Bœuf haché', 'kg', 14.5), ing('i_pain', 'Pain burger', 'piece', 0.45),
           ing('i_cheddar', 'Cheddar', 'kg', 16.2, 15.1), ing('i_frites', 'Frites surgelées', 'kg', 2.1), ing('i_entrecote', 'Entrecôte maturée', 'kg', 32.5),
-          ing('i_citron', 'Citrons jaunes', 'kg', 2.9), ing('i_sucre', 'Sucre de canne', 'kg', 1.6)
+          ing('i_citron', 'Citrons jaunes', 'kg', 2.9), ing('i_sucre', 'Sucre de canne', 'kg', 1.6),
+          ing('i_bacon', 'Bacon fumé', 'kg', 13.9), ing('i_oeuf', 'Œufs plein air', 'piece', 0.32), ing('i_truffe', 'Purée truffée', 'kg', 9.8)
         ],
         recipes: {}, itemCosts: { burrata: 2.85 }
       };
-      var rec = function (id, vat, lines) { m.recipes[id] = { mode: 'recette', vat: vat, lines: lines, purchaseCost: null }; };
+      var rec = function (id, vat, lines, options) { m.recipes[id] = { mode: 'recette', vat: vat, lines: lines, purchaseCost: null, options: options || [] }; };
+      var o = function (group, choice, lines) { return { group: group, choice: choice, lines: lines }; };
       var l = function (i, q, u) { return { ingredientId: i, qty: q, unit: u }; };
       rec('spritz', 20, [l('i_prosecco', 9, 'cl'), l('i_aperol', 6, 'cl'), l('i_eau', 3, 'cl'), l('i_orange', 30, 'g')]);
-      rec('burger', 10, [l('i_boeuf', 180, 'g'), l('i_pain', 1, 'piece'), l('i_cheddar', 30, 'g'), l('i_frites', 200, 'g')]);
-      rec('entrecote', 10, [l('i_entrecote', 300, 'g'), l('i_frites', 200, 'g')]);
+      rec('burger', 10, [l('i_boeuf', 180, 'g'), l('i_pain', 1, 'piece'), l('i_cheddar', 30, 'g')], [
+        o('Accompagnement', 'Frites maison', [l('i_frites', 200, 'g')]), o('Accompagnement', 'Purée à la truffe', [l('i_truffe', 180, 'g')]),
+        o('Suppléments', 'Bacon fumé', [l('i_bacon', 40, 'g')]), o('Suppléments', 'Cheddar affiné', [l('i_cheddar', 30, 'g')]), o('Suppléments', 'Œuf au plat', [l('i_oeuf', 1, 'piece')])
+      ]);
+      rec('entrecote', 10, [l('i_entrecote', 300, 'g')], [o('Accompagnement', 'Frites maison', [l('i_frites', 200, 'g')]), o('Accompagnement', 'Purée à la truffe', [l('i_truffe', 180, 'g')])]);
       rec('citronnade', 10, [l('i_citron', 80, 'g'), l('i_sucre', 20, 'g')]);
       write(K.margins, m);
     }
@@ -602,15 +607,16 @@
     },
     deleteIngredient: function (id) {
       var m = marginsData();
-      var used = Object.keys(m.recipes).some(function (k) { return m.recipes[k].lines.some(function (l) { return l.ingredientId === id; }); });
+      var has = function (lines) { return (lines || []).some(function (l) { return l.ingredientId === id; }); };
+      var used = Object.keys(m.recipes).some(function (k) { return has(m.recipes[k].lines) || (m.recipes[k].options || []).some(function (o) { return has(o.lines); }); });
       if (used) return Promise.reject(new Error('Cet ingrédient est utilisé dans une fiche technique : retirez-le d’abord de la fiche.'));
       m.ingredients = m.ingredients.filter(function (i) { return i.id !== id; });
       write(K.margins, m);
       return Promise.resolve();
     },
-    saveRecipe: function (itemId, mode, vat, lines, purchaseCost) {
+    saveRecipe: function (itemId, mode, vat, lines, purchaseCost, options) {
       var m = marginsData();
-      m.recipes[itemId] = { mode: mode, vat: vat, lines: lines, purchaseCost: purchaseCost };
+      m.recipes[itemId] = { mode: mode, vat: vat, lines: lines, purchaseCost: purchaseCost, options: options || [] };
       write(K.margins, m);
       return Promise.resolve();
     },

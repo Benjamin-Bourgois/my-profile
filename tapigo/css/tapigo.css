@@ -938,3 +938,13 @@ button.table-badge:active { transform: scale(.96); }
   .recipe-line select[data-line-ing] { grid-column: 1 / -1; }
 }
 .recipe-total .badge { display: inline-block; }
+.recipe-opts { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.recipe-opts h3 { margin: 0 0 4px; font-size: 16px; }
+.recipe-opts__group { margin: 14px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.recipe-opt { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: #fff; margin-bottom: 8px; }
+.recipe-opt .recipe-lines, .recipe-opt .recipe-line { margin-top: 8px; }
+.recipe-opt .recipe-add { margin-top: 8px; }
+.recipe-opt__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 14px; }
+.recipe-opt__head > span { color: var(--ink-2); font-size: 13px; }
+.recipe-opt__cost { margin-left: auto; font-variant-numeric: tabular-nums; }
+.switch small.help { display: block; font-weight: 400; }
