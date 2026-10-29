@@ -71,6 +71,9 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **29/10/2026 · Benjamin** : commandes fournisseurs dans l'onglet Stocks (bon préparé depuis le stock conseillé,
+  envoi e-mail / WhatsApp / copie / impression), fournisseurs appris au scan. Tables `suppliers`, `supplier_products`,
+  `supplier_orders`. À faire une fois : relancer `supabase/schema.sql`. Fichiers en `?v=31`.
 - **29/10/2026 · Benjamin** : onglet « HACCP » : températures des appareils de froid, plan de nettoyage, contrôle des
   livraisons, registre mensuel imprimable (tables `haccp_*`). À faire une fois : relancer `supabase/schema.sql`.
   Fichiers en `?v=30`.

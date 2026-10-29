@@ -1792,19 +1792,45 @@ create table if not exists public.haccp_receptions (
 );
 create index if not exists haccp_receptions_idx on public.haccp_receptions (restaurant_id, created_at desc);
 
-do $$
-declare
-  t text;
-begin
-  foreach t in array array['haccp_equipment', 'haccp_readings', 'haccp_tasks', 'haccp_cleanings', 'haccp_receptions'] loop
-    execute format('alter table public.%I enable row level security', t);
-    execute format('drop policy if exists "HACCP visible par le poste concerné" on public.%I', t);
-    execute format('create policy "HACCP visible par le poste concerné" on public.%I for select using (public.member_station(restaurant_id) in (''all'', station))', t);
-    execute format('revoke all on public.%I from anon', t);
-    execute format('revoke insert, update, delete on public.%I from authenticated', t);
-    execute format('grant select on public.%I to authenticated', t);
-  end loop;
-end $$;
+alter table public.haccp_equipment enable row level security;
+drop policy if exists "HACCP visible par le poste concerné" on public.haccp_equipment;
+create policy "HACCP visible par le poste concerné" on public.haccp_equipment
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.haccp_equipment from anon;
+revoke insert, update, delete on public.haccp_equipment from authenticated;
+grant select on public.haccp_equipment to authenticated;
+
+alter table public.haccp_readings enable row level security;
+drop policy if exists "HACCP visible par le poste concerné" on public.haccp_readings;
+create policy "HACCP visible par le poste concerné" on public.haccp_readings
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.haccp_readings from anon;
+revoke insert, update, delete on public.haccp_readings from authenticated;
+grant select on public.haccp_readings to authenticated;
+
+alter table public.haccp_tasks enable row level security;
+drop policy if exists "HACCP visible par le poste concerné" on public.haccp_tasks;
+create policy "HACCP visible par le poste concerné" on public.haccp_tasks
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.haccp_tasks from anon;
+revoke insert, update, delete on public.haccp_tasks from authenticated;
+grant select on public.haccp_tasks to authenticated;
+
+alter table public.haccp_cleanings enable row level security;
+drop policy if exists "HACCP visible par le poste concerné" on public.haccp_cleanings;
+create policy "HACCP visible par le poste concerné" on public.haccp_cleanings
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.haccp_cleanings from anon;
+revoke insert, update, delete on public.haccp_cleanings from authenticated;
+grant select on public.haccp_cleanings to authenticated;
+
+alter table public.haccp_receptions enable row level security;
+drop policy if exists "HACCP visible par le poste concerné" on public.haccp_receptions;
+create policy "HACCP visible par le poste concerné" on public.haccp_receptions
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.haccp_receptions from anon;
+revoke insert, update, delete on public.haccp_receptions from authenticated;
+grant select on public.haccp_receptions to authenticated;
 
 -- Contrôle commun : membre du restaurant, autorisé sur ce poste.
 create or replace function public.haccp_check_station(p_restaurant uuid, p_station text)
@@ -2007,6 +2033,218 @@ grant execute on function public.haccp_seed(uuid) to authenticated;
 grant execute on function public.haccp_record_temp(uuid, uuid, numeric, text, text) to authenticated;
 grant execute on function public.haccp_mark_clean(uuid, uuid, text, text) to authenticated;
 grant execute on function public.haccp_record_reception(uuid, text, text, text, numeric, boolean, text, text) to authenticated;
+
+-- ---------- Commandes fournisseurs ----------
+-- Fournisseurs du restaurant (appris tout seuls à chaque bon scanné, complétés par le
+-- gérant), produit de la carte → fournisseur et conditionnement, et bons de commande
+-- préparés à partir du stock conseillé puis envoyés par e-mail, WhatsApp ou imprimés.
+create table if not exists public.suppliers (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  name          text not null check (length(name) between 1 and 80),
+  email         text not null default '' check (length(email) <= 120),
+  phone         text not null default '' check (length(phone) <= 30),
+  cover_days    int not null default 2 check (cover_days between 1 and 30),
+  note          text not null default '' check (length(note) <= 200),
+  created_at    timestamptz not null default now()
+);
+create unique index if not exists suppliers_name_idx on public.suppliers (restaurant_id, lower(name));
+alter table public.suppliers enable row level security;
+drop policy if exists "Fournisseurs visibles par l'équipe" on public.suppliers;
+create policy "Fournisseurs visibles par l'équipe" on public.suppliers
+  for select using (public.member_role(restaurant_id) is not null);
+revoke all on public.suppliers from anon;
+revoke insert, update, delete on public.suppliers from authenticated;
+grant select on public.suppliers to authenticated;
+
+create table if not exists public.supplier_products (
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  item_id       text not null,
+  supplier_id   uuid not null references public.suppliers (id) on delete cascade,
+  pack_size     int not null default 1 check (pack_size between 1 and 10000), -- portions par unité commandée
+  pack_label    text not null default '' check (length(pack_label) <= 40),     -- ex. « carton de 24 »
+  ref           text not null default '' check (length(ref) <= 40),            -- référence chez le fournisseur
+  primary key (restaurant_id, item_id)
+);
+alter table public.supplier_products enable row level security;
+drop policy if exists "Conditionnements visibles par l'équipe" on public.supplier_products;
+create policy "Conditionnements visibles par l'équipe" on public.supplier_products
+  for select using (public.member_role(restaurant_id) is not null);
+revoke all on public.supplier_products from anon;
+revoke insert, update, delete on public.supplier_products from authenticated;
+grant select on public.supplier_products to authenticated;
+
+create table if not exists public.supplier_orders (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  supplier_id   uuid references public.suppliers (id) on delete set null,
+  supplier_name text not null,
+  lines         jsonb not null default '[]'::jsonb, -- [{ itemId, name, qty, packLabel, packSize, ref }]
+  note          text not null default '' check (length(note) <= 300),
+  sent_via      text not null default 'autre' check (sent_via in ('email', 'whatsapp', 'copie', 'impression', 'autre')),
+  status        text not null default 'envoyee' check (status in ('envoyee', 'recue', 'annulee')),
+  created_by    uuid references auth.users (id) on delete set null,
+  created_at    timestamptz not null default now(),
+  closed_at     timestamptz
+);
+create index if not exists supplier_orders_idx on public.supplier_orders (restaurant_id, created_at desc);
+alter table public.supplier_orders enable row level security;
+drop policy if exists "Commandes fournisseurs visibles par l'équipe" on public.supplier_orders;
+create policy "Commandes fournisseurs visibles par l'équipe" on public.supplier_orders
+  for select using (public.member_role(restaurant_id) is not null);
+revoke all on public.supplier_orders from anon;
+revoke insert, update, delete on public.supplier_orders from authenticated;
+grant select on public.supplier_orders to authenticated;
+
+-- Gérant : fiche d'un fournisseur.
+create or replace function public.save_supplier(p_restaurant uuid, p_id uuid, p_name text, p_email text, p_phone text,
+                                                p_cover_days int, p_note text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_row public.suppliers;
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  if btrim(coalesce(p_name, '')) = '' then raise exception 'Indiquez le nom du fournisseur'; end if;
+  if btrim(coalesce(p_email, '')) <> '' and btrim(p_email) !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then raise exception 'Adresse e-mail invalide'; end if;
+  if p_cover_days is null or p_cover_days < 1 or p_cover_days > 30 then raise exception 'Nombre de jours invalide (1 à 30)'; end if;
+  if p_id is null then
+    insert into public.suppliers (restaurant_id, name, email, phone, cover_days, note)
+    values (p_restaurant, left(btrim(p_name), 80), left(btrim(coalesce(p_email, '')), 120), left(btrim(coalesce(p_phone, '')), 30),
+            p_cover_days, left(btrim(coalesce(p_note, '')), 200))
+    returning * into v_row;
+  else
+    update public.suppliers set name = left(btrim(p_name), 80), email = left(btrim(coalesce(p_email, '')), 120),
+      phone = left(btrim(coalesce(p_phone, '')), 30), cover_days = p_cover_days, note = left(btrim(coalesce(p_note, '')), 200)
+    where id = p_id and restaurant_id = p_restaurant returning * into v_row;
+    if not found then raise exception 'Fournisseur introuvable'; end if;
+  end if;
+  return to_jsonb(v_row);
+exception when unique_violation then
+  raise exception 'Un fournisseur porte déjà ce nom.';
+end;
+$$;
+
+create or replace function public.delete_supplier(p_restaurant uuid, p_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  delete from public.suppliers where id = p_id and restaurant_id = p_restaurant;
+end;
+$$;
+
+-- Gérant : fournisseur et conditionnement d'un produit (p_supplier null = aucun).
+create or replace function public.set_supplier_product(p_restaurant uuid, p_item text, p_supplier uuid, p_pack_size int,
+                                                       p_pack_label text, p_ref text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  if p_supplier is null then
+    delete from public.supplier_products where restaurant_id = p_restaurant and item_id = p_item;
+    return;
+  end if;
+  if not exists (select 1 from public.suppliers where id = p_supplier and restaurant_id = p_restaurant) then raise exception 'Fournisseur introuvable'; end if;
+  if not exists (select 1 from public.restaurants r, jsonb_array_elements(r.menu -> 'items') x
+                 where r.id = p_restaurant and x ->> 'id' = p_item) then
+    raise exception 'Produit introuvable';
+  end if;
+  if p_pack_size is null or p_pack_size < 1 or p_pack_size > 10000 then raise exception 'Conditionnement invalide'; end if;
+  insert into public.supplier_products (restaurant_id, item_id, supplier_id, pack_size, pack_label, ref)
+  values (p_restaurant, p_item, p_supplier, p_pack_size, left(btrim(coalesce(p_pack_label, '')), 40), left(btrim(coalesce(p_ref, '')), 40))
+  on conflict (restaurant_id, item_id) do update
+    set supplier_id = excluded.supplier_id, pack_size = excluded.pack_size, pack_label = excluded.pack_label, ref = excluded.ref;
+end;
+$$;
+
+-- Toute l'équipe, après un bon scanné : le fournisseur est créé s'il est nouveau, et les
+-- produits livrés qui n'ont pas encore de fournisseur lui sont rattachés.
+create or replace function public.learn_supplier(p_restaurant uuid, p_name text, p_items text[])
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  if public.member_role(p_restaurant) is null then raise exception 'Accès refusé'; end if;
+  if btrim(coalesce(p_name, '')) = '' then return null; end if;
+  select id into v_id from public.suppliers where restaurant_id = p_restaurant and lower(name) = lower(left(btrim(p_name), 80));
+  if v_id is null then
+    insert into public.suppliers (restaurant_id, name) values (p_restaurant, left(btrim(p_name), 80))
+    on conflict do nothing returning id into v_id;
+    if v_id is null then
+      select id into v_id from public.suppliers where restaurant_id = p_restaurant and lower(name) = lower(left(btrim(p_name), 80));
+    end if;
+  end if;
+  insert into public.supplier_products (restaurant_id, item_id, supplier_id)
+  select p_restaurant, i, v_id
+  from unnest(coalesce(p_items, '{}'::text[])) i
+  where exists (select 1 from public.restaurants r, jsonb_array_elements(r.menu -> 'items') x where r.id = p_restaurant and x ->> 'id' = i)
+  on conflict (restaurant_id, item_id) do nothing;
+  return v_id;
+end;
+$$;
+
+-- Toute l'équipe : bon de commande envoyé (le texte part depuis l'appareil : e-mail, WhatsApp…).
+create or replace function public.record_supplier_order(p_restaurant uuid, p_supplier uuid, p_lines jsonb, p_note text, p_via text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_sup public.suppliers;
+  v_row public.supplier_orders;
+begin
+  if public.member_role(p_restaurant) is null then raise exception 'Accès refusé'; end if;
+  select * into v_sup from public.suppliers where id = p_supplier and restaurant_id = p_restaurant;
+  if not found then raise exception 'Fournisseur introuvable'; end if;
+  if jsonb_typeof(coalesce(p_lines, 'null'::jsonb)) <> 'array' or jsonb_array_length(p_lines) = 0 or jsonb_array_length(p_lines) > 200 then
+    raise exception 'La commande est vide';
+  end if;
+  if exists (select 1 from jsonb_array_elements(p_lines) l
+             where coalesce(l ->> 'qty', '') !~ '^[0-9]{1,5}$' or (l ->> 'qty')::int < 1 or btrim(coalesce(l ->> 'name', '')) = '') then
+    raise exception 'Quantités invalides';
+  end if;
+  if p_via not in ('email', 'whatsapp', 'copie', 'impression', 'autre') then raise exception 'Envoi invalide'; end if;
+  insert into public.supplier_orders (restaurant_id, supplier_id, supplier_name, lines, note, sent_via, created_by)
+  values (p_restaurant, v_sup.id, v_sup.name,
+          (select jsonb_agg(jsonb_build_object('itemId', l ->> 'itemId', 'name', left(l ->> 'name', 80), 'qty', (l ->> 'qty')::int,
+                                               'packLabel', left(coalesce(l ->> 'packLabel', ''), 40), 'packSize', coalesce((l ->> 'packSize')::int, 1),
+                                               'ref', left(coalesce(l ->> 'ref', ''), 40)))
+           from jsonb_array_elements(p_lines) l),
+          left(btrim(coalesce(p_note, '')), 300), p_via, auth.uid())
+  returning * into v_row;
+  return to_jsonb(v_row);
+end;
+$$;
+
+create or replace function public.close_supplier_order(p_restaurant uuid, p_id uuid, p_status text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if public.member_role(p_restaurant) is null then raise exception 'Accès refusé'; end if;
+  if p_status not in ('recue', 'annulee') then raise exception 'Statut invalide'; end if;
+  update public.supplier_orders set status = p_status, closed_at = now()
+  where id = p_id and restaurant_id = p_restaurant and status = 'envoyee';
+end;
+$$;
+
+revoke all on function public.save_supplier(uuid, uuid, text, text, text, int, text) from public;
+revoke all on function public.delete_supplier(uuid, uuid) from public;
+revoke all on function public.set_supplier_product(uuid, text, uuid, int, text, text) from public;
+revoke all on function public.learn_supplier(uuid, text, text[]) from public;
+revoke all on function public.record_supplier_order(uuid, uuid, jsonb, text, text) from public;
+revoke all on function public.close_supplier_order(uuid, uuid, text) from public;
+grant execute on function public.save_supplier(uuid, uuid, text, text, text, int, text) to authenticated;
+grant execute on function public.delete_supplier(uuid, uuid) to authenticated;
+grant execute on function public.set_supplier_product(uuid, text, uuid, int, text, text) to authenticated;
+grant execute on function public.learn_supplier(uuid, text, text[]) to authenticated;
+grant execute on function public.record_supplier_order(uuid, uuid, jsonb, text, text) to authenticated;
+grant execute on function public.close_supplier_order(uuid, uuid, text) to authenticated;
 
 -- ---------- Temps réel ----------
 do $$
