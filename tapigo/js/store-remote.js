@@ -332,7 +332,8 @@
     add: function (e) {
       return rpc('add_expiry', { p_restaurant: current.id, p_station: e.station, p_label: e.label, p_item: e.itemId || null,
         p_kind: e.kind, p_date: e.expiresOn, p_quantity: e.quantity || '', p_note: e.note || '', p_portions: e.itemId && e.portions > 0 ? e.portions : null,
-        p_amount: !(e.itemId && e.portions > 0) && e.amount > 0 ? e.amount : null, p_unit: !(e.itemId && e.portions > 0) && e.amount > 0 ? e.unit : null })
+        p_amount: !(e.itemId && e.portions > 0) && e.amount > 0 ? e.amount : null, p_unit: !(e.itemId && e.portions > 0) && e.amount > 0 ? e.unit : null,
+        p_unit_cost: e.unitCost >= 0 && e.unitCost !== null && e.unitCost !== undefined ? Math.round(e.unitCost * 10000) / 10000 : null })
         .then(function (row) { return loadExpiry().then(function () { return fromExpiry(row); }); });
     },
     close: function (id, status) {
@@ -351,7 +352,7 @@
           if (r.error) throw new Error(/expiry_moves/.test(r.error.message) ? 'Relancez supabase/schema.sql pour activer le bilan des pertes.' : r.error.message);
           return r.data.map(function (m) {
             return { id: m.id, station: m.station, label: m.label, itemId: m.item_id, kind: m.kind, amount: Number(m.amount), unit: m.unit,
-              value: m.value == null ? null : Number(m.value), reason: m.reason || '', at: Date.parse(m.created_at) };
+              value: m.value == null ? null : Number(m.value), cost: m.cost == null ? null : Number(m.cost), reason: m.reason || '', at: Date.parse(m.created_at) };
           });
         });
     }

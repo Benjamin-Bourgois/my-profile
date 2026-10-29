@@ -520,7 +520,9 @@
       var item = x.itemId && getItem(x.itemId);
       var moves = read(K.moves, []);
       moves.unshift({ id: 'mv_' + Date.now().toString(36), station: x.station, label: x.label, itemId: x.itemId, kind: kind, amount: amount, unit: unit,
-        value: unit === 'portion' && item ? Math.round(item.price * amount * 100) / 100 : null, reason: kind === 'jete' ? (reason || '') : '', at: Date.now() });
+        value: unit === 'portion' && item ? Math.round(item.price * amount * 100) / 100 : null,
+        cost: x.unitCost != null ? Math.round(amount * (UNIT_BASE[unit] || 1) / (UNIT_BASE[x.unit] || 1) * x.unitCost * 100) / 100 : null,
+        reason: kind === 'jete' ? (reason || '') : '', at: Date.now() });
       write(K.moves, moves);
       if (kind === 'jete' && unit === 'portion' && x.itemId) {
         var st = getStock(x.itemId);
@@ -541,6 +543,7 @@
         portions: e.itemId && e.portions > 0 ? e.portions : null,
         amount: !(e.itemId && e.portions > 0) && e.amount > 0 ? e.amount : null, unit: !(e.itemId && e.portions > 0) && e.amount > 0 ? e.unit : null };
       if (row.portions) row.unit = 'portion';
+      row.unitCost = e.unitCost >= 0 && e.unitCost != null ? e.unitCost : null;
       list.push(row); write(K.expiry, list); emit('expiry:updated', null);
       return Promise.resolve(clone(row));
     },
