@@ -53,8 +53,12 @@ const SCHEMA = {
           expires_on: { anyOf: [{ type: "string" }, { type: "null" }] },
           date_kind: { anyOf: [{ type: "string", enum: ["dlc", "ddm"] }, { type: "null" }] },
           lot: { anyOf: [{ type: "string" }, { type: "null" }] },
+          total_ht: { anyOf: [{ type: "number" }, { type: "null" }] },
+          amount: { anyOf: [{ type: "number" }, { type: "null" }] },
+          amount_unit: { anyOf: [{ type: "string", enum: ["piece", "g", "kg", "cl", "l"] }, { type: "null" }] },
         },
-        required: ["label", "quantity_text", "item_ref", "portions", "explanation", "confidence", "expires_on", "date_kind", "lot"],
+        required: ["label", "quantity_text", "item_ref", "portions", "explanation", "confidence", "expires_on", "date_kind", "lot",
+          "total_ht", "amount", "amount_unit"],
         additionalProperties: false,
       },
     },
@@ -77,6 +81,8 @@ Règles :
 - expires_on : la date limite imprimée sur la ligne du produit (AAAA-MM-JJ), seulement si le document l'indique pour ce produit ; sinon null. Ne l'invente jamais et ne la déduis pas de la date du bon.
 - date_kind : "dlc" pour « à consommer jusqu'au » / DLC / « à consommer avant » d'un produit frais, "ddm" pour « à consommer de préférence avant » / DDM / DLUO ; null si expires_on est null. En cas de doute sur un produit frais (viande, poisson, laitage, traiteur), "dlc".
 - lot : le numéro de lot de la ligne s'il est indiqué, sinon null.
+- total_ht : le montant hors taxes de la ligne en euros, tel qu'écrit (colonne « Total HT », « Montant HT »…), sinon le prix unitaire HT × la quantité facturée. null si aucun prix n'apparaît. Jamais de TTC.
+- amount et amount_unit : la quantité physique totale livrée sur la ligne, dans l'unité la plus naturelle parmi piece, g, kg, cl, l (ex. 3 kg de citrons → 3 et "kg" ; 2 cartons de 12 bouteilles → 24 et "piece" ; 6 bouteilles de 70 cl → 420 et "cl"). null si elle n'est pas déterminable.
 - supplier, reference (numéro du bon ou de la facture), document_date (AAAA-MM-JJ) : null s'ils n'apparaissent pas.
 - Si le document n'est ni un bon de livraison, ni une facture, ni un ticket d'achat, mets is_delivery_document à false et renvoie une liste vide.
 - warning : en une phrase, un problème qui gêne la lecture (photo floue, page coupée, plusieurs documents différents), sinon null.
@@ -88,6 +94,12 @@ const validDate = (v: unknown) => {
   const t = Date.parse(v + "T12:00:00Z");
   if (!Number.isFinite(t) || t < Date.now() - 365 * 86400_000 || t > Date.now() + 3650 * 86400_000) return null;
   return v;
+};
+
+// Montant HT plausible d'une ligne (0 à 100 000 €), arrondi au centime, sinon null.
+const money = (v: unknown) => {
+  const n = Number(v);
+  return v !== null && Number.isFinite(n) && n >= 0 && n <= 100000 ? Math.round(n * 100) / 100 : null;
 };
 
 const clip = (v: unknown, max: number) => {
@@ -185,6 +197,9 @@ serve(async (req) => {
       expires_on: validDate(l.expires_on),
       date_kind: validDate(l.expires_on) ? (l.date_kind === "ddm" ? "ddm" : "dlc") : null,
       lot: clip(l.lot, 40),
+      total_ht: money(l.total_ht),
+      amount: Number.isFinite(Number(l.amount)) && Number(l.amount) > 0 && Number(l.amount) <= 1000000 ? Number(l.amount) : null,
+      amount_unit: ["piece", "g", "kg", "cl", "l"].includes(String(l.amount_unit)) ? String(l.amount_unit) : null,
       station: item ? ((item as MenuItem & { station?: string }).station === "bar" ? "bar" : "cuisine") : null,
     };
   });

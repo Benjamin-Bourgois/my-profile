@@ -1125,6 +1125,23 @@ revoke all on public.stock_scans from anon;
 revoke insert, update, delete on public.stock_scans from authenticated;
 grant select on public.stock_scans to authenticated;
 
+-- Coût d'achat HT d'une portion de chaque produit de la carte, relevé sur le dernier bon
+-- de livraison (total HT de la ligne ÷ portions). Sert au coût matière des pertes.
+create table if not exists public.item_costs (
+  restaurant_id    uuid not null references public.restaurants (id) on delete cascade,
+  item_id          text not null,
+  cost_per_portion numeric(10, 4) not null check (cost_per_portion >= 0),
+  updated_at       timestamptz not null default now(),
+  primary key (restaurant_id, item_id)
+);
+alter table public.item_costs enable row level security;
+drop policy if exists "Coûts visibles par la direction" on public.item_costs;
+create policy "Coûts visibles par la direction" on public.item_costs
+  for select using (public.member_role(restaurant_id) in ('admin', 'owner'));
+revoke all on public.item_costs from anon;
+revoke insert, update, delete on public.item_costs from authenticated;
+grant select on public.item_costs to authenticated;
+
 -- Ajoute les quantités validées au stock (une seule fois par bon).
 -- Un produit encore « illimité » commence à être suivi avec la quantité livrée.
 create or replace function public.add_delivery_stock(p_restaurant uuid, p_scan uuid, p_lines jsonb)
@@ -1159,6 +1176,12 @@ begin
     values (p_restaurant, v_item, least(v_qty, 100000))
     on conflict (restaurant_id, item_id)
     do update set quantity = least(public.item_stock.quantity + excluded.quantity, 100000), updated_at = now();
+    -- Coût d'achat d'une portion (facultatif) : relevé sur le bon.
+    if v_line ->> 'unitCost' ~ '^[0-9]+(\.[0-9]+)?$' and (v_line ->> 'unitCost')::numeric between 0 and 10000 then
+      insert into public.item_costs (restaurant_id, item_id, cost_per_portion)
+      values (p_restaurant, v_item, (v_line ->> 'unitCost')::numeric)
+      on conflict (restaurant_id, item_id) do update set cost_per_portion = excluded.cost_per_portion, updated_at = now();
+    end if;
     v_done := v_done || jsonb_build_object('itemId', v_item, 'quantity', v_qty);
     v_count := v_count + 1;
   end loop;
@@ -1208,6 +1231,8 @@ alter table public.expiry_items add column if not exists portions int;
 -- Quantité restante d'un lot hors carte (ingrédient), avec son unité.
 alter table public.expiry_items add column if not exists amount numeric(12, 3);
 alter table public.expiry_items add column if not exists unit text;
+-- Coût d'achat HT d'une unité du lot (une portion, ou un kg / L / pièce de l'ingrédient).
+alter table public.expiry_items add column if not exists unit_cost numeric(12, 4);
 do $$
 begin
   alter table public.expiry_items add constraint expiry_items_unit_check check (unit is null or unit in ('portion', 'piece', 'g', 'kg', 'cl', 'l'));
@@ -1227,11 +1252,13 @@ create table if not exists public.expiry_moves (
   amount        numeric(12, 3) not null check (amount > 0),
   unit          text not null check (unit in ('portion', 'piece', 'g', 'kg', 'cl', 'l')),
   value         numeric(10, 2), -- produit de la carte : portions × prix de vente
+  cost          numeric(10, 2), -- coût d'achat HT de la quantité sortie (relevé sur le bon)
   reason        text not null default '' check (length(reason) <= 60),
   created_by    uuid references auth.users (id) on delete set null,
   created_at    timestamptz not null default now()
 );
 create index if not exists expiry_moves_idx on public.expiry_moves (restaurant_id, created_at desc);
+alter table public.expiry_moves add column if not exists cost numeric(10, 2);
 alter table public.expiry_moves enable row level security;
 drop policy if exists "Sorties visibles par le poste concerné" on public.expiry_moves;
 create policy "Sorties visibles par le poste concerné" on public.expiry_moves
@@ -1254,9 +1281,11 @@ grant select on public.expiry_items to authenticated;
 
 drop function if exists public.add_expiry(uuid, text, text, text, text, date, text, text);
 drop function if exists public.add_expiry(uuid, text, text, text, text, date, text, text, int);
+drop function if exists public.add_expiry(uuid, text, text, text, text, date, text, text, int, numeric, text);
 create or replace function public.add_expiry(p_restaurant uuid, p_station text, p_label text, p_item text,
                                              p_kind text, p_date date, p_quantity text default '', p_note text default '',
-                                             p_portions int default null, p_amount numeric default null, p_unit text default null)
+                                             p_portions int default null, p_amount numeric default null, p_unit text default null,
+                                             p_unit_cost numeric default null)
 returns jsonb
 language plpgsql security definer set search_path = public
 as $$
@@ -1276,13 +1305,17 @@ begin
                                or p_unit not in ('portion', 'piece', 'g', 'kg', 'cl', 'l')) then
     raise exception 'Quantité invalide';
   end if;
-  insert into public.expiry_items (restaurant_id, station, label, item_id, kind, expires_on, quantity, note, created_by, portions, amount, unit)
+  if p_unit_cost is not null and (p_unit_cost < 0 or p_unit_cost > 100000) then raise exception 'Prix d''achat invalide'; end if;
+  insert into public.expiry_items (restaurant_id, station, label, item_id, kind, expires_on, quantity, note, created_by, portions, amount, unit, unit_cost)
   values (p_restaurant, p_station, left(btrim(p_label), 80), nullif(left(coalesce(p_item, ''), 60), ''), p_kind, p_date,
           left(btrim(coalesce(p_quantity, '')), 30), left(btrim(coalesce(p_note, '')), 140), auth.uid(),
           case when nullif(btrim(coalesce(p_item, '')), '') is not null then p_portions end,
           case when p_portions is null or nullif(btrim(coalesce(p_item, '')), '') is null then p_amount end,
           case when p_portions is not null and nullif(btrim(coalesce(p_item, '')), '') is not null then 'portion'
-               when p_amount is not null then p_unit end)
+               when p_amount is not null then p_unit end,
+          -- Produit de la carte sans prix saisi : dernier coût relevé sur un bon.
+          coalesce(p_unit_cost, case when p_portions is not null then
+            (select c.cost_per_portion from public.item_costs c where c.restaurant_id = p_restaurant and c.item_id = p_item) end))
   returning * into v_row;
   return to_jsonb(v_row);
 end;
@@ -1316,10 +1349,10 @@ begin
 end;
 $$;
 revoke all on function public.member_station(uuid) from public;
-revoke all on function public.add_expiry(uuid, text, text, text, text, date, text, text, int, numeric, text) from public;
+revoke all on function public.add_expiry(uuid, text, text, text, text, date, text, text, int, numeric, text, numeric) from public;
 revoke all on function public.close_expiry(uuid, text) from public;
 grant execute on function public.member_station(uuid) to authenticated;
-grant execute on function public.add_expiry(uuid, text, text, text, text, date, text, text, int, numeric, text) to authenticated;
+grant execute on function public.add_expiry(uuid, text, text, text, text, date, text, text, int, numeric, text, numeric) to authenticated;
 
 -- Conversion vers l'unité de base d'une famille : g, cl, portion ou pièce.
 create or replace function public.unit_base(p_amount numeric, p_unit text)
@@ -1351,6 +1384,7 @@ declare
   v_left   numeric;
   v_price  numeric;
   v_value  numeric;
+  v_cost   numeric;
 begin
   select * into v_row from public.expiry_items where id = p_id for update;
   if not found or public.member_station(v_row.restaurant_id) is null
@@ -1381,6 +1415,9 @@ begin
     from public.restaurants r, jsonb_array_elements(r.menu -> 'items') x
     where r.id = v_row.restaurant_id and x ->> 'id' = v_row.item_id;
     v_value := case when v_price is not null then round(v_price * v_amount, 2) end;
+    v_cost := coalesce(v_row.unit_cost,
+      (select c.cost_per_portion from public.item_costs c where c.restaurant_id = v_row.restaurant_id and c.item_id = v_row.item_id));
+    v_cost := case when v_cost is not null then round(v_cost * v_amount, 2) end;
   else
     -- Ingrédient : quantité dans son unité.
     if coalesce(p_all, false) and v_row.amount is not null then v_amount := v_row.amount; v_unit := v_row.unit; end if;
@@ -1393,6 +1430,9 @@ begin
       v_left := public.unit_base(v_row.amount, v_row.unit) - public.unit_base(v_amount, v_unit);
       if v_left < -0.0005 then raise exception 'Il ne reste que % % dans ce lot', v_row.amount, v_row.unit; end if;
       v_left := greatest(v_left, 0) / public.unit_base(1, v_row.unit);
+      -- Coût : quantité sortie ramenée à l'unité du lot × coût d'une unité.
+      v_cost := case when v_row.unit_cost is not null
+        then round(public.unit_base(v_amount, v_unit) / public.unit_base(1, v_row.unit) * v_row.unit_cost, 2) end;
       update public.expiry_items
       set amount = v_left,
           status = case when v_left = 0 or coalesce(p_all, false) then p_kind else status end,
@@ -1404,8 +1444,8 @@ begin
     end if;
   end if;
 
-  insert into public.expiry_moves (restaurant_id, expiry_id, station, label, item_id, kind, amount, unit, value, reason, created_by)
-  values (v_row.restaurant_id, p_id, v_row.station, v_row.label, v_row.item_id, p_kind, v_amount, v_unit, v_value,
+  insert into public.expiry_moves (restaurant_id, expiry_id, station, label, item_id, kind, amount, unit, value, cost, reason, created_by)
+  values (v_row.restaurant_id, p_id, v_row.station, v_row.label, v_row.item_id, p_kind, v_amount, v_unit, v_value, v_cost,
           case when p_kind = 'jete' then left(btrim(coalesce(p_reason, '')), 60) else '' end, auth.uid());
   return (select to_jsonb(e) from public.expiry_items e where id = p_id);
 end;

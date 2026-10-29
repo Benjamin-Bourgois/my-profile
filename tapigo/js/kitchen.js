@@ -1254,7 +1254,10 @@
     sc.applying = true;
     renderStock();
     var dated = sc.result.lines.filter(function (l) { return l.expires_on; });
-    T.scan.apply(sc.result.scan_id, todo.map(function (l) { return { itemId: l.item_id, quantity: l.quantity }; })).then(function (n) {
+    // Coût d'achat d'une portion : total HT de la ligne ÷ portions livrées.
+    T.scan.apply(sc.result.scan_id, todo.map(function (l) {
+      return { itemId: l.item_id, quantity: l.quantity, unitCost: l.total_ht != null && l.quantity > 0 ? Math.round(l.total_ht / l.quantity * 10000) / 10000 : null };
+    })).then(function (n) {
       UI.toast('Livraison ajoutée au stock · ' + n + ' produit' + (n > 1 ? 's' : ''));
       sc.result = null;
       // Dates limites imprimées sur le bon : proposées pour l'onglet Dates.
@@ -1272,7 +1275,10 @@
       return { on: true, label: item ? item.name : l.label, itemId: l.item_id || null, kind: l.date_kind || 'dlc', expiresOn: l.expires_on,
         quantity: l.quantity_text || '', note: l.lot ? 'Lot ' + l.lot : '', station: station,
         portions: item && l.quantity > 0 ? l.quantity : null, // décomptées ensuite par les commandes
-        amount: item ? null : (parseQty(l.quantity_text) || {}).amount || null, unit: item ? null : (parseQty(l.quantity_text) || {}).unit || null };
+        amount: item ? null : l.amount || (parseQty(l.quantity_text) || {}).amount || null,
+        unit: item ? null : l.amount_unit || (parseQty(l.quantity_text) || {}).unit || null,
+        unitCost: l.total_ht == null ? null : item ? (l.quantity > 0 ? l.total_ht / l.quantity : null)
+          : (l.amount > 0 ? l.total_ht / l.amount : null) };
     });
   }
 
@@ -1335,7 +1341,8 @@
         return '<div class="scan-row' + (l.on ? '' : ' is-off') + '" data-scan-line="' + i + '">' +
           '<label class="scan-row__check"><input type="checkbox" data-scan-on' + (l.on ? ' checked' : '') + ' aria-label="Ajouter cette ligne"></label>' +
           '<div class="fc-row__name"><strong>' + esc(l.label) + '</strong><small>' + esc(l.quantity_text) + (l.explanation ? ' · ' + esc(l.explanation) : '') +
-            (l.expires_on ? ' · ' + (l.date_kind === 'ddm' ? 'DDM' : 'DLC') + ' ' + esc(l.expires_on.split('-').reverse().join('/')) : '') + '</small>' +
+            (l.expires_on ? ' · ' + (l.date_kind === 'ddm' ? 'DDM' : 'DLC') + ' ' + esc(l.expires_on.split('-').reverse().join('/')) : '') +
+            (l.total_ht != null ? ' · ' + fmt(l.total_ht) + ' HT' : '') + '</small>' +
             (l.confidence === 'low' ? '<span class="badge badge--warn">À vérifier</span>' : '') + '</div>' +
           '<select data-scan-item aria-label="Produit de la carte"><option value="">Pas un produit de la carte</option>' +
             items.map(function (it) { return '<option value="' + esc(it.id) + '"' + (it.id === l.item_id ? ' selected' : '') + '>' + esc(it.name) + '</option>'; }).join('') +
@@ -1599,12 +1606,13 @@
 
   // Somme par produit et par famille d'unité (g et kg ensemble, cl et L ensemble).
   function lossTotals(list) {
-    var byItem = {}, byReason = {}, value = 0, valued = 0;
+    var byItem = {}, byReason = {}, value = 0, valued = 0, cost = 0, costed = 0;
     list.forEach(function (m) {
       var fam = m.unit === 'kg' || m.unit === 'g' ? 'g' : m.unit === 'l' || m.unit === 'cl' ? 'cl' : m.unit;
       var base = m.unit === 'kg' ? m.amount * 1000 : m.unit === 'l' ? m.amount * 100 : m.amount;
       var key = m.label.toLowerCase() + '|' + m.station;
-      var it = byItem[key] || (byItem[key] = { label: m.label, station: m.station, qty: {}, count: 0, value: 0 });
+      var it = byItem[key] || (byItem[key] = { label: m.label, station: m.station, qty: {}, count: 0, value: 0, cost: 0, costed: false });
+      if (m.cost != null) { it.cost += m.cost; it.costed = true; cost += m.cost; costed++; }
       it.qty[fam] = (it.qty[fam] || 0) + base; it.count++;
       if (m.value != null) { it.value += m.value; value += m.value; valued++; }
       byReason[m.reason || 'Autre'] = (byReason[m.reason || 'Autre'] || 0) + 1;
@@ -1618,8 +1626,8 @@
       }).join(' + ');
     };
     var items = Object.keys(byItem).map(function (k) { var it = byItem[k]; it.qtyText = fmtQty(it.qty); return it; })
-      .sort(function (a, b) { return b.value - a.value || b.count - a.count; });
-    return { items: items, reasons: byReason, value: value, valued: valued };
+      .sort(function (a, b) { return b.cost - a.cost || b.value - a.value || b.count - a.count; });
+    return { items: items, reasons: byReason, value: value, valued: valued, cost: cost, costed: costed };
   }
 
   function renderLosses() {
@@ -1648,14 +1656,16 @@
       (dates.movesErr ? '<p class="help" style="color:var(--danger)">' + esc(dates.movesErr) + '</p>' : '') +
       '<div class="stat-tiles">' +
         '<div class="stat-tile"><span>Pertes déclarées</span><b>' + losses.length + '</b><small>lots ou parties de lots jetés</small></div>' +
-        '<div class="stat-tile"><span>Valeur perdue</span><b>' + (t.valued ? fmt(t.value) : '—') + '</b><small>' + (t.valued ? 'produits de la carte, au prix de vente' : 'aucun produit de la carte jeté') + '</small></div>' +
+        '<div class="stat-tile"><span>Coût matière perdu</span><b>' + (t.costed ? fmt(t.cost) : '—') + '</b><small>' +
+          (t.costed ? 'prix d’achat HT' + (t.costed < losses.length ? ' · ' + (losses.length - t.costed) + ' perte' + (losses.length - t.costed > 1 ? 's' : '') + ' sans prix' : '') : 'aucun prix d’achat connu') +
+          (t.valued ? ' · ' + fmt(t.value) + ' au prix de vente' : '') + '</small></div>' +
         '<div class="stat-tile"><span>Produits concernés</span><b>' + t.items.length + '</b><small>' + used + ' utilisation' + (used > 1 ? 's' : '') + ' saisie' + (used > 1 ? 's' : '') + ' en plus</small></div>' +
         '<div class="stat-tile"><span>Motif principal</span><b style="font-size:20px">' + (reasons[0] ? esc(reasons[0]) : '—') + '</b><small>' + (reasons[0] ? t.reasons[reasons[0]] + ' perte' + (t.reasons[reasons[0]] > 1 ? 's' : '') : '') + '</small></div>' +
       '</div>' +
       (losses.length
-        ? '<section class="chart-card"><h3>Par produit</h3><div style="overflow-x:auto"><table class="loss-table"><thead><tr><th>Produit</th><th>Poste</th><th>Quantité jetée</th><th>Pertes</th><th>Valeur</th></tr></thead><tbody>' +
+        ? '<section class="chart-card"><h3>Par produit</h3><div style="overflow-x:auto"><table class="loss-table"><thead><tr><th>Produit</th><th>Poste</th><th>Quantité jetée</th><th>Pertes</th><th>Coût HT</th><th>Prix de vente</th></tr></thead><tbody>' +
             t.items.map(function (it) {
-              return '<tr><td><strong>' + esc(it.label) + '</strong></td><td>' + ZONE[it.station] + '</td><td>' + esc(it.qtyText) + '</td><td>' + it.count + '</td><td>' + (it.value ? fmt(it.value) : '—') + '</td></tr>';
+              return '<tr><td><strong>' + esc(it.label) + '</strong></td><td>' + ZONE[it.station] + '</td><td>' + esc(it.qtyText) + '</td><td>' + it.count + '</td><td>' + (it.costed ? fmt(it.cost) : '—') + '</td><td>' + (it.value ? fmt(it.value) : '—') + '</td></tr>';
             }).join('') + '</tbody></table></div></section>' +
           '<div class="stats-grid">' +
             '<section class="chart-card"><h3>Par motif</h3><ul class="bilan__facts">' + reasons.map(function (k) { return '<li><span>' + esc(k) + '</span><strong>' + t.reasons[k] + '</strong></li>'; }).join('') + '</ul></section>' +
@@ -1664,7 +1674,8 @@
             }).join('') + '</ul></section>' +
           '</div>'
         : '<div class="empty"><h3>Aucune perte déclarée ' + esc(r.label) + '</h3><p>Quand un produit est jeté, touchez « Jeté » sur sa ligne et indiquez la quantité : la perte apparaît ici.</p></div>') +
-      '<p class="help">Valeur au prix de vente de la carte pour les produits vendus tels quels. Les ingrédients (crème, citrons…) sont comptés en quantité.</p>' +
+      '<p class="help">Coût matière : prix d’achat HT relevé sur les bons de livraison scannés (ou saisi à l’ajout du lot). ' +
+        'Prix de vente : pour les produits de la carte vendus tels quels.</p>' +
     '</div>';
   }
 
@@ -1717,6 +1728,8 @@
         '<div class="field" data-amount-field><span>Quantité du lot</span><div class="qty-unit"><input name="amount" type="number" min="0" step="any" inputmode="decimal" placeholder="Ex : 2">' +
           '<select name="unit" aria-label="Unité">' + ['piece', 'g', 'kg', 'cl', 'l'].map(function (u) { return '<option value="' + u + '"' + (u === 'kg' ? ' selected' : '') + '>' + UNITS[u] + '</option>'; }).join('') + '</select></div>' +
           '<small class="help">Pour suivre ce qui est utilisé ou jeté.</small></div>' +
+        '<label class="field" data-cost-field><span>Prix d’achat HT du lot (facultatif)</span><input name="cost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Ex : 8,70">' +
+          '<small class="help">Pour chiffrer les pertes en coût matière.</small></label>' +
         '<input type="hidden" name="quantity">' +
         '<label class="field" data-portions-field hidden><span>Portions de ce lot</span><input name="portions" type="number" min="1" max="100000" inputmode="numeric" placeholder="Ex : 12">' +
           '<small class="help">Produit de la carte : le lot se vide tout seul avec les commandes.</small></label>' +
@@ -1734,6 +1747,7 @@
           var hit = items.filter(function (i) { return i.name.toLowerCase() === v; })[0];
           $('[data-portions-field]', sheet).hidden = !hit;
           $('[data-amount-field]', sheet).hidden = !!hit;
+          $('[data-cost-field]', sheet).hidden = !!hit; // produit de la carte : coût relevé sur les bons
         };
         form.elements.label.addEventListener('input', syncPortions);
         sheet.addEventListener('change', function (e) {
@@ -1774,7 +1788,11 @@
           T.expiry.add({ station: f.station.value, label: label, itemId: match ? match.id : null, kind: f.kind.value,
             expiresOn: f.date.value, quantity: match ? '' : (parseFloat(String(f.amount.value).replace(',', '.')) > 0 ? f.amount.value + ' ' + UNITS[f.unit.value] : f.quantity.value.trim()), note: f.note.value.trim(),
             portions: match ? (parseInt(f.portions.value, 10) || null) : null,
-            amount: match ? null : (parseFloat(String(f.amount.value).replace(',', '.')) || null), unit: f.unit.value })
+            amount: match ? null : (parseFloat(String(f.amount.value).replace(',', '.')) || null), unit: f.unit.value,
+            unitCost: (function () {
+              var c = parseFloat(String(f.cost.value).replace(',', '.')), a = parseFloat(String(f.amount.value).replace(',', '.'));
+              return !match && c >= 0 && a > 0 ? c / a : null;
+            })() })
             .then(function () { UI.closeSheet(); UI.toast('<strong>' + esc(label) + '</strong> ajouté'); renderDates(); },
               function (err) { if (btn) btn.disabled = false; UI.toast(esc(err.message), 5000); });
         });

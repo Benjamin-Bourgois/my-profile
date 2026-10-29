@@ -71,6 +71,9 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **29/10/2026 · Benjamin** : prix d'achat HT relevé au scan (`total_ht`, `amount`, `amount_unit` par ligne), coût par
+  portion dans `item_costs`, `expiry_items.unit_cost`, `expiry_moves.cost` ; bilan des pertes en coût matière. À faire
+  une fois : relancer `supabase/schema.sql`. Fichiers en `?v=28`.
 - **29/10/2026 · Benjamin** : « Utilisé » / « Jeté » avec quantité, unité et motif (`move_expiry`, table
   `expiry_moves`, lots `amount` + `unit`) et « Bilan des pertes » dans l'onglet Dates. À faire une fois : relancer
   `supabase/schema.sql`. Fichiers en `?v=27`.
