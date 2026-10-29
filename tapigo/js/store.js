@@ -33,7 +33,8 @@
     stock: NS + 'stock',
     forecast: NS + 'forecast',
     servers: NS + 'servers',
-    expiry: NS + 'expiry'
+    expiry: NS + 'expiry',
+    moves: NS + 'expiry-moves'
   };
 
   var memory = {};
@@ -253,6 +254,7 @@
     var m = read(K.stock, {});
     if (quantity == null) delete m[id]; else m[id] = quantity;
     write(K.stock, m);
+    if (quantity != null) followStock(id, quantity);
     emit('stock:updated', { id: id, quantity: quantity });
     return Promise.resolve();
   }
@@ -281,7 +283,7 @@
       }
     });
     var touched = Object.keys(need).filter(function (id) { return id in stock; });
-    touched.forEach(function (id) { stock[id] -= need[id]; });
+    touched.forEach(function (id) { stock[id] -= need[id]; followStock(id, stock[id]); });
     if (touched.length) {
       write(K.stock, stock);
       touched.forEach(function (id) { emit('stock:updated', { id: id, quantity: stock[id] }); });
@@ -471,20 +473,87 @@
     }
     return list;
   }
+  // Comme en ligne : quand le stock d'un produit baisse, ses lots datés sont décomptés,
+  // le plus proche de sa date d'abord ; un lot à 0 passe en « utilisé ».
+  function followStock(itemId, quantity) {
+    var list = read(K.expiry, null);
+    if (!list) return;
+    var lots = list.filter(function (x) { return x.itemId === itemId && x.status === 'actif' && x.portions != null; });
+    var excess = lots.reduce(function (s, x) { return s + x.portions; }, 0) - quantity;
+    if (excess <= 0) return;
+    lots.sort(function (a, b) { return a.expiresOn < b.expiresOn ? -1 : a.expiresOn > b.expiresOn ? 1 : 0; }).forEach(function (x) {
+      if (excess <= 0) return;
+      var take = Math.min(x.portions, excess);
+      x.portions -= take; excess -= take;
+      if (!x.portions) { x.status = 'utilise'; x.closedAt = Date.now(); }
+    });
+    write(K.expiry, list);
+    emit('expiry:updated', null);
+  }
+
+  var UNIT_BASE = { kg: 1000, l: 100 };
+  function unitFamily(u) { return u === 'g' || u === 'kg' ? 'masse' : u === 'cl' || u === 'l' ? 'volume' : u; }
   var expiry = {
     station: function () { return 'all'; },
+    move: function (id, kind, amount, unit, reason, all) {
+      var list = expiryList(), x = list.filter(function (y) { return y.id === id; })[0];
+      if (!x || x.status !== 'actif') return Promise.reject(new Error('Ce lot est déjà clos.'));
+      if (x.portions != null) {
+        unit = 'portion';
+        amount = all ? x.portions : Math.round(amount || 0);
+        if (amount < 1) return Promise.reject(new Error('Indiquez le nombre de portions'));
+        if (amount > x.portions) return Promise.reject(new Error('Il ne reste que ' + x.portions + ' portion(s) dans ce lot'));
+        x.portions -= amount;
+        if (!x.portions) { x.status = kind; x.closedAt = Date.now(); }
+      } else {
+        if (all && x.amount != null) { amount = x.amount; unit = x.unit; }
+        if (!(amount > 0)) return Promise.reject(new Error('Indiquez la quantité'));
+        if (x.amount != null) {
+          if (unitFamily(unit) !== unitFamily(x.unit)) return Promise.reject(new Error('Ce lot se compte en ' + x.unit));
+          var left = (x.amount * (UNIT_BASE[x.unit] || 1) - amount * (UNIT_BASE[unit] || 1)) / (UNIT_BASE[x.unit] || 1);
+          if (left < -0.0005) return Promise.reject(new Error('Il ne reste que ' + x.amount + ' ' + x.unit + ' dans ce lot'));
+          x.amount = Math.max(0, Math.round(left * 1000) / 1000);
+          if (!x.amount || all) { x.status = kind; x.closedAt = Date.now(); }
+        } else if (all) { x.status = kind; x.closedAt = Date.now(); }
+      }
+      write(K.expiry, list);
+      var item = x.itemId && getItem(x.itemId);
+      var moves = read(K.moves, []);
+      moves.unshift({ id: 'mv_' + Date.now().toString(36), station: x.station, label: x.label, itemId: x.itemId, kind: kind, amount: amount, unit: unit,
+        value: unit === 'portion' && item ? Math.round(item.price * amount * 100) / 100 : null, reason: kind === 'jete' ? (reason || '') : '', at: Date.now() });
+      write(K.moves, moves);
+      if (kind === 'jete' && unit === 'portion' && x.itemId) {
+        var st = getStock(x.itemId);
+        if (st != null) setStock(x.itemId, Math.max(0, st - amount));
+      }
+      emit('expiry:updated', null);
+      return Promise.resolve();
+    },
+    moves: function (days) {
+      var since = Date.now() - days * 86400000;
+      return Promise.resolve(read(K.moves, []).filter(function (m) { return m.at >= since; }));
+    },
     list: function () { return clone(expiryList()); },
     add: function (e) {
       var list = expiryList();
       var row = { id: 'exp_' + Date.now().toString(36), station: e.station, label: e.label, itemId: e.itemId || null, kind: e.kind,
-        expiresOn: e.expiresOn, quantity: e.quantity || '', note: e.note || '', status: 'actif', closedAt: null };
+        expiresOn: e.expiresOn, quantity: e.quantity || '', note: e.note || '', status: 'actif', closedAt: null,
+        portions: e.itemId && e.portions > 0 ? e.portions : null,
+        amount: !(e.itemId && e.portions > 0) && e.amount > 0 ? e.amount : null, unit: !(e.itemId && e.portions > 0) && e.amount > 0 ? e.unit : null };
+      if (row.portions) row.unit = 'portion';
       list.push(row); write(K.expiry, list); emit('expiry:updated', null);
       return Promise.resolve(clone(row));
     },
     close: function (id, status) {
       var list = expiryList().filter(function (x) { return status !== 'supprime' || x.id !== id; });
-      list.forEach(function (x) { if (x.id === id && status !== 'supprime') { x.status = status; x.closedAt = Date.now(); } });
+      var thrown = null;
+      list.forEach(function (x) { if (x.id === id && status !== 'supprime') { x.status = status; x.closedAt = Date.now(); if (status === 'jete') thrown = x; } });
       write(K.expiry, list); emit('expiry:updated', null);
+      // Lot jeté : ses portions restantes sortent aussi du stock.
+      if (thrown && thrown.itemId && thrown.portions > 0) {
+        var st = getStock(thrown.itemId);
+        if (st != null) setStock(thrown.itemId, Math.max(0, st - thrown.portions));
+      }
       return Promise.resolve();
     }
   };

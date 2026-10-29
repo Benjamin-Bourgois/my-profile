@@ -297,7 +297,8 @@
   var expiryCache = [];
   function fromExpiry(r) {
     return { id: r.id, station: r.station, label: r.label, itemId: r.item_id, kind: r.kind, expiresOn: r.expires_on,
-      quantity: r.quantity || '', note: r.note || '', status: r.status, closedAt: r.closed_at ? Date.parse(r.closed_at) : null };
+      quantity: r.quantity || '', note: r.note || '', status: r.status, closedAt: r.closed_at ? Date.parse(r.closed_at) : null,
+      portions: r.portions == null ? null : r.portions, amount: r.amount == null ? null : Number(r.amount), unit: r.unit || null };
   }
   function loadExpiry() {
     var since = new Date(Date.now() - 31 * 24 * 3600 * 1000).toISOString();
@@ -330,11 +331,29 @@
     list: function () { return expiryCache ? clone(expiryCache) : null; },
     add: function (e) {
       return rpc('add_expiry', { p_restaurant: current.id, p_station: e.station, p_label: e.label, p_item: e.itemId || null,
-        p_kind: e.kind, p_date: e.expiresOn, p_quantity: e.quantity || '', p_note: e.note || '' })
+        p_kind: e.kind, p_date: e.expiresOn, p_quantity: e.quantity || '', p_note: e.note || '', p_portions: e.itemId && e.portions > 0 ? e.portions : null,
+        p_amount: !(e.itemId && e.portions > 0) && e.amount > 0 ? e.amount : null, p_unit: !(e.itemId && e.portions > 0) && e.amount > 0 ? e.unit : null })
         .then(function (row) { return loadExpiry().then(function () { return fromExpiry(row); }); });
     },
     close: function (id, status) {
       return rpc('close_expiry', { p_id: id, p_status: status }).then(function () { return loadExpiry(); });
+    },
+    // Sortie d'une quantité d'un lot : kind 'utilise' | 'jete', unit 'portion' | 'piece' | 'g' | 'kg' | 'cl' | 'l'.
+    move: function (id, kind, amount, unit, reason, all) {
+      return rpc('move_expiry', { p_id: id, p_kind: kind, p_amount: amount, p_unit: unit, p_reason: reason || '', p_all: !!all })
+        .then(function () { return loadExpiry(); });
+    },
+    // Sorties des `days` derniers jours (bilan des pertes) ; le poste du compte filtre côté base.
+    moves: function (days) {
+      var since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+      return sb.from('expiry_moves').select('*').eq('restaurant_id', current.id).gte('created_at', since)
+        .order('created_at', { ascending: false }).limit(5000).then(function (r) {
+          if (r.error) throw new Error(/expiry_moves/.test(r.error.message) ? 'Relancez supabase/schema.sql pour activer le bilan des pertes.' : r.error.message);
+          return r.data.map(function (m) {
+            return { id: m.id, station: m.station, label: m.label, itemId: m.item_id, kind: m.kind, amount: Number(m.amount), unit: m.unit,
+              value: m.value == null ? null : Number(m.value), reason: m.reason || '', at: Date.parse(m.created_at) };
+          });
+        });
     }
   };
 
