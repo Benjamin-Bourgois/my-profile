@@ -114,7 +114,7 @@
   /* ---------------- Seed ---------------- */
   function seed() {
     write(K.restaurant, DEMO.restaurant);
-    write(K.menu, { categories: DEMO.categories, tags: DEMO.tags, items: DEMO.items });
+    write(K.menu, { categories: DEMO.categories, tags: DEMO.tags, items: DEMO.items, i18n: DEMO.i18n || {} });
     write(K.seq, 1040);
     write(K.orders, []);
 
@@ -898,6 +898,8 @@
     subscribe: subscribe,
     getRestaurant: getRestaurant,
     saveRestaurant: saveRestaurant,
+    // En démo, la carte de démonstration est déjà traduite en anglais ; la traduction par l'IA fonctionne en ligne.
+    translateMenu: function () { return Promise.reject(new Error('La traduction par l’IA fonctionne sur votre vrai restaurant (en ligne). La carte de démonstration est déjà traduite en anglais.')); },
     getMenu: getMenu,
     getItem: getItem,
     saveItem: saveItem,

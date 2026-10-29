@@ -71,6 +71,9 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **29/10/2026 · Benjamin** : carte multilingue (EN, ES, DE, IT) : `js/i18n.js` pour les textes de la page client, fonction
+  `menu-translate` (IA) pour le contenu de la carte (`menu.i18n`), langues choisies dans Menu → « Langues ». Pas de
+  changement SQL. La fonction se déploie toute seule après la fusion (GitHub Actions). Fichiers en `?v=33`.
 - **29/10/2026 · Benjamin** : anti-gaspillage : plats à écouler (onglet Dates), mise en avant sur la carte client avec
   remise facultative (`promo` dans la carte, appliquée par `place_order`, lignes `antigaspi` / `promo`). À faire une
   fois : relancer `supabase/schema.sql`. Fichiers en `?v=32`.

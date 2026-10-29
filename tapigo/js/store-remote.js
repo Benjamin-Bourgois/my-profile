@@ -759,6 +759,13 @@
   };
 
   /* ---------------- Bons de livraison lus par l'IA ---------------- */
+  // Carte multilingue : l'IA traduit ce qui manque ou a changé, rangé dans menu.i18n (gérant).
+  T.translateMenu = function (langs) {
+    return callFunction('menu-translate', { restaurant_id: current.id, langs: langs }).then(function (r) {
+      return refreshRestaurant().then(function () { return r; });
+    });
+  };
+
   T.scan = {
     // pages : [{ media_type, data (base64) }] -> proposition de l'IA, rien n'est encore en stock.
     read: function (pages) {

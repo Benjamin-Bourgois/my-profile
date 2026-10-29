@@ -6,6 +6,7 @@
   'use strict';
 
   var T = Tapigo, UI = TapigoUI, I = UI.ICONS, esc = T.esc, fmt = T.fmt;
+  var L = window.TapigoI18n, t = L.t;
   var LIVE = T.mode === 'live';
   var $ = function (s, root) { return (root || document).querySelector(s); };
 
@@ -37,33 +38,90 @@
     return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   }
 
+  function leftText(n) { return t(n > 1 ? 'Plus que {n} disponibles' : 'Plus que {n} disponible', { n: n }); }
+  function articles(n) { return t(n > 1 ? '{n} articles' : '{n} article', { n: n }); }
+
+  /* ======================================================================
+     Langue de la carte (choisie par le client parmi celles du restaurant)
+     ====================================================================== */
+  function langs() { return L.offered(state.restaurant); }
+
+  function langPickerHTML() {
+    var list = langs();
+    if (list.length < 2) return '';
+    return '<div class="lang-pick" role="group" aria-label="' + t('Langue') + '">' + list.map(function (l) {
+      return '<button type="button" class="chip chip--tag" data-lang="' + l.id + '" aria-pressed="' + (L.lang() === l.id) + '">' + l.flag + ' ' + esc(l.label) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  // Textes fixes de menu.html.
+  function applyStatic() {
+    var set = function (sel, attr, fr) { var el = $(sel); if (el) el.setAttribute(attr, t(fr)); };
+    set('#search', 'placeholder', 'Rechercher un plat, un ingrédient…');
+    set('#search', 'aria-label', 'Rechercher dans le menu');
+    set('#searchClear', 'aria-label', 'Effacer la recherche');
+    set('#catChips', 'aria-label', 'Catégories');
+    set('#tagChips', 'aria-label', 'Filtres rapides');
+    set('#serviceBtn', 'aria-label', 'Appeler un serveur ou demander l’addition');
+    set('#serviceBtn', 'title', 'Service');
+    $('.cart-bar__label').textContent = t('Voir le panier');
+    var btn = $('#langBtn'), cur = L.LANGS.filter(function (l) { return l.id === L.lang(); })[0];
+    btn.hidden = langs().length < 2;
+    btn.textContent = cur.flag;
+    btn.title = cur.label;
+    btn.setAttribute('aria-label', t('Langue') + ' : ' + cur.label);
+  }
+
+  function setLang(lang) {
+    if (lang === L.lang()) return;
+    L.set(lang);
+    applyStatic();
+    renderHeader(); renderChips(); renderMenu(); renderCartBar(); renderTrackPill();
+    var cur = state.trackingId && T.getOrder(state.trackingId);
+    if (cur) $('#trackRoot .track').innerHTML = trackHTML(cur);
+  }
+
+  function openLang() {
+    UI.openSheet({
+      label: t('Langue'),
+      head: '<h2>' + t('Langue') + '</h2>',
+      body: langPickerHTML(),
+      onMount: function (sheet) {
+        sheet.addEventListener('click', function (e) {
+          var b = e.target.closest('[data-lang]');
+          if (b) { setLang(b.dataset.lang); UI.closeSheet(); }
+        });
+      }
+    });
+  }
+
   /* ======================================================================
      En-tête
      ====================================================================== */
   function renderHeader() {
     var r = state.restaurant;
     $('#rName').textContent = r.name;
-    $('#rTagline').textContent = r.tagline || '';
+    $('#rTagline').textContent = L.tagline(r.tagline || '');
     $('#rLogo').textContent = (r.logoLetter || r.name || 'T').trim().charAt(0).toUpperCase();
     document.title = r.name + (table ? ' · Table ' + table : '') + ' · Menu';
 
     var badge = $('#tableBadge');
     badge.className = 'table-badge' + (table ? '' : ' table-badge--missing');
-    badge.innerHTML = '<small>Table</small><b>' + (table ? esc(table) : '—') + '</b>';
-    badge.setAttribute('aria-label', table ? 'Table ' + table + ', modifier' : 'Indiquer votre numéro de table');
+    badge.innerHTML = '<small>' + t('Table') + '</small><b>' + (table ? esc(table) : '—') + '</b>';
+    badge.setAttribute('aria-label', table ? t('Table {t}, modifier', { t: table }) : t('Indiquer votre numéro de table'));
 
     var pause = $('#pauseBanner');
     pause.hidden = !r.ordersPaused;
-    pause.innerHTML = '<strong>Commandes en ligne en pause.</strong> Le restaurant est très sollicité : adressez-vous au serveur ou réessayez dans quelques minutes.';
+    pause.innerHTML = '<strong>' + t('Commandes en ligne en pause.') + '</strong> ' + t('Le restaurant est très sollicité : adressez-vous au serveur ou réessayez dans quelques minutes.');
 
     var server = table && T.getTableServer ? T.getTableServer(table) : '';
     $('#welcome').innerHTML = I.nfc + (table
-      ? '<p><strong>Bienvenue !</strong> Vous êtes installé·e à la <strong>table ' + esc(table) + '</strong>' +
-        (server ? ', servie par <strong>' + esc(server) + '</strong>' : '') +
-        '. Composez votre commande : elle part directement en cuisine. ' +
-        '<button class="link-btn" type="button" data-change-table>Changer de table</button></p>'
-      : '<p><strong>Bienvenue !</strong> Indiquez votre numéro de table pour pouvoir commander. ' +
-        '<button class="link-btn" type="button" data-change-table>Indiquer ma table</button></p>');
+      ? '<p><strong>' + t('Bienvenue !') + '</strong> ' +
+        t('Vous êtes à la <strong>table {t}</strong>{s}. Composez votre commande : elle part directement en cuisine.', {
+          t: esc(table), s: server ? t(', servie par <strong>{s}</strong>', { s: esc(server) }) : '' }) + ' ' +
+        '<button class="link-btn" type="button" data-change-table>' + t('Changer de table') + '</button></p>'
+      : '<p><strong>' + t('Bienvenue !') + '</strong> ' + t('Indiquez votre numéro de table pour pouvoir commander.') + ' ' +
+        '<button class="link-btn" type="button" data-change-table>' + t('Indiquer ma table') + '</button></p>');
   }
 
   /* ======================================================================
@@ -73,10 +131,10 @@
 
   // Renvoie un message d'erreur, ou null si le numéro est valide.
   function tableError(value) {
-    if (!value) return 'Indiquez votre numéro de table';
+    if (!value) return t('Indiquez votre numéro de table');
     if (/^\d+$/.test(value)) {
       var n = parseInt(value, 10);
-      if (n < 1 || n > tableCount()) return 'La table ' + value + ' n’existe pas ici (tables 1 à ' + tableCount() + ')';
+      if (n < 1 || n > tableCount()) return t('La table {t} n’existe pas ici (tables 1 à {n})', { t: value, n: tableCount() });
     }
     return null;
   }
@@ -95,25 +153,25 @@
   function openService() {
     if (!table) return openTablePicker(openService);
     UI.openSheet({
-      label: 'Service',
-      head: '<p class="eyebrow">Table ' + esc(table) + '</p><h2>Besoin de quelque chose ?</h2>',
+      label: t('Service'),
+      head: '<p class="eyebrow">' + t('Table {t}', { t: esc(table) }) + '</p><h2>' + t('Besoin de quelque chose ?') + '</h2>',
       body:
         '<div class="service-grid">' +
-          '<button class="service-btn" type="button" data-kind="serveur"><span aria-hidden="true">🙋</span><strong>Appeler un serveur</strong><small>Une question, une demande</small></button>' +
-          '<button class="service-btn" type="button" data-kind="addition"><span aria-hidden="true">🧾</span><strong>Demander l’addition</strong><small>Un serveur vient encaisser</small></button>' +
+          '<button class="service-btn" type="button" data-kind="serveur"><span aria-hidden="true">🙋</span><strong>' + t('Appeler un serveur') + '</strong><small>' + t('Une question, une demande') + '</small></button>' +
+          '<button class="service-btn" type="button" data-kind="addition"><span aria-hidden="true">🧾</span><strong>' + t('Demander l’addition') + '</strong><small>' + t('Un serveur vient encaisser') + '</small></button>' +
         '</div>',
       onMount: function (sheet) {
         sheet.addEventListener('click', function (e) {
           var b = e.target.closest('[data-kind]');
           if (!b || b.disabled) return;
           sheet.querySelectorAll('[data-kind]').forEach(function (x) { x.disabled = true; });
-          b.querySelector('small').textContent = 'Envoi…';
+          b.querySelector('small').textContent = t('Envoi…');
           T.requestService(b.dataset.kind, table).then(function () {
             UI.closeSheet();
             UI.vibrate([20, 40, 20]);
             UI.toast(b.dataset.kind === 'addition'
-              ? '🧾 <strong>Demande envoyée.</strong> Un serveur arrive avec l’addition.'
-              : '🙋 <strong>Demande envoyée.</strong> Un serveur arrive à la table ' + esc(table) + '.', 4000);
+              ? '🧾 <strong>' + t('Demande envoyée.') + '</strong> ' + t('Un serveur arrive avec l’addition.')
+              : '🙋 <strong>' + t('Demande envoyée.') + '</strong> ' + t('Un serveur arrive à la table {t}.', { t: esc(table) }), 4000);
           }).catch(function (err) {
             sheet.querySelectorAll('[data-kind]').forEach(function (x) { x.disabled = false; });
             b.querySelector('small').textContent = '';
@@ -126,18 +184,22 @@
 
   function openTablePicker(onDone) {
     UI.openSheet({
-      label: 'Numéro de table',
-      head: '<p class="eyebrow">' + esc(state.restaurant.name) + '</p><h2>Quelle est votre table ?</h2>',
+      label: t('Numéro de table'),
+      head: '<p class="eyebrow">' + esc(state.restaurant.name) + '</p><h2>' + t('Quelle est votre table ?') + '</h2>' + langPickerHTML(),
       body:
-        '<p class="product-desc">Le numéro est indiqué sur votre table.</p>' +
+        '<p class="product-desc">' + t('Le numéro est indiqué sur votre table.') + '</p>' +
         '<form id="tableForm" novalidate>' +
           '<input class="input table-input" id="tablePick" inputmode="numeric" pattern="[0-9]*" maxlength="4" ' +
-            'placeholder="N°" aria-label="Numéro de table" value="' + esc(table || '') + '" autofocus>' +
+            'placeholder="' + t('N°') + '" aria-label="' + t('Numéro de table') + '" value="' + esc(table || '') + '" autofocus>' +
           '<p class="login__error" id="tableErr" role="alert" hidden></p>' +
         '</form>',
-      footer: '<button class="btn btn--primary" type="submit" form="tableForm">' + (table ? 'Valider' : 'Voir la carte et commander') + '</button>',
+      footer: '<button class="btn btn--primary" type="submit" form="tableForm">' + (table ? t('Valider') : t('Voir la carte et commander')) + '</button>',
       onMount: function (sheet) {
         var input = $('#tablePick', sheet);
+        sheet.addEventListener('click', function (e) {
+          var b = e.target.closest('[data-lang]');
+          if (b) { setLang(b.dataset.lang); UI.closeSheet().then(function () { openTablePicker(onDone); }); }
+        });
         input.addEventListener('input', function () {
           input.value = input.value.replace(/[^0-9A-Za-z]/g, '').slice(0, 4);
           $('#tableErr', sheet).hidden = true;
@@ -154,7 +216,7 @@
           }
           setTable(v);
           UI.closeSheet().then(function () {
-            UI.toast('Table <strong>' + esc(table) + '</strong> enregistrée');
+            UI.toast(t('Table <strong>{t}</strong> enregistrée', { t: esc(table) }));
             if (onDone) onDone();
           });
         });
@@ -184,7 +246,7 @@
     for (var t = 0; t < state.tags.length; t++) {
       if ((item.tags || []).indexOf(state.tags[t]) < 0) return false;
     }
-    if (state.q) return norm(item.name + ' ' + item.description).indexOf(norm(state.q)) >= 0;
+    if (state.q) return norm(item.name + ' ' + item.description + ' ' + L.name(item) + ' ' + L.desc(item)).indexOf(norm(state.q)) >= 0;
     return true;
   }
 
@@ -194,13 +256,13 @@
     $('#catChips').innerHTML = cats.map(function (c) {
       var n = c.id === 'all' ? items.length : items.filter(function (i) { return i.category === c.id; }).length;
       if (c.id !== 'all' && !n) return '';
-      return '<button class="chip" type="button" data-cat="' + esc(c.id) + '" aria-pressed="' + (state.cat === c.id) + '">' + esc(c.label) + '</button>';
+      return '<button class="chip" type="button" data-cat="' + esc(c.id) + '" aria-pressed="' + (state.cat === c.id) + '">' + esc(L.cat(c)) + '</button>';
     }).join('');
 
     var tags = state.menu.tags || {};
     $('#tagChips').innerHTML = Object.keys(tags).map(function (k) {
       var on = state.tags.indexOf(k) >= 0;
-      return '<button class="chip chip--tag" type="button" data-tag="' + esc(k) + '" aria-pressed="' + on + '">' + tagIcon(k) + ' ' + esc(tags[k]) + '</button>';
+      return '<button class="chip chip--tag" type="button" data-tag="' + esc(k) + '" aria-pressed="' + on + '">' + tagIcon(k) + ' ' + esc(L.tag(tags[k])) + '</button>';
     }).join('');
   }
 
@@ -223,7 +285,7 @@
   }
   function promoBadge(item) {
     var p = T.promoOf(item);
-    return p ? '<span class="badge badge--promo">' + (p.pct ? '−' + p.pct + ' % aujourd’hui' : 'Suggestion du chef') + '</span>' : '';
+    return p ? '<span class="badge badge--promo">' + (p.pct ? t('−{p} % aujourd’hui', { p: p.pct }) : t('Suggestion du chef')) + '</span>' : '';
   }
 
   function dishHTML(item, idx) {
@@ -231,21 +293,21 @@
     var q = qtyInCart(item.id);
     var signature = (item.tags || []).indexOf('signature') >= 0;
     var tagText = (item.tags || []).filter(function (t) { return t !== 'signature'; })
-      .map(function (t) { return tagIcon(t) + ' ' + esc(tags[t] || t); }).join(' · ');
-    return '<article class="dish" tabindex="0" role="button" data-id="' + esc(item.id) + '" style="animation-delay:' + Math.min(idx * 35, 400) + 'ms" aria-label="' + esc(item.name) + ', ' + fmt(T.itemPrice(item)) + '">' +
+      .map(function (k) { return tagIcon(k) + ' ' + esc(L.tag(tags[k] || k)); }).join(' · ');
+    return '<article class="dish" tabindex="0" role="button" data-id="' + esc(item.id) + '" style="animation-delay:' + Math.min(idx * 35, 400) + 'ms" aria-label="' + esc(L.name(item)) + ', ' + fmt(T.itemPrice(item)) + '">' +
       '<div class="dish__body">' +
-        '<div class="dish__title"><h3>' + esc(item.name) + '</h3>' + (signature ? '<span class="badge badge--gold">Signature</span>' : '') + promoBadge(item) + '</div>' +
-        '<p class="dish__desc">' + esc(item.description) + '</p>' +
+        '<div class="dish__title"><h3>' + esc(L.name(item)) + '</h3>' + (signature ? '<span class="badge badge--gold">' + esc(L.tag(tags.signature || 'Signature')) + '</span>' : '') + promoBadge(item) + '</div>' +
+        '<p class="dish__desc">' + esc(L.desc(item)) + '</p>' +
         '<div class="dish__meta">' + priceHTML(item) +
-          (lowStock(item.id) ? '<span class="badge badge--warn">Plus que ' + T.getStock(item.id) + '</span>' : '') +
-          (item.options && item.options.length ? '<span class="dish__tags">Personnalisable</span>' : '') +
+          (lowStock(item.id) ? '<span class="badge badge--warn">' + t('Plus que {n}', { n: T.getStock(item.id) }) + '</span>' : '') +
+          (item.options && item.options.length ? '<span class="dish__tags">' + t('Personnalisable') + '</span>' : '') +
           (tagText ? '<span class="dish__tags">' + tagText + '</span>' : '') +
         '</div>' +
       '</div>' +
       '<div class="dish__media media" data-emoji="' + esc(item.emoji || '🍽️') + '">' +
         (item.image ? '<img src="' + esc(item.image) + '" alt="" loading="lazy" decoding="async">' : '') +
         (q ? '<span class="dish__qty">' + q + '</span>' : '') +
-        '<button class="dish__add" type="button" data-add="' + esc(item.id) + '" aria-label="Ajouter ' + esc(item.name) + '">' + I.plus + '</button>' +
+        '<button class="dish__add" type="button" data-add="' + esc(item.id) + '" aria-label="' + t('Ajouter {name}', { name: esc(L.name(item)) }) + '">' + I.plus + '</button>' +
       '</div>' +
     '</article>';
   }
@@ -257,24 +319,24 @@
     // Anti-gaspillage : plats mis en avant par le gérant, en tête de carte.
     var promos = state.cat === 'all' ? items.filter(function (i) { return T.promoOf(i); }) : [];
     var html = (promos.length ? '<section class="c-section c-section--promo" id="cat-antigaspi">' +
-        '<div class="c-section__head"><h2>À ne pas manquer aujourd’hui</h2><span class="c-section__count">anti-gaspi</span></div>' +
-        '<p class="c-section__note">Des produits frais à écouler aujourd’hui : moins de gaspillage, et un petit prix pour vous.</p>' +
+        '<div class="c-section__head"><h2>' + t('À ne pas manquer aujourd’hui') + '</h2><span class="c-section__count">' + t('anti-gaspi') + '</span></div>' +
+        '<p class="c-section__note">' + t('Des produits frais à écouler aujourd’hui : moins de gaspillage, et un petit prix pour vous.') + '</p>' +
         '<div class="dish-list">' + promos.map(function (i) { return dishHTML(i, idx++); }).join('') + '</div></section>' : '') +
       cats.map(function (c) {
       var list = items.filter(function (i) { return i.category === c.id; });
       if (!list.length) return '';
       return '<section class="c-section" id="cat-' + esc(c.id) + '">' +
-        '<div class="c-section__head"><h2>' + esc(c.label) + '</h2><span class="c-section__count">' + list.length + ' choix</span></div>' +
+        '<div class="c-section__head"><h2>' + esc(L.cat(c)) + '</h2><span class="c-section__count">' + t('{n} choix', { n: list.length }) + '</span></div>' +
         '<div class="dish-list">' + list.map(function (i) { return dishHTML(i, idx++); }).join('') + '</div>' +
       '</section>';
     }).join('');
 
     if (!state.menu.items.length) {
-      $('#menu').innerHTML = '<div class="empty"><h3>La carte arrive bientôt</h3><p>Le restaurant prépare son menu. Revenez dans quelques instants.</p></div>';
+      $('#menu').innerHTML = '<div class="empty"><h3>' + t('La carte arrive bientôt') + '</h3><p>' + t('Le restaurant prépare son menu. Revenez dans quelques instants.') + '</p></div>';
       return;
     }
-    $('#menu').innerHTML = html || '<div class="empty"><h3>Aucun résultat</h3><p>Essayez un autre mot-clé ou retirez un filtre.</p>' +
-      '<p style="margin-top:16px"><button class="btn btn--ghost btn--sm" type="button" id="resetFilters">Réinitialiser les filtres</button></p></div>';
+    $('#menu').innerHTML = html || '<div class="empty"><h3>' + t('Aucun résultat') + '</h3><p>' + t('Essayez un autre mot-clé ou retirez un filtre.') + '</p>' +
+      '<p style="margin-top:16px"><button class="btn btn--ghost btn--sm" type="button" id="resetFilters">' + t('Réinitialiser les filtres') + '</button></p></div>';
   }
 
   /* ======================================================================
@@ -291,38 +353,38 @@
 
   function allergensHTML(item) {
     var list = T.itemAllergens(item);
-    var alcohol = item.alcohol === true ? '<p class="allergens">Contient de l’alcool</p>' : '';
+    var alcohol = item.alcohol === true ? '<p class="allergens">' + t('Contient de l’alcool') + '</p>' : '';
     if (list.length) {
-      return '<div class="allergens"><span>Allergènes</span><div class="check-row">' + list.map(function (a) {
-        return '<span class="badge badge--warn">' + esc(a.label) + '</span>';
+      return '<div class="allergens"><span>' + t('Allergènes') + '</span><div class="check-row">' + list.map(function (a) {
+        return '<span class="badge badge--warn">' + esc(t(a.label)) + '</span>';
       }).join('') + '</div></div>' + alcohol;
     }
-    return (item.allergens ? '<p class="allergens">Allergènes : ' + esc(item.allergens) + '</p>' : '') + alcohol;
+    return (item.allergens ? '<p class="allergens">' + t('Allergènes : {a}', { a: esc(item.allergens) }) + '</p>' : '') + alcohol;
   }
 
   function pairingsHTML(item) {
     var list = (item.pairings || []).map(T.getItem).filter(isOrderable);
     if (!list.length) return '';
-    return '<div class="pairings"><p class="eyebrow">Parfait avec</p>' + list.map(function (p) {
+    return '<div class="pairings"><p class="eyebrow">' + t('Parfait avec') + '</p>' + list.map(function (p) {
       return '<button class="pair" type="button" data-pair="' + esc(p.id) + '">' + UI.media(p, 'pair__media') +
-        '<span class="pair__name">' + esc(p.name) + '<small>' + fmt(T.itemPrice(p)) + '</small></span><span class="pair__add" aria-hidden="true">+</span></button>';
+        '<span class="pair__name">' + esc(L.name(p)) + '<small>' + fmt(T.itemPrice(p)) + '</small></span><span class="pair__add" aria-hidden="true">+</span></button>';
     }).join('') + '</div>';
   }
 
   function openProduct(id) {
     var item = T.getItem(id);
-    if (!isOrderable(item)) return UI.toast('Ce plat n’est plus disponible');
+    if (!isOrderable(item)) return UI.toast(t('Ce plat n’est plus disponible'));
     var qty = 1;
     var tags = state.menu.tags || {};
 
     var groups = (item.options || []).map(function (g) {
       var multi = g.type === 'multi';
       return '<fieldset class="opt-group' + (g.required ? ' is-required' : '') + '" data-group="' + esc(g.id) + '" data-type="' + (multi ? 'multi' : 'single') + '" data-required="' + !!g.required + '">' +
-        '<legend>' + esc(g.name) + '<small>' + (g.required ? 'Obligatoire' : multi ? 'Facultatif · plusieurs choix' : 'Facultatif') + '</small></legend>' +
+        '<legend>' + esc(L.group(g.name)) + '<small>' + (g.required ? t('Obligatoire') : multi ? t('Facultatif · plusieurs choix') : t('Facultatif')) + '</small></legend>' +
         g.choices.map(function (c) {
           return '<label class="opt"><input type="' + (multi ? 'checkbox' : 'radio') + '" name="g_' + esc(g.id) + '" value="' + esc(c.label) + '">' +
             '<span class="opt__mark' + (multi ? ' opt__mark--check' : '') + '"></span>' +
-            '<span class="opt__label">' + esc(c.label) + '</span>' +
+            '<span class="opt__label">' + esc(L.choice(c.label)) + '</span>' +
             (Number(c.price) ? '<span class="opt__price">+ ' + fmt(c.price) + '</span>' : '') +
           '</label>';
         }).join('') +
@@ -330,24 +392,24 @@
     }).join('');
 
     UI.openSheet({
-      label: item.name,
+      label: L.name(item),
       media: UI.media(item, 'sheet__media'),
       head:
-        '<div class="check-row" style="margin-bottom:10px">' + (item.tags || []).map(function (t) {
-          return '<span class="badge' + (t === 'signature' ? ' badge--gold' : '') + '">' + tagIcon(t) + ' ' + esc(tags[t] || t) + '</span>';
+        '<div class="check-row" style="margin-bottom:10px">' + (item.tags || []).map(function (k) {
+          return '<span class="badge' + (k === 'signature' ? ' badge--gold' : '') + '">' + tagIcon(k) + ' ' + esc(L.tag(tags[k] || k)) + '</span>';
         }).join('') + '</div>' +
-        '<h2>' + esc(item.name) + '</h2>' + (T.promoOf(item) ? '<p class="sheet-price">' + promoBadge(item) + ' ' + priceHTML(item) + '</p>' : ''),
+        '<h2>' + esc(L.name(item)) + '</h2>' + (T.promoOf(item) ? '<p class="sheet-price">' + promoBadge(item) + ' ' + priceHTML(item) + '</p>' : ''),
       body:
-        '<p class="product-desc">' + esc(item.description) + '</p>' +
-        (lowStock(item.id) ? '<p><span class="badge badge--warn">Plus que ' + T.getStock(item.id) + ' disponible' + (T.getStock(item.id) > 1 ? 's' : '') + '</span></p>' : '') +
+        '<p class="product-desc">' + esc(L.desc(item)) + '</p>' +
+        (lowStock(item.id) ? '<p><span class="badge badge--warn">' + leftText(T.getStock(item.id)) + '</span></p>' : '') +
         allergensHTML(item) +
         pairingsHTML(item) +
         groups +
-        '<label class="field"><span>Note pour la cuisine</span>' +
-          '<textarea id="pNote" maxlength="140" placeholder="Ex : sans oignon, sauce à part, allergie…"></textarea></label>',
+        '<label class="field"><span>' + t('Note pour la cuisine') + '</span>' +
+          '<textarea id="pNote" maxlength="140" placeholder="' + t('Ex : sans oignon, sauce à part, allergie…') + '"></textarea></label>',
       footer:
-        '<div class="stepper" role="group" aria-label="Quantité">' +
-          '<button type="button" data-step="-1" aria-label="Retirer un">−</button><output id="pQty">1</output><button type="button" data-step="1" aria-label="Ajouter un">+</button>' +
+        '<div class="stepper" role="group" aria-label="' + t('Quantité') + '">' +
+          '<button type="button" data-step="-1" aria-label="' + t('Retirer un') + '">−</button><output id="pQty">1</output><button type="button" data-step="1" aria-label="' + t('Ajouter un') + '">+</button>' +
         '</div>' +
         '<button class="btn btn--primary" type="button" id="pAdd"></button>',
       onMount: function (sheet) {
@@ -355,7 +417,7 @@
         var update = function () {
           var line = T.buildLine(item.id, qty, readSelections(sheet, item), '');
           $('#pQty', sheet).textContent = qty;
-          btn.textContent = 'Ajouter · ' + fmt(line.unitPrice * qty);
+          btn.textContent = t('Ajouter · {p}', { p: fmt(line.unitPrice * qty) });
         };
         update();
 
@@ -373,7 +435,7 @@
               if (addToCart(p.id, 1, {}, '', true)) {
                 pair.disabled = true;
                 pair.querySelector('.pair__add').textContent = '✓';
-                UI.toast('<strong>' + esc(p.name) + '</strong> ajouté au panier', 1800);
+                UI.toast(t('<strong>{name}</strong> ajouté au panier', { name: esc(L.name(p)) }), 1800);
               }
             } else if (p) {
               UI.closeSheet().then(function () { openProduct(p.id); });
@@ -385,7 +447,7 @@
           var step = e.target.closest('[data-step]');
           if (step) {
             var max = Math.max(1, maxQty(item.id));
-            if (Number(step.dataset.step) > 0 && qty >= max && T.getStock(item.id) != null) UI.toast('Plus que ' + max + ' disponible' + (max > 1 ? 's' : ''));
+            if (Number(step.dataset.step) > 0 && qty >= max && T.getStock(item.id) != null) UI.toast(leftText(max));
             qty = Math.min(max, Math.max(1, qty + Number(step.dataset.step)));
             update();
           }
@@ -417,7 +479,7 @@
           var added = addToCart(item.id, qty, sel, $('#pNote', sheet).value.trim());
           if (!added) return;
           UI.closeSheet();
-          UI.toast('<strong>' + added + ' × ' + esc(item.name) + '</strong> ajouté au panier');
+          UI.toast(t('<strong>{q} × {name}</strong> ajouté au panier', { q: added, name: esc(L.name(item)) }));
         });
       }
     });
@@ -441,7 +503,7 @@
     var key = lineKey(itemId, sel, note);
     var existing = state.cart.filter(function (l) { return l.key === key; })[0];
     var room = maxQty(itemId);
-    if (room <= 0) { UI.toast('Plus aucun disponible pour le moment'); return false; }
+    if (room <= 0) { UI.toast(t('Plus aucun disponible pour le moment')); return false; }
     qty = Math.min(qty, room);
     if (existing) {
       existing.qty = Math.min(50, existing.qty + qty);
@@ -483,51 +545,51 @@
   }
 
   function optText(built) {
-    return built.options.map(function (o) { return o.values.join(', '); }).join(' · ');
+    return built.options.map(function (o) { return o.values.map(L.choice).join(', '); }).join(' · ');
   }
 
   function cartBodyHTML() {
     var lines = cartLines();
     if (!lines.length) {
-      return '<div class="empty"><h3>Votre panier est vide</h3><p>Parcourez la carte et laissez-vous tenter.</p></div>';
+      return '<div class="empty"><h3>' + t('Votre panier est vide') + '</h3><p>' + t('Parcourez la carte et laissez-vous tenter.') + '</p></div>';
     }
     var s = cartSummary();
     return '<div>' + lines.map(function (l, i) {
       var r = l.raw;
       if (l.unavailable) {
-        return '<div class="cart-line"><div><h4>' + esc(l.item ? l.item.name : 'Produit retiré') + '</h4>' +
-          '<p class="cart-line__opts"><span class="badge badge--danger">Plus disponible</span></p></div>' +
-          '<div class="cart-line__actions"><button class="link-btn link-btn--danger" type="button" data-remove="' + i + '">Retirer</button></div></div>';
+        return '<div class="cart-line"><div><h4>' + esc(l.item ? L.name(l.item) : t('Produit retiré')) + '</h4>' +
+          '<p class="cart-line__opts"><span class="badge badge--danger">' + t('Plus disponible') + '</span></p></div>' +
+          '<div class="cart-line__actions"><button class="link-btn link-btn--danger" type="button" data-remove="' + i + '">' + t('Retirer') + '</button></div></div>';
       }
       return '<div class="cart-line">' +
-        '<div><h4>' + esc(l.item.name) + '</h4>' +
+        '<div><h4>' + esc(L.name(l.item)) + '</h4>' +
           (l.built.options.length ? '<p class="cart-line__opts">' + esc(optText(l.built)) + '</p>' : '') +
           (r.note ? '<p class="cart-line__note">« ' + esc(r.note) + ' »</p>' : '') +
         '</div>' +
         '<div class="cart-line__price">' + fmt(l.built.unitPrice * r.qty) + '</div>' +
         '<div class="cart-line__actions">' +
-          '<div class="stepper stepper--sm" role="group" aria-label="Quantité">' +
-            '<button type="button" data-qty="' + i + '" data-d="-1" aria-label="Retirer un">−</button><output>' + r.qty + '</output>' +
-            '<button type="button" data-qty="' + i + '" data-d="1" aria-label="Ajouter un">+</button></div>' +
-          '<button class="link-btn" type="button" data-note="' + i + '">' + (r.note ? 'Modifier la note' : 'Ajouter une note') + '</button>' +
-          '<button class="link-btn link-btn--danger" type="button" data-remove="' + i + '" style="margin-left:auto">Retirer</button>' +
+          '<div class="stepper stepper--sm" role="group" aria-label="' + t('Quantité') + '">' +
+            '<button type="button" data-qty="' + i + '" data-d="-1" aria-label="' + t('Retirer un') + '">−</button><output>' + r.qty + '</output>' +
+            '<button type="button" data-qty="' + i + '" data-d="1" aria-label="' + t('Ajouter un') + '">+</button></div>' +
+          '<button class="link-btn" type="button" data-note="' + i + '">' + (r.note ? t('Modifier la note') : t('Ajouter une note')) + '</button>' +
+          '<button class="link-btn link-btn--danger" type="button" data-remove="' + i + '" style="margin-left:auto">' + t('Retirer') + '</button>' +
         '</div>' +
-        '<div class="line-note-input" data-note-box="' + i + '" hidden><input class="input" maxlength="140" placeholder="Ex : sans oignon" value="' + esc(r.note) + '"></div>' +
+        '<div class="line-note-input" data-note-box="' + i + '" hidden><input class="input" maxlength="140" placeholder="' + t('Ex : sans oignon') + '" value="' + esc(r.note) + '"></div>' +
       '</div>';
     }).join('') + '</div>' +
-    '<label class="field"><span>Un message pour toute la commande ?</span>' +
-      '<textarea id="cartNote" maxlength="200" placeholder="Ex : servir les entrées ensemble, une chaise bébé…">' + esc(state.note) + '</textarea></label>' +
+    '<label class="field"><span>' + t('Un message pour toute la commande ?') + '</span>' +
+      '<textarea id="cartNote" maxlength="200" placeholder="' + t('Ex : servir les entrées ensemble, une chaise bébé…') + '">' + esc(state.note) + '</textarea></label>' +
     '<div class="totals">' +
-      '<div class="totals__row"><span>' + s.count + ' article' + (s.count > 1 ? 's' : '') + '</span><span>' + fmt(s.total) + '</span></div>' +
-      '<div class="totals__row"><span>Service</span><span>Inclus</span></div>' +
-      '<div class="totals__row totals__row--grand"><span>Total TTC</span><span>' + fmt(s.total) + '</span></div>' +
+      '<div class="totals__row"><span>' + articles(s.count) + '</span><span>' + fmt(s.total) + '</span></div>' +
+      '<div class="totals__row"><span>' + t('Service') + '</span><span>' + t('Inclus') + '</span></div>' +
+      '<div class="totals__row totals__row--grand"><span>' + t('Total TTC') + '</span><span>' + fmt(s.total) + '</span></div>' +
     '</div>';
   }
 
   function openCart() {
     UI.openSheet({
-      label: 'Panier',
-      head: '<p class="eyebrow">' + (table ? 'Table ' + esc(table) : 'Votre commande') + '</p><h2>Votre panier</h2>',
+      label: t('Panier'),
+      head: '<p class="eyebrow">' + (table ? t('Table {t}', { t: esc(table) }) : t('Votre commande')) + '</p><h2>' + t('Votre panier') + '</h2>',
       body: '<div id="cartBody"></div>',
       footer: '<button class="btn btn--primary" type="button" id="toCheckout"></button>',
       onMount: function (sheet) {
@@ -538,7 +600,7 @@
           var s = cartSummary();
           var paused = !!state.restaurant.ordersPaused;
           btn.disabled = !s.count || paused;
-          btn.textContent = paused ? 'Commandes en pause' : s.count ? 'Commander · ' + fmt(s.total) : 'Panier vide';
+          btn.textContent = paused ? t('Commandes en pause') : s.count ? t('Commander · {p}', { p: fmt(s.total) }) : t('Panier vide');
           renderCartBar();
         };
         paint();
@@ -548,7 +610,7 @@
           if (t.dataset.qty != null) {
             var l = state.cart[+t.dataset.qty];
             if (Number(t.dataset.d) > 0 && maxQty(l.itemId, l) <= l.qty) {
-              UI.toast('Plus que ' + T.getStock(l.itemId) + ' disponible' + (T.getStock(l.itemId) > 1 ? 's' : ''));
+              UI.toast(leftText(T.getStock(l.itemId)));
               return;
             }
             l.qty += Number(t.dataset.d);
@@ -596,7 +658,7 @@
   }
 
   /* Payer à table : le client annonce espèces, carte ou les deux (le serveur vient avec le bon matériel). */
-  var WITH_LABEL = { cash: 'Espèces', card: 'Carte bancaire', mixed: 'Espèces et carte' };
+  var WITH_LABEL = { cash: 'Espèces', card: 'Carte bancaire', mixed: 'Espèces et carte' }; // traduits à l'affichage
   function onsiteAccepted() {
     var w = state.restaurant.onsiteWith;
     w = Array.isArray(w) ? w.filter(function (x) { return x === 'cash' || x === 'card'; }) : [];
@@ -611,17 +673,17 @@
   function onsiteHTML() {
     var acc = onsiteAccepted();
     if (acc.length === 1) {
-      return '<p class="onsite-only">' + (acc[0] === 'cash' ? 'Règlement en <strong>espèces</strong> uniquement.' : 'Règlement par <strong>carte bancaire</strong> uniquement.') + '</p>';
+      return '<p class="onsite-only">' + (acc[0] === 'cash' ? t('Règlement en <strong>espèces</strong> uniquement.') : t('Règlement par <strong>carte bancaire</strong> uniquement.')) + '</p>';
     }
     var cur = onsiteWith();
     var chip = function (id, label, sub) {
       return '<button type="button" class="tip-chip' + (cur === id ? ' is-on' : '') + '" data-with="' + id + '" aria-pressed="' + (cur === id) + '">' +
         '<b>' + label + '</b><small>' + sub + '</small></button>';
     };
-    return '<div class="tip-box"><p class="tip-box__title">Comment réglerez-vous ?</p>' +
+    return '<div class="tip-box"><p class="tip-box__title">' + t('Comment réglerez-vous ?') + '</p>' +
       '<div class="tip-chips onsite-chips">' +
-        chip('cash', 'Espèces', 'en liquide') + chip('card', 'Carte', 'sans contact') + chip('mixed', 'Les deux', 'espèces + carte') +
-      '</div><p class="help">Le serveur viendra avec le terminal ou la monnaie.</p></div>';
+        chip('cash', t('Espèces'), t('en liquide')) + chip('card', t('Carte'), t('sans contact')) + chip('mixed', t('Les deux'), t('espèces + carte')) +
+      '</div><p class="help">' + t('Le serveur viendra avec le terminal ou la monnaie.') + '</p></div>';
   }
 
   /* Pourboire (paiement en ligne uniquement : à table, il se laisse sur le terminal). */
@@ -635,23 +697,23 @@
   }
 
   function tipHTML(total) {
-    var t = state.tip;
+    var t = state.tip, tr = L.t; // « t » désigne ici le pourboire
     var chip = function (val, label, sub, on) {
       return '<button type="button" class="tip-chip' + (on ? ' is-on' : '') + '" data-tip="' + val + '" aria-pressed="' + on + '">' +
         '<b>' + label + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
     };
     var server = table && T.getTableServer ? T.getTableServer(table) : '';
-    return '<div class="tip-box"><p class="tip-box__title">Un pourboire pour ' + (server ? esc(server) + ' et l’équipe' : 'l’équipe') + ' ?</p>' +
+    return '<div class="tip-box"><p class="tip-box__title">' + (server ? tr('Un pourboire pour {s} et l’équipe ?', { s: esc(server) }) : tr('Un pourboire pour l’équipe ?')) + '</p>' +
       '<div class="tip-chips">' +
-        chip('0', 'Non merci', '', t.mode === 'none') +
+        chip('0', tr('Non merci'), '', t.mode === 'none') +
         [5, 10, 15].map(function (p) { return chip(p, p + ' %', fmt(Math.round(total * p) / 100), t.mode === 'pct' && t.pct === p); }).join('') +
-        chip('custom', 'Autre', 'montant', t.mode === 'custom') +
+        chip('custom', tr('Autre'), tr('montant'), t.mode === 'custom') +
       '</div>' +
       (t.mode === 'custom'
-        ? '<label class="tip-custom"><span>Montant du pourboire</span><input id="tipCustom" inputmode="decimal" placeholder="0,00" value="' +
+        ? '<label class="tip-custom"><span>' + tr('Montant du pourboire') + '</span><input id="tipCustom" inputmode="decimal" placeholder="0,00" value="' +
           (t.amount ? String(t.amount).replace('.', ',') : '') + '"><b>€</b></label>'
         : '') +
-      '<p class="help">Reversé intégralement au restaurant.</p></div>';
+      '<p class="help">' + tr('Reversé intégralement au restaurant.') + '</p></div>';
   }
 
   function openCheckout() {
@@ -663,19 +725,19 @@
     if (LIVE && !online) state.payMethod = 'onsite';
 
     UI.openSheet({
-      label: 'Paiement',
-      head: '<p class="eyebrow">Étape finale</p><h2>' + (LIVE && !online ? 'Valider la commande' : 'Payer &amp; commander') + '</h2>',
+      label: t('Paiement'),
+      head: '<p class="eyebrow">' + t('Étape finale') + '</p><h2>' + (LIVE && !online ? t('Valider la commande') : t('Payer &amp; commander')) + '</h2>',
       body:
         (table
-          ? '<div class="totals"><div class="totals__row"><span>Table</span><strong style="color:var(--ink)">' + esc(table) + '</strong></div>' +
-            '<div class="totals__row"><span>' + s.count + ' article' + (s.count > 1 ? 's' : '') + '</span><strong style="color:var(--ink)">' + fmt(s.total) + '</strong></div></div>'
-          : '<label class="field"><span>Numéro de votre table</span><input id="tableInput" inputmode="numeric" maxlength="4" placeholder="Ex : 12" autofocus>' +
-            '<small class="help">Indiqué sur le chevalet NFC posé sur votre table.</small></label>') +
-        '<div class="pay-methods" role="radiogroup" aria-label="Moyen de paiement">' +
-          (LIVE ? (online ? payMethodHTML('online', I.card, 'Payer maintenant', 'Carte, ' + walletLabel + ' · paiement sécurisé') : '') :
-            payMethodHTML('applepay', I.apple, walletLabel, 'Paiement express en un geste') +
-            payMethodHTML('card', I.card, 'Carte bancaire', 'Visa, Mastercard, Amex · via Stripe')) +
-          payMethodHTML('onsite', I.wallet, LIVE ? 'Payer à table' : 'Payer sur place', 'Le serveur passe avec le terminal en fin de repas') +
+          ? '<div class="totals"><div class="totals__row"><span>' + t('Table') + '</span><strong style="color:var(--ink)">' + esc(table) + '</strong></div>' +
+            '<div class="totals__row"><span>' + articles(s.count) + '</span><strong style="color:var(--ink)">' + fmt(s.total) + '</strong></div></div>'
+          : '<label class="field"><span>' + t('Numéro de votre table') + '</span><input id="tableInput" inputmode="numeric" maxlength="4" placeholder="' + t('Ex : 12') + '" autofocus>' +
+            '<small class="help">' + t('Indiqué sur le chevalet NFC posé sur votre table.') + '</small></label>') +
+        '<div class="pay-methods" role="radiogroup" aria-label="' + t('Moyen de paiement') + '">' +
+          (LIVE ? (online ? payMethodHTML('online', I.card, t('Payer maintenant'), t('Carte, {w} · paiement sécurisé', { w: walletLabel })) : '') :
+            payMethodHTML('applepay', I.apple, walletLabel, t('Paiement express en un geste')) +
+            payMethodHTML('card', I.card, t('Carte bancaire'), t('Visa, Mastercard, Amex · via Stripe'))) +
+          payMethodHTML('onsite', I.wallet, LIVE ? t('Payer à table') : t('Payer sur place'), t('Le serveur passe avec le terminal en fin de repas')) +
         '</div>' +
         '<div id="onsiteBox"></div>' +
         '<div id="tipBox"></div>' +
@@ -689,17 +751,17 @@
           $('#onsiteBox', sheet).innerHTML = m === 'onsite' ? onsiteHTML() : '';
           $('#cardForm', sheet).innerHTML = m === 'card'
             ? '<div class="card-form">' +
-                '<label class="field"><span>Numéro de carte</span><input id="ccNum" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" maxlength="19"></label>' +
-                '<label class="field"><span>Expiration</span><input id="ccExp" inputmode="numeric" autocomplete="cc-exp" placeholder="MM/AA" maxlength="5"></label>' +
+                '<label class="field"><span>' + t('Numéro de carte') + '</span><input id="ccNum" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" maxlength="19"></label>' +
+                '<label class="field"><span>' + t('Expiration') + '</span><input id="ccExp" inputmode="numeric" autocomplete="cc-exp" placeholder="' + t('MM/AA') + '" maxlength="5"></label>' +
                 '<label class="field"><span>CVC</span><input id="ccCvc" inputmode="numeric" autocomplete="cc-csc" placeholder="123" maxlength="4"></label>' +
-                '<p class="help">Mode démo : utilisez 4242 4242 4242 4242, n’importe quelle date future et un CVC.</p>' +
+                '<p class="help">' + t('Mode démo : utilisez 4242 4242 4242 4242, n’importe quelle date future et un CVC.') + '</p>' +
               '</div>'
             : '';
           $('#payNote', sheet).innerHTML = m === 'onsite'
-            ? (LIVE ? 'Vous réglerez directement à table, en fin de repas.' : I.lock + ' Paiement sécurisé par Stripe · Données chiffrées')
+            ? (LIVE ? t('Vous réglerez directement à table, en fin de repas.') : I.lock + ' ' + t('Paiement sécurisé par Stripe · Données chiffrées'))
             : m === 'online'
-              ? I.lock + ' Paiement sécurisé par Stripe, encaissé directement par ' + esc(state.restaurant.name) + '. Votre commande part en cuisine dès le paiement validé.'
-              : I.lock + ' Paiement sécurisé par Stripe · Données chiffrées';
+              ? I.lock + ' ' + t('Paiement sécurisé par Stripe, encaissé directement par {r}. Votre commande part en cuisine dès le paiement validé.', { r: esc(state.restaurant.name) })
+              : I.lock + ' ' + t('Paiement sécurisé par Stripe · Données chiffrées');
           paintTip(true);
         };
         // Pourboire + bouton seulement (sans effacer la carte en cours de saisie).
@@ -709,10 +771,10 @@
           if (rebuild) $('#tipBox', sheet).innerHTML = tipOn ? tipHTML(s.total) : '';
           var due = s.total + (tipOn ? tipAmount(s.total) : 0);
           btn.innerHTML = m === 'onsite'
-            ? 'Commander · ' + fmt(s.total)
-            : m === 'online' ? I.lock.replace('<svg ', '<svg width="16" height="16" ') + ' Payer · ' + fmt(due)
-            : m === 'applepay' ? I.apple.replace('<svg ', '<svg width="18" height="18" ') + ' Payer et commander · ' + fmt(due)
-            : 'Payer et commander · ' + fmt(due);
+            ? t('Commander · {p}', { p: fmt(s.total) })
+            : m === 'online' ? I.lock.replace('<svg ', '<svg width="16" height="16" ') + ' ' + t('Payer · {p}', { p: fmt(due) })
+            : m === 'applepay' ? I.apple.replace('<svg ', '<svg width="18" height="18" ') + ' ' + t('Payer et commander · {p}', { p: fmt(due) })
+            : t('Payer et commander · {p}', { p: fmt(due) });
         };
         paint();
 
@@ -750,17 +812,17 @@
           var tableNo = table || ($('#tableInput', sheet) && $('#tableInput', sheet).value.trim());
           var tErr = tableError(tableNo);
           if (tErr) return invalid($('#tableInput', sheet), tErr);
-          if (state.restaurant.ordersPaused) return UI.toast('Les commandes en ligne sont en pause. Adressez-vous au serveur.', 4000);
+          if (state.restaurant.ordersPaused) return UI.toast(t('Les commandes en ligne sont en pause. Adressez-vous au serveur.'), 4000);
           if (state.payMethod === 'onsite' && !onsiteWith()) {
             var box = $('.onsite-chips', sheet);
             if (box) { box.classList.remove('is-missing'); void box.offsetWidth; box.classList.add('is-missing'); }
-            return UI.toast('Indiquez comment vous réglerez : espèces, carte ou les deux.');
+            return UI.toast(t('Indiquez comment vous réglerez : espèces, carte ou les deux.'));
           }
           if (state.payMethod === 'card') {
             var num = $('#ccNum', sheet), exp = $('#ccExp', sheet), cvc = $('#ccCvc', sheet);
-            if (!luhn(num.value.replace(/\s/g, ''))) return invalid(num, 'Numéro de carte invalide');
-            if (!validExpiry(exp.value)) return invalid(exp, 'Date d’expiration invalide');
-            if (cvc.value.length < 3) return invalid(cvc, 'CVC invalide');
+            if (!luhn(num.value.replace(/\s/g, ''))) return invalid(num, t('Numéro de carte invalide'));
+            if (!validExpiry(exp.value)) return invalid(exp, t('Date d’expiration invalide'));
+            if (cvc.value.length < 3) return invalid(cvc, t('CVC invalide'));
           }
           submit(btn, tableNo);
         });
@@ -811,8 +873,8 @@
 
     var label = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> ' + (state.payMethod === 'onsite' ? 'Envoi en cuisine…'
-      : state.payMethod === 'online' ? 'Ouverture du paiement…' : 'Paiement sécurisé en cours…');
+    btn.innerHTML = '<span class="spinner"></span> ' + (state.payMethod === 'onsite' ? t('Envoi en cuisine…')
+      : state.payMethod === 'online' ? t('Ouverture du paiement…') : t('Paiement sécurisé en cours…'));
 
     if (LIVE && state.payMethod === 'online') return payOnline(btn, label, tableNo, s);
 
@@ -842,7 +904,7 @@
     }).catch(function (err) {
       btn.disabled = false;
       btn.innerHTML = label;
-      UI.toast(esc((err && err.message) || 'La commande n’a pas pu être envoyée. Réessayez.'), 4500);
+      UI.toast(esc((err && err.message) || t('La commande n’a pas pu être envoyée. Réessayez.')), 4500);
       UI.vibrate(60);
       // La carte a peut-être changé (rupture) : on la recharge.
       state.menu = T.getMenu(); renderMenu(); renderCartBar();
@@ -869,13 +931,13 @@
       return T.payments.checkout(order.id);
     }).then(function (res) {
       if (res && res.paid) return paymentReturn(orderId, true);
-      if (!res || !res.url) throw new Error('Le paiement n’a pas pu s’ouvrir. Réessayez ou choisissez « Payer à table ».');
+      if (!res || !res.url) throw new Error(t('Le paiement n’a pas pu s’ouvrir. Réessayez ou choisissez « Payer à table ».'));
       location.href = res.url;
     }).catch(function (err) {
       if (orderId) T.payments.cancel(orderId).catch(function () {});
       btn.disabled = false;
       btn.innerHTML = label;
-      UI.toast(esc((err && err.message) || 'Le paiement n’a pas pu s’ouvrir. Réessayez.'), 5000);
+      UI.toast(esc((err && err.message) || t('Le paiement n’a pas pu s’ouvrir. Réessayez.')), 5000);
       UI.vibrate(60);
       state.menu = T.getMenu(); renderMenu(); renderCartBar();
     });
@@ -891,7 +953,7 @@
     if (!/^[0-9a-f-]{36}$/i.test(id || '')) return;
     if (!paid) {
       T.payments.cancel(id).catch(function () {});
-      UI.toast('Paiement annulé · votre panier est conservé', 4500);
+      UI.toast(t('Paiement annulé · votre panier est conservé'), 4500);
       return;
     }
     state.cart = []; state.note = ''; state.tip = { mode: 'none', pct: 0, amount: 0 };
@@ -912,7 +974,7 @@
     if (!o || o.payment.status !== 'awaiting' || !T.payments || !T.payments.sync) return;
     T.payments.sync(id).catch(function () { return null; }).then(function (r) {
       return T.track(id).then(function () {
-        if (r && r.cancelled) UI.toast('Paiement non abouti : la commande a été annulée. Votre carte n’a pas été débitée.', 6000);
+        if (r && r.cancelled) UI.toast(t('Paiement non abouti : la commande a été annulée. Votre carte n’a pas été débitée.'), 6000);
         if (!(r && (r.paid || r.cancelled)) && attempt < 2) setTimeout(function () { confirmPayment(id, attempt + 1); }, attempt ? 8000 : 4000);
       });
     });
@@ -939,7 +1001,7 @@
     var idx = pending ? -1 : order.status === 'terminee' ? CLIENT_STEPS.length : CLIENT_STEPS.map(function (s) { return s.id; }).indexOf(order.status);
     var info = pending
       ? { client: 'Paiement en cours de validation', hint: 'Votre commande part en cuisine dès que le paiement est confirmé (quelques secondes).', pending: true }
-      : T.statusInfo(order.status);
+      : T.statusInfo(order.status); // textes traduits à l'affichage
     var icon = order.status === 'preparation' ? '<div class="track__icon is-cooking">' + I.chef + '</div>'
       : order.status === 'prete' ? '<div class="track__icon is-cooking">' + I.tray + '</div>'
       : pending ? '<div class="track__icon is-cooking">' + I.lock + '</div>'
@@ -948,41 +1010,41 @@
 
     return '<div class="track__inner">' +
       '<div class="track__top">' +
-        '<button class="icon-btn" type="button" data-close-track aria-label="Retour au menu">' + I.back + '</button>' +
-        '<span class="badge badge--dark">Table ' + esc(order.table) + '</span>' +
+        '<button class="icon-btn" type="button" data-close-track aria-label="' + t('Retour au menu') + '">' + I.back + '</button>' +
+        '<span class="badge badge--dark">' + t('Table {t}', { t: esc(order.table) }) + '</span>' +
       '</div>' +
       '<div class="track__hero">' + icon +
-        '<p class="eyebrow">Commande n° ' + order.number + ' · ' + T.clock(order.createdAt) + '</p>' +
-        '<h2>' + esc(info.client) + '</h2><p>' + esc(info.hint) + '</p>' +
-        (info.pending ? '<p><button class="btn btn--ghost btn--sm" type="button" data-check-pay="' + esc(order.id) + '">Vérifier le paiement</button></p>' : '') +
-        (T.getTableServer && T.getTableServer(order.table) ? '<p class="track__server">Votre serveur : <strong>' + esc(T.getTableServer(order.table)) + '</strong></p>' : '') +
+        '<p class="eyebrow">' + t('Commande n° {n} · {h}', { n: order.number, h: T.clock(order.createdAt) }) + '</p>' +
+        '<h2>' + esc(t(info.client)) + '</h2><p>' + esc(t(info.hint)) + '</p>' +
+        (info.pending ? '<p><button class="btn btn--ghost btn--sm" type="button" data-check-pay="' + esc(order.id) + '">' + t('Vérifier le paiement') + '</button></p>' : '') +
+        (T.getTableServer && T.getTableServer(order.table) ? '<p class="track__server">' + t('Votre serveur : <strong>{s}</strong>', { s: esc(T.getTableServer(order.table)) }) + '</p>' : '') +
       '</div>' +
       '<ol class="steps">' + CLIENT_STEPS.map(function (s, i) {
         // Étapes atteintes cochées, l'étape suivante « respire ».
         var cls = i <= idx ? 'is-done' : i === idx + 1 ? 'is-current' : '';
         return '<li class="step ' + cls + '"><span class="step__dot">' + I.check + '</span>' +
-          '<span class="step__label">' + s.label + '</span><span class="step__time">' + stepTime(order, s.id) + '</span></li>';
+          '<span class="step__label">' + t(s.label) + '</span><span class="step__time">' + stepTime(order, s.id) + '</span></li>';
       }).join('') + '</ol>' +
       '<div class="recap">' + order.lines.map(function (l) {
-        return '<div class="cart-line"><span class="qty">' + l.qty + '×</span><div><h4>' + esc(l.name) + '</h4>' +
+        return '<div class="cart-line"><span class="qty">' + l.qty + '×</span><div><h4>' + esc(L.lineName(l)) + '</h4>' +
           (l.options.length ? '<p class="cart-line__opts">' + esc(optText(l)) + '</p>' : '') +
           (l.note ? '<p class="cart-line__note">« ' + esc(l.note) + ' »</p>' : '') +
           '</div><div class="cart-line__price">' + fmt(l.unitPrice * l.qty) + '</div></div>';
       }).join('') +
-        (order.note ? '<div class="cart-line"><span></span><p class="cart-line__note">Note : « ' + esc(order.note) + ' »</p><span></span></div>' : '') +
+        (order.note ? '<div class="cart-line"><span></span><p class="cart-line__note">' + t('Note : « {n} »', { n: esc(order.note) }) + '</p><span></span></div>' : '') +
       '</div>' +
       '<div class="totals">' +
-        '<div class="totals__row"><span>Paiement</span><span class="badge ' + (paid ? 'badge--ok' : 'badge--warn') + '">' +
-          (paid ? 'Payé · ' + (PAY_LABEL[order.payment.method] || 'carte') : pending ? 'Paiement en cours…' : ('À régler sur place' + (order.payment.with && WITH_LABEL[order.payment.with] ? ' · ' + WITH_LABEL[order.payment.with].toLowerCase() : ''))) + '</span></div>' +
-        (order.tip ? '<div class="totals__row"><span>Pourboire</span><span>' + fmt(order.tip) + '</span></div>' : '') +
-        '<div class="totals__row totals__row--grand"><span>Total</span><span>' + fmt(order.total + (order.tip || 0)) + '</span></div>' +
+        '<div class="totals__row"><span>' + t('Paiement') + '</span><span class="badge ' + (paid ? 'badge--ok' : 'badge--warn') + '">' +
+          (paid ? t('Payé · {m}', { m: t(PAY_LABEL[order.payment.method] || 'carte') }) : pending ? t('Paiement en cours…') : (t('À régler sur place') + (order.payment.with && WITH_LABEL[order.payment.with] ? ' · ' + t(WITH_LABEL[order.payment.with]).toLowerCase() : ''))) + '</span></div>' +
+        (order.tip ? '<div class="totals__row"><span>' + t('Pourboire') + '</span><span>' + fmt(order.tip) + '</span></div>' : '') +
+        '<div class="totals__row totals__row--grand"><span>' + t('Total') + '</span><span>' + fmt(order.total + (order.tip || 0)) + '</span></div>' +
       '</div>' +
       ((order.status === 'servie' || order.status === 'terminee') && state.restaurant.reviewUrl
-        ? '<div class="review-cta"><p><strong>Vous avez aimé ?</strong> Votre avis aide beaucoup ' + esc(state.restaurant.name) + '.</p>' +
-          '<a class="btn btn--ghost btn--block" href="' + esc(safeUrl(state.restaurant.reviewUrl)) + '" target="_blank" rel="noopener">★ Laisser un avis Google</a></div>'
+        ? '<div class="review-cta"><p><strong>' + t('Vous avez aimé ?') + '</strong> ' + t('Votre avis aide beaucoup {r}.', { r: esc(state.restaurant.name) }) + '</p>' +
+          '<a class="btn btn--ghost btn--block" href="' + esc(safeUrl(state.restaurant.reviewUrl)) + '" target="_blank" rel="noopener">' + t('★ Laisser un avis Google') + '</a></div>'
         : '') +
-      '<button class="btn btn--primary btn--block" type="button" data-close-track>Revenir au menu</button>' +
-      '<p class="secure">Cette page se met à jour automatiquement.</p>' +
+      '<button class="btn btn--primary btn--block" type="button" data-close-track>' + t('Revenir au menu') + '</button>' +
+      '<p class="secure">' + t('Cette page se met à jour automatiquement.') + '</p>' +
     '</div>';
   }
 
@@ -1006,13 +1068,13 @@
     var left = REVIEW_DELAY, timer = null;
     UI.closeSheet().then(function () {
       UI.openSheet({
-        label: 'Laisser un avis',
-        head: '<p class="eyebrow">Merci pour votre visite</p><h2>Vous avez aimé ?</h2>',
-        body: '<p class="review-ask">Votre avis aide beaucoup <strong>' + esc(state.restaurant.name) + '</strong>' +
-          (T.getTableServer && T.getTableServer(order.table) ? ' et ' + esc(T.getTableServer(order.table)) : '') + '. Cela ne prend que 30 secondes.</p>' +
-          '<p class="help" id="reviewCount">Ouverture de Google dans ' + left + ' s…</p>',
-        footer: '<a class="btn btn--primary" href="' + esc(url) + '" id="reviewGo">★ Donner mon avis</a>' +
-          '<button class="btn btn--ghost" type="button" id="reviewNo">Non merci</button>',
+        label: t('Laisser un avis'),
+        head: '<p class="eyebrow">' + t('Merci pour votre visite') + '</p><h2>' + t('Vous avez aimé ?') + '</h2>',
+        body: '<p class="review-ask">' + t('Votre avis aide beaucoup <strong>{r}</strong>{s}. Cela ne prend que 30 secondes.', {
+            r: esc(state.restaurant.name), s: T.getTableServer && T.getTableServer(order.table) ? t(' et {s}', { s: esc(T.getTableServer(order.table)) }) : '' }) + '</p>' +
+          '<p class="help" id="reviewCount">' + t('Ouverture de Google dans {n} s…', { n: left }) + '</p>',
+        footer: '<a class="btn btn--primary" href="' + esc(url) + '" id="reviewGo">' + t('★ Donner mon avis') + '</a>' +
+          '<button class="btn btn--ghost" type="button" id="reviewNo">' + t('Non merci') + '</button>',
         onMount: function (sheet) {
           var stop = function () { clearInterval(timer); };
           $('#reviewNo', sheet).addEventListener('click', function () { stop(); UI.closeSheet(); });
@@ -1022,7 +1084,7 @@
             if (!document.body.contains(sheet) || sheet.classList.contains('is-closing')) return stop();
             left -= 1;
             var c = $('#reviewCount', sheet);
-            if (c) c.textContent = left > 0 ? 'Ouverture de Google dans ' + left + ' s…' : 'Ouverture de Google…';
+            if (c) c.textContent = left > 0 ? t('Ouverture de Google dans {n} s…', { n: left }) : t('Ouverture de Google…');
             if (left <= 0) { stop(); location.href = url; }
           }, 1000);
         }
@@ -1037,7 +1099,7 @@
     if (!order) return;
     state.trackingId = id;
     var root = $('#trackRoot');
-    root.innerHTML = '<section class="track" role="dialog" aria-modal="true" aria-label="Suivi de commande">' + trackHTML(order) + '</section>';
+    root.innerHTML = '<section class="track" role="dialog" aria-modal="true" aria-label="' + t('Suivi de commande') + '">' + trackHTML(order) + '</section>';
     document.body.style.overflow = 'hidden';
     renderCartBar();
     renderTrackPill();
@@ -1061,20 +1123,20 @@
     pill.hidden = !list.length || !!state.trackingId;
     if (!list.length) return;
     $('#trackPillLabel').textContent = list.length > 1
-      ? list.length + ' commandes en cours'
-      : 'N° ' + list[0].number + ' · ' + T.statusInfo(list[0].status).label;
+      ? t('{n} commandes en cours', { n: list.length })
+      : t('N° {n} · {s}', { n: list[0].number, s: t(T.statusInfo(list[0].status).label) });
   }
 
   function openOrdersList() {
     var list = activeOrders();
     if (list.length === 1) return showTracking(list[0].id);
     UI.openSheet({
-      label: 'Mes commandes',
-      head: '<p class="eyebrow">Table ' + esc(table) + '</p><h2>Mes commandes</h2>',
+      label: t('Mes commandes'),
+      head: '<p class="eyebrow">' + t('Table {t}', { t: esc(table) }) + '</p><h2>' + t('Mes commandes') + '</h2>',
       body: '<div class="order-list">' + list.slice().reverse().map(function (o) {
-        return '<button class="order-link" type="button" data-track="' + esc(o.id) + '"><span><strong>Commande n° ' + o.number + '</strong><br>' +
+        return '<button class="order-link" type="button" data-track="' + esc(o.id) + '"><span><strong>' + t('Commande n° {n}', { n: o.number }) + '</strong><br>' +
           '<small style="color:var(--muted)">' + T.clock(o.createdAt) + ' · ' + fmt(o.total) + '</small></span>' +
-          '<span class="badge badge--dark">' + esc(T.statusInfo(o.status).label) + '</span></button>';
+          '<span class="badge badge--dark">' + esc(t(T.statusInfo(o.status).label)) + '</span></button>';
       }).join('') + '</div>',
       onMount: function (sheet) {
         sheet.addEventListener('click', function (e) {
@@ -1131,7 +1193,7 @@
         var item = T.getItem(add.dataset.add);
         // Ajout express si le plat n'a aucune option obligatoire.
         if (item && !(item.options || []).some(function (g) { return g.required; })) {
-          if (addToCart(item.id, 1, {}, '')) UI.toast('<strong>' + esc(item.name) + '</strong> ajouté au panier', 1800);
+          if (addToCart(item.id, 1, {}, '')) UI.toast(t('<strong>{name}</strong> ajouté au panier', { name: esc(L.name(item)) }), 1800);
           return;
         }
         return openProduct(add.dataset.add);
@@ -1150,7 +1212,7 @@
     $('#trackRoot').addEventListener('click', function (e) {
       if (e.target.closest('[data-close-track]')) hideTracking();
       var chk = e.target.closest('[data-check-pay]');
-      if (chk) { chk.disabled = true; chk.textContent = 'Vérification…'; confirmPayment(chk.dataset.checkPay, 2); }
+      if (chk) { chk.disabled = true; chk.textContent = t('Vérification…'); confirmPayment(chk.dataset.checkPay, 2); }
     });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && state.trackingId) hideTracking();
@@ -1167,7 +1229,7 @@
         if (state.trackingId === o.id) {
           $('#trackRoot .track').innerHTML = trackHTML(o);
         } else {
-          UI.toast('<strong>Commande n° ' + o.number + '</strong> · ' + esc(T.statusInfo(o.status).client), 4000);
+          UI.toast(t('<strong>Commande n° {n}</strong> · {s}', { n: o.number, s: esc(t(T.statusInfo(o.status).client)) }), 4000);
         }
         if (o.status === 'prete' || o.status === 'servie') UI.vibrate([60, 60, 60]);
         if (o.status === 'terminee') askReview(o);
@@ -1192,10 +1254,13 @@
       if (msg.type === 'stock:updated') { renderChips(); renderMenu(); renderCartBar(); }
       if (msg.type === 'menu:updated' || msg.type === 'demo:reset') {
         state.menu = T.getMenu();
+        L.useMenu(state.menu);
         renderChips(); renderMenu(); renderCartBar();
       }
       if (msg.type === 'restaurant:updated' || msg.type === 'demo:reset') {
         state.restaurant = T.getRestaurant();
+        if (langs().map(function (l) { return l.id; }).indexOf(L.lang()) < 0) L.set('fr');
+        applyStatic();
         renderHeader();
       }
     });
@@ -1204,6 +1269,9 @@
   function start() {
     state.restaurant = T.getRestaurant();
     state.menu = T.getMenu();
+    L.useMenu(state.menu);
+    L.detect(state.restaurant);
+    applyStatic();
     renderHeader();
     renderChips();
     renderMenu();
@@ -1214,6 +1282,7 @@
 
     $('#tableBadge').addEventListener('click', function () { openTablePicker(); });
     $('#serviceBtn').addEventListener('click', openService);
+    $('#langBtn').addEventListener('click', openLang);
     $('#welcome').addEventListener('click', function (e) {
       if (e.target.closest('[data-change-table]')) openTablePicker();
     });
@@ -1244,19 +1313,20 @@
     }
     start();
   }).catch(function (err) {
+    L.detect(null);
     var lost = err && err.code === 'NOT_FOUND';
     // Écran d'erreur épuré : rien d'inutilisable autour du message.
     ['#toolbar', '#welcome', '#tableBadge', '#serviceBtn', '#pauseBanner'].forEach(function (sel) {
       var el = document.querySelector(sel);
       if (el) el.hidden = true;
     });
-    var title = !lost ? 'Menu momentanément indisponible'
+    var title = t(!lost ? 'Menu momentanément indisponible'
       : err.reason === 'closed' ? 'Commande en ligne indisponible'
       : err.reason === 'old-link' ? 'Lien à mettre à jour'
-      : 'Restaurant introuvable';
+      : 'Restaurant introuvable');
     $('#rName').textContent = lost ? 'Tapigo' : 'Menu';
     $('#menu').innerHTML = '<div class="empty"><h3>' + title + '</h3><p>' + esc(err.message) + '</p>' +
-      (err && err.reason === 'old-link' ? '' : '<p style="margin-top:16px"><button class="btn btn--primary" type="button" onclick="location.reload()">Réessayer</button></p>') +
+      (err && err.reason === 'old-link' ? '' : '<p style="margin-top:16px"><button class="btn btn--primary" type="button" onclick="location.reload()">' + t('Réessayer') + '</button></p>') +
       '<p class="help" style="margin-top:18px;word-break:break-all">' + esc(location.href) + '</p></div>';
   });
 })();

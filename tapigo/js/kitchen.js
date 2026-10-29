@@ -328,6 +328,7 @@
         '<label class="search">' + I.search + '<input id="menuSearch" type="search" placeholder="Rechercher un produit…" value="' + esc(state.q) + '" aria-label="Rechercher un produit"></label>' +
         '<button class="btn btn--primary" type="button" data-new>' + I.plus.replace('<svg ', '<svg width="16" height="16" ') + ' Ajouter un plat</button>' +
         '<button class="btn btn--ghost" type="button" data-categories>Catégories</button>' +
+        (window.TapigoI18n ? '<button class="btn btn--ghost" type="button" data-langs>Langues</button>' : '') +
         '<button class="btn btn--ghost" type="button" data-settings>Établissement</button>' +
       '</div>' +
       '<p class="eyebrow">' + menu.items.length + ' produits · ' + off + ' en rupture (masqué' + (off > 1 ? 's' : '') + ' côté client)</p>' +
@@ -543,6 +544,63 @@
   function onsiteSet(r) {
     var w = Array.isArray(r.onsiteWith) ? r.onsiteWith : [];
     return w.length ? w : ['cash', 'card'];
+  }
+
+  /* Carte multilingue : langues proposées aux clients et traduction par l'IA. */
+  function openLanguages() {
+    var L = window.TapigoI18n, info = T.getRestaurant(), chosen = (info.languages || []).slice();
+    var langs = L.LANGS.filter(function (l) { return l.id !== 'fr'; });
+    var status = function (id) {
+      var menu = T.getMenu(), pack = menu.i18n && menu.i18n[id], items = menu.items || [];
+      var done = items.filter(function (i) { var x = pack && pack.items && pack.items[i.id]; return x && x.src === L.srcOf(i); }).length;
+      return { done: done, total: items.length };
+    };
+    var body = function () {
+      return '<p class="help" style="margin-bottom:12px">Les clients choisissent leur langue sur la carte (celle de leur téléphone est proposée d’office). ' +
+          'Les boutons, le panier et le suivi sont déjà traduits ; vos plats, descriptions et options sont traduits par l’IA. ' +
+          'La cuisine reçoit toujours les commandes en français.</p>' +
+        '<div class="lang-list">' + langs.map(function (l) {
+          var st = status(l.id), on = chosen.indexOf(l.id) >= 0;
+          return '<label class="lang-row"><input type="checkbox" data-lang-on="' + l.id + '"' + (on ? ' checked' : '') + '>' +
+            '<span class="lang-row__name">' + l.flag + ' ' + esc(l.label) + '</span>' +
+            '<span class="badge ' + (st.done === st.total ? 'badge--ok' : st.done ? 'badge--warn' : '') + '">' +
+              (st.done === st.total ? 'carte traduite' : st.done ? (st.total - st.done) + ' produit' + (st.total - st.done > 1 ? 's' : '') + ' à traduire' : 'pas encore traduite') + '</span></label>';
+        }).join('') + '</div>' +
+        '<p class="help" style="margin-top:10px">Un plat modifié s’affiche en français dans les autres langues jusqu’à la prochaine traduction : relancez « Traduire » après vos changements (seuls les nouveaux textes sont traduits).</p>';
+    };
+    UI.openSheet({
+      label: 'Langues de la carte',
+      head: '<p class="eyebrow">Carte multilingue</p><h2>Langues de la carte</h2>',
+      body: '<div id="langBody">' + body() + '</div>',
+      footer: '<button class="btn btn--ghost" type="button" id="langSave">Enregistrer</button>' +
+        '<button class="btn btn--primary" type="button" id="langTranslate">' + I.bolt.replace('<svg ', '<svg width="16" height="16" ') + ' Traduire avec l’IA</button>',
+      onMount: function (sheet) {
+        var box = $('#langBody', sheet);
+        box.addEventListener('change', function (e) {
+          var c = e.target.closest('[data-lang-on]');
+          if (!c) return;
+          chosen = langs.map(function (l) { return l.id; }).filter(function (id) { return box.querySelector('[data-lang-on="' + id + '"]').checked; });
+        });
+        var save = function () {
+          T.saveRestaurant(Object.assign(T.getRestaurant(), { languages: chosen }));
+        };
+        $('#langSave', sheet).addEventListener('click', function () {
+          save(); UI.closeSheet();
+          UI.toast(chosen.length ? 'Carte proposée en ' + chosen.length + ' langue' + (chosen.length > 1 ? 's' : '') + ' en plus du français' : 'Carte en français uniquement');
+        });
+        $('#langTranslate', sheet).addEventListener('click', function (e) {
+          if (!chosen.length) return UI.toast('Cochez au moins une langue');
+          var b = e.currentTarget;
+          save();
+          b.disabled = true; b.innerHTML = '<span class="spinner"></span> Traduction en cours… (jusqu’à une minute)';
+          T.translateMenu(chosen).then(function (r) {
+            UI.toast(r && r.total ? 'Carte traduite · ' + r.total + ' textes de produits' : 'La carte était déjà traduite', 4000);
+            box.innerHTML = body();
+          }, function (err) { UI.toast(esc(err.message), 6000); })
+            .then(function () { b.disabled = false; b.innerHTML = I.bolt.replace('<svg ', '<svg width="16" height="16" ') + ' Traduire avec l’IA'; });
+        });
+      }
+    });
   }
 
   function openSettings() {
@@ -2096,6 +2154,7 @@
       if (nb) return openItemForm(null, nb.dataset.new || null);
       if (e.target.closest('[data-categories]')) return openCategories();
       if (e.target.closest('[data-settings]')) return openSettings();
+      if (e.target.closest('[data-langs]')) return openLanguages();
       if (e.target.closest('[data-reset]')) {
         if (confirm('Réinitialiser le menu et les commandes de démonstration ?')) { T.resetDemo(); UI.toast('Données de démo restaurées'); }
         return;

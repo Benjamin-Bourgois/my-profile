@@ -1004,3 +1004,11 @@ button.table-badge:active { transform: scale(.96); }
 .c-section__note { margin: -4px 0 10px; font-size: 13px; color: var(--ink-2); }
 .sheet-price { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .antigaspi { border-color: var(--ok); }
+
+/* ---------- Carte multilingue ---------- */
+.lang-btn { width: 40px; height: 40px; padding: 0; font-size: 20px !important; line-height: 1; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font: inherit; font-size: 13px; font-weight: 700; color: var(--ink); cursor: pointer; flex: none; }
+.lang-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.lang-list { display: grid; gap: 8px; }
+.lang-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: #fff; cursor: pointer; }
+.lang-row input { width: 18px; height: 18px; }
+.lang-row__name { font-weight: 700; }
