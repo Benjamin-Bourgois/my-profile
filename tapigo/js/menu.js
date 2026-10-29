@@ -274,12 +274,13 @@
 
   function allergensHTML(item) {
     var list = T.itemAllergens(item);
+    var alcohol = item.alcohol === true ? '<p class="allergens">Contient de l’alcool</p>' : '';
     if (list.length) {
       return '<div class="allergens"><span>Allergènes</span><div class="check-row">' + list.map(function (a) {
         return '<span class="badge badge--warn">' + esc(a.label) + '</span>';
-      }).join('') + '</div></div>';
+      }).join('') + '</div></div>' + alcohol;
     }
-    return item.allergens ? '<p class="allergens">Allergènes : ' + esc(item.allergens) + '</p>' : '';
+    return (item.allergens ? '<p class="allergens">Allergènes : ' + esc(item.allergens) + '</p>' : '') + alcohol;
   }
 
   function pairingsHTML(item) {

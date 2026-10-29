@@ -414,6 +414,9 @@
           '<label class="field"><span>Poste</span><select name="station">' +
             '<option value="cuisine"' + (item.station !== 'bar' ? ' selected' : '') + '>Cuisine</option>' +
             '<option value="bar"' + (item.station === 'bar' ? ' selected' : '') + '>Bar</option></select></label>' +
+          // Pas encore renseigné : coché d'office pour un produit du bar.
+          '<label class="switch span-2"><input type="checkbox" name="alcohol"' + (item.alcohol === true || (item.alcohol == null && item.station === 'bar') ? ' checked' : '') + '>' +
+            '<span class="switch__track"></span><span>Contient de l’alcool <small class="help">TVA sur place 20 % (10 % sans alcool), mention sur la carte</small></span></label>' +
           '<label class="field"><span>Emoji (si pas de photo)</span><input name="emoji" maxlength="4" value="' + esc(item.emoji || '') + '"></label>' +
           '<div class="field span-2"><span>Photo</span><div class="photo-field">' +
             '<div class="media photo-field__preview" id="photoPreview" data-emoji="' + esc(item.emoji || '🍽️') + '">' + (item.image ? '<img src="' + esc(item.image) + '" alt="">' : '') + '</div>' +
@@ -519,6 +522,7 @@
               .map(function (a) { return a.label; }).join(', '),
             pairings: checkedValues('pairing'),
             tags: checkedValues('tags'),
+            alcohol: f.alcohol.checked,
             available: f.available.checked,
             options: options
           });

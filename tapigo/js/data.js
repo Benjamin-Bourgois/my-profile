@@ -191,7 +191,7 @@
         name: 'Café gourmand',
         description: 'Espresso et trois mignardises du moment.',
         price: 11, image: IMG('1495474472287-4d71bcdd2085'),
-        tags: ['veggie'], allergens: 'Gluten, lait, œuf, fruits à coque', available: false, options: []
+        tags: ['veggie'], allergens: 'Gluten, lait, œuf, fruits à coque', alcohol: false, available: false, options: []
       },
 
       /* ---------- Boissons ---------- */
@@ -200,14 +200,14 @@
         name: 'Spritz maison',
         description: 'Apérol, prosecco, eau pétillante, orange sanguine.',
         price: 12, image: IMG('1514362545857-3bc16c4c7d1b'),
-        tags: ['signature'], allergens: 'Sulfites', available: true, options: []
+        tags: ['signature'], allergens: 'Sulfites', alcohol: true, available: true, options: []
       },
       {
         id: 'bordeaux', category: 'boissons', station: 'bar', emoji: '🍷',
         name: 'Bordeaux — Saint-Émilion',
         description: 'Château La Rose, millésime 2019. Notes de fruits noirs et de cèdre.',
         price: 9, image: IMG('1510812431401-41d2bd2722f3'),
-        tags: [], allergens: 'Sulfites', available: true,
+        tags: [], allergens: 'Sulfites', alcohol: true, available: true,
         options: [
           {
             id: 'contenance', name: 'Contenance', type: 'single', required: true,
@@ -224,14 +224,14 @@
         name: 'Citronnade maison',
         description: 'Citron pressé, menthe fraîche, sirop d’agave.',
         price: 6, image: IMG('1621263764928-df1444c5e859'),
-        tags: ['veggie', 'gf'], allergens: '', available: true, options: []
+        tags: ['veggie', 'gf'], allergens: '', alcohol: false, available: true, options: []
       },
       {
         id: 'eau', category: 'boissons', station: 'bar', emoji: '💧',
         name: 'Eau minérale 75 cl',
         description: 'Fraîche, servie en carafe de verre.',
         price: 5, image: IMG('1523362628745-0c100150b504'),
-        tags: ['veggie', 'gf'], allergens: '', available: true,
+        tags: ['veggie', 'gf'], allergens: '', alcohol: false, available: true,
         options: [
           {
             id: 'eau-type', name: 'Type', type: 'single', required: true,
@@ -244,7 +244,7 @@
         name: 'Espresso',
         description: 'Torréfaction artisanale, origine Éthiopie.',
         price: 3, image: IMG('1510591509098-f4fdc6d0ff04'),
-        tags: ['veggie', 'gf'], allergens: '', available: true, options: []
+        tags: ['veggie', 'gf'], allergens: '', alcohol: false, available: true, options: []
       }
     ]
   };

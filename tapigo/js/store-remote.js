@@ -782,7 +782,7 @@
         if (bad) throw new Error(/ingredients|recipes|item_costs/.test(bad.error.message) ? 'Relancez supabase/schema.sql pour activer les fiches techniques.' : bad.error.message);
         var recipes = {}, costs = {};
         r[1].data.forEach(function (x) {
-          recipes[x.item_id] = { mode: x.mode, vat: Number(x.vat), lines: x.lines || [], purchaseCost: x.purchase_cost == null ? null : Number(x.purchase_cost) };
+          recipes[x.item_id] = { mode: x.mode, vat: Number(x.vat), lines: x.lines || [], purchaseCost: x.purchase_cost == null ? null : Number(x.purchase_cost), options: x.options || [] };
         });
         r[2].data.forEach(function (x) { costs[x.item_id] = Number(x.cost_per_portion); });
         return {
@@ -796,8 +796,9 @@
     },
     saveIngredient: function (id, name, unit, cost) { return rpc('save_ingredient', { p_restaurant: current.id, p_id: id || null, p_name: name, p_unit: unit, p_cost: cost }); },
     deleteIngredient: function (id) { return rpc('delete_ingredient', { p_restaurant: current.id, p_id: id }); },
-    saveRecipe: function (itemId, mode, vat, lines, purchaseCost) {
-      return rpc('save_recipe', { p_restaurant: current.id, p_item: itemId, p_mode: mode, p_vat: vat, p_lines: lines, p_purchase_cost: purchaseCost });
+    // options : [{ group, choice, lines }] (coût ajouté par un choix d'option).
+    saveRecipe: function (itemId, mode, vat, lines, purchaseCost, options) {
+      return rpc('save_recipe', { p_restaurant: current.id, p_item: itemId, p_mode: mode, p_vat: vat, p_lines: lines, p_purchase_cost: purchaseCost, p_options: options || [] });
     },
     // Prix relevés sur un bon : [{ name, total, amount, unit }].
     recordPrices: function (lines) { return rpc('record_ingredient_prices', { p_restaurant: current.id, p_lines: lines }); }

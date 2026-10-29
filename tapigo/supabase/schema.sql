@@ -1539,6 +1539,9 @@ create table if not exists public.recipes (
   updated_at    timestamptz not null default now(),
   primary key (restaurant_id, item_id)
 );
+-- Coût des options et suppléments : [{ group, choice, lines: [{ ingredientId, qty, unit }] }]
+-- (nom du groupe et libellé du choix, tels qu'ils sont enregistrés dans les lignes de commande).
+alter table public.recipes add column if not exists options jsonb not null default '[]'::jsonb;
 alter table public.recipes enable row level security;
 drop policy if exists "Fiches visibles par la direction" on public.recipes;
 create policy "Fiches visibles par la direction" on public.recipes
@@ -1586,24 +1589,50 @@ as $$
 begin
   if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
   if exists (select 1 from public.recipes r, jsonb_array_elements(r.lines) l
-             where r.restaurant_id = p_restaurant and l ->> 'ingredientId' = p_id::text) then
+             where r.restaurant_id = p_restaurant and l ->> 'ingredientId' = p_id::text)
+     or exists (select 1 from public.recipes r, jsonb_array_elements(r.options) o, jsonb_array_elements(o -> 'lines') l
+                where r.restaurant_id = p_restaurant and l ->> 'ingredientId' = p_id::text) then
     raise exception 'Cet ingrédient est utilisé dans une fiche technique : retirez-le d''abord de la fiche.';
   end if;
   delete from public.ingredients where id = p_id and restaurant_id = p_restaurant;
 end;
 $$;
 
+-- Une ligne de recette contrôlée (ingrédient du restaurant, quantité, unité compatible).
+create or replace function public.recipe_line_check(p_restaurant uuid, p_line jsonb)
+returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v_ing  public.ingredients;
+  v_unit text := p_line ->> 'unit';
+  v_qty  numeric;
+begin
+  select * into v_ing from public.ingredients where restaurant_id = p_restaurant and id::text = p_line ->> 'ingredientId';
+  if not found then raise exception 'Ingrédient introuvable'; end if;
+  v_qty := case when p_line ->> 'qty' ~ '^[0-9]+(\.[0-9]+)?$' then (p_line ->> 'qty')::numeric end;
+  if v_qty is null or v_qty <= 0 or v_qty > 100000 then raise exception 'Quantité invalide pour %', v_ing.name; end if;
+  if not ((v_ing.unit = 'kg' and v_unit in ('g', 'kg')) or (v_ing.unit = 'l' and v_unit in ('cl', 'l'))
+          or (v_ing.unit = 'piece' and v_unit = 'piece')) then
+    raise exception '% se compte en %', v_ing.name, case v_ing.unit when 'kg' then 'g ou kg' when 'l' then 'cl ou L' else 'pièces' end;
+  end if;
+  return jsonb_build_object('ingredientId', v_ing.id, 'qty', v_qty, 'unit', v_unit);
+end;
+$$;
+revoke all on function public.recipe_line_check(uuid, jsonb) from public;
+
+drop function if exists public.save_recipe(uuid, text, text, numeric, jsonb, numeric);
 create or replace function public.save_recipe(p_restaurant uuid, p_item text, p_mode text, p_vat numeric,
-                                              p_lines jsonb, p_purchase_cost numeric)
+                                              p_lines jsonb, p_purchase_cost numeric, p_options jsonb default '[]'::jsonb)
 returns void
 language plpgsql security definer set search_path = public
 as $$
 declare
   v_line jsonb;
-  v_ing  public.ingredients;
-  v_unit text;
-  v_qty  numeric;
+  v_opt  jsonb;
+  v_sub  jsonb;
   v_out  jsonb := '[]'::jsonb;
+  v_opts jsonb := '[]'::jsonb;
 begin
   if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
   if not exists (select 1 from public.restaurants r, jsonb_array_elements(r.menu -> 'items') x
@@ -1617,21 +1646,29 @@ begin
     raise exception 'Recette invalide';
   end if;
   for v_line in select value from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) loop
-    select * into v_ing from public.ingredients where restaurant_id = p_restaurant and id::text = v_line ->> 'ingredientId';
-    if not found then raise exception 'Ingrédient introuvable'; end if;
-    v_unit := v_line ->> 'unit';
-    v_qty := case when v_line ->> 'qty' ~ '^[0-9]+(\.[0-9]+)?$' then (v_line ->> 'qty')::numeric end;
-    if v_qty is null or v_qty <= 0 or v_qty > 100000 then raise exception 'Quantité invalide pour %', v_ing.name; end if;
-    if not ((v_ing.unit = 'kg' and v_unit in ('g', 'kg')) or (v_ing.unit = 'l' and v_unit in ('cl', 'l'))
-            or (v_ing.unit = 'piece' and v_unit = 'piece')) then
-      raise exception '% se compte en %', v_ing.name, case v_ing.unit when 'kg' then 'g ou kg' when 'l' then 'cl ou L' else 'pièces' end;
-    end if;
-    v_out := v_out || jsonb_build_object('ingredientId', v_ing.id, 'qty', v_qty, 'unit', v_unit);
+    v_out := v_out || public.recipe_line_check(p_restaurant, v_line);
   end loop;
-  insert into public.recipes (restaurant_id, item_id, mode, vat, lines, purchase_cost)
-  values (p_restaurant, p_item, p_mode, p_vat, v_out, p_purchase_cost)
+  if jsonb_typeof(coalesce(p_options, '[]'::jsonb)) <> 'array' or jsonb_array_length(coalesce(p_options, '[]'::jsonb)) > 80 then
+    raise exception 'Options invalides';
+  end if;
+  for v_opt in select value from jsonb_array_elements(coalesce(p_options, '[]'::jsonb)) loop
+    if btrim(coalesce(v_opt ->> 'group', '')) = '' or btrim(coalesce(v_opt ->> 'choice', '')) = ''
+       or jsonb_typeof(coalesce(v_opt -> 'lines', '[]'::jsonb)) <> 'array' or jsonb_array_length(coalesce(v_opt -> 'lines', '[]'::jsonb)) > 10 then
+      raise exception 'Options invalides';
+    end if;
+    v_sub := '[]'::jsonb;
+    for v_line in select value from jsonb_array_elements(coalesce(v_opt -> 'lines', '[]'::jsonb)) loop
+      v_sub := v_sub || public.recipe_line_check(p_restaurant, v_line);
+    end loop;
+    if jsonb_array_length(v_sub) > 0 then
+      v_opts := v_opts || jsonb_build_object('group', left(v_opt ->> 'group', 80), 'choice', left(v_opt ->> 'choice', 80), 'lines', v_sub);
+    end if;
+  end loop;
+  insert into public.recipes (restaurant_id, item_id, mode, vat, lines, purchase_cost, options)
+  values (p_restaurant, p_item, p_mode, p_vat, v_out, p_purchase_cost, v_opts)
   on conflict (restaurant_id, item_id) do update
-    set mode = excluded.mode, vat = excluded.vat, lines = excluded.lines, purchase_cost = excluded.purchase_cost, updated_at = now();
+    set mode = excluded.mode, vat = excluded.vat, lines = excluded.lines, purchase_cost = excluded.purchase_cost,
+        options = excluded.options, updated_at = now();
 end;
 $$;
 
@@ -1679,11 +1716,11 @@ $$;
 
 revoke all on function public.save_ingredient(uuid, uuid, text, text, numeric) from public;
 revoke all on function public.delete_ingredient(uuid, uuid) from public;
-revoke all on function public.save_recipe(uuid, text, text, numeric, jsonb, numeric) from public;
+revoke all on function public.save_recipe(uuid, text, text, numeric, jsonb, numeric, jsonb) from public;
 revoke all on function public.record_ingredient_prices(uuid, jsonb) from public;
 grant execute on function public.save_ingredient(uuid, uuid, text, text, numeric) to authenticated;
 grant execute on function public.delete_ingredient(uuid, uuid) to authenticated;
-grant execute on function public.save_recipe(uuid, text, text, numeric, jsonb, numeric) to authenticated;
+grant execute on function public.save_recipe(uuid, text, text, numeric, jsonb, numeric, jsonb) to authenticated;
 grant execute on function public.record_ingredient_prices(uuid, jsonb) to authenticated;
 
 -- ---------- Temps réel ----------
