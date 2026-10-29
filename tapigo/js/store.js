@@ -35,7 +35,8 @@
     servers: NS + 'servers',
     expiry: NS + 'expiry',
     moves: NS + 'expiry-moves',
-    margins: NS + 'margins.v2'
+    margins: NS + 'margins.v2',
+    haccp: NS + 'haccp'
   };
 
   var memory = {};
@@ -593,6 +594,98 @@
     }
     return m;
   }
+  // Pack HACCP de démonstration : plan type et deux semaines de relevés.
+  function haccpData() {
+    var h = read(K.haccp, null);
+    if (h) return h;
+    var n = 0, id = function (p) { return p + (++n); };
+    var eq = function (station, name, kind, min, max) { return { id: id('eq'), station: station, name: name, kind: kind, min: min, max: max, active: true }; };
+    var task = function (station, label, frequency) { return { id: id('tk'), station: station, label: label, frequency: frequency, active: true }; };
+    h = {
+      equipment: [eq('cuisine', 'Réfrigérateur cuisine', 'positif', 0, 4), eq('cuisine', 'Congélateur cuisine', 'negatif', null, -18), eq('bar', 'Réfrigérateur bar', 'positif', 0, 4)],
+      tasks: [task('cuisine', 'Plans de travail et planches désinfectés', 'jour'), task('cuisine', 'Sols de la cuisine lavés', 'jour'),
+        task('cuisine', 'Trancheuse et petit matériel démontés et lavés', 'jour'), task('cuisine', 'Réfrigérateurs vidés et nettoyés à l’intérieur', 'semaine'),
+        task('cuisine', 'Filtres de la hotte dégraissés', 'semaine'), task('cuisine', 'Congélateur dégivré et nettoyé', 'mois'),
+        task('bar', 'Comptoir, tireuse et becs verseurs', 'jour'), task('bar', 'Machine à café purgée et nettoyée', 'jour'), task('bar', 'Lignes de bière nettoyées', 'semaine')],
+      readings: [], cleanings: [], receptions: []
+    };
+    var who = ['LM', 'SB', 'KD'];
+    for (var d = 14; d >= 0; d--) {
+      [9, 17].forEach(function (hour, k) {
+        var at = new Date(); at.setDate(at.getDate() - d); at.setHours(hour, 10 + k * 5, 0, 0);
+        if (at > new Date() || (d === 0 && hour > 12)) return;
+        h.equipment.forEach(function (e, i) {
+          if (d === 0 && i === 2) return; // relevé du bar oublié ce matin
+          var bad = d === 6 && hour === 17 && i === 0;
+          var t = e.kind === 'negatif' ? -21 + ((d + i) % 3) : bad ? 6.5 : 2 + ((d + hour + i) % 3) * 0.5;
+          h.readings.push({ id: id('rd'), equipmentId: e.id, station: e.station, temp: t, ok: !bad, action: bad ? 'Porte mal fermée : refermée, recontrôle 1 h après à 3,5 °C' : '',
+            by: who[(d + i) % 3], at: at.getTime() });
+        });
+      });
+      if (d === 0) continue;
+      h.tasks.forEach(function (t, i) {
+        var at = new Date(); at.setDate(at.getDate() - d); at.setHours(23, 20 + i, 0, 0);
+        var due = t.frequency === 'jour' || (t.frequency === 'semaine' && at.getDay() === 1) || (t.frequency === 'mois' && d === 10);
+        if (due) h.cleanings.push({ id: id('cl'), taskId: t.id, station: t.station, note: '', by: who[(d + i) % 3], at: at.getTime() });
+      });
+    }
+    var rec = function (days, station, supplier, product, temp, ok, action) {
+      var at = new Date(); at.setDate(at.getDate() - days); at.setHours(8, 40, 0, 0);
+      h.receptions.push({ id: id('rc'), station: station, supplier: supplier, product: product, temp: temp, ok: ok, action: action, by: 'LM', at: at.getTime() });
+    };
+    rec(1, 'cuisine', 'DistriFrais 33', 'Burrata, viandes, crème', 3, true, '');
+    rec(4, 'cuisine', 'Marée Atlantique', 'Saumon, dorades', 7, false, 'Saumon refusé (8 °C à cœur), avoir demandé au livreur');
+    rec(5, 'bar', 'Boissons du Sud-Ouest', 'Prosecco, sodas, citrons', null, true, '');
+    h.readings.sort(function (a, b) { return b.at - a.at; });
+    h.cleanings.sort(function (a, b) { return b.at - a.at; });
+    h.receptions.sort(function (a, b) { return b.at - a.at; });
+    write(K.haccp, h);
+    return h;
+  }
+  function haccpSave(h) { write(K.haccp, h); }
+  var haccp = {
+    load: function (since, until) {
+      var h = haccpData(), inRange = function (x) { return x.at >= since && (!until || x.at < until); };
+      return Promise.resolve(clone({ equipment: h.equipment, tasks: h.tasks, readings: h.readings.filter(inRange),
+        cleanings: h.cleanings.filter(inRange), receptions: h.receptions.filter(inRange) }));
+    },
+    seed: function () { return Promise.resolve(); },
+    saveEquipment: function (e) {
+      var h = haccpData(), x = e.id && h.equipment.filter(function (q) { return q.id === e.id; })[0];
+      if (!x) { x = { id: 'eq_' + Date.now().toString(36), active: true }; h.equipment.push(x); }
+      Object.assign(x, { station: e.station, name: e.name, kind: e.kind, min: e.min, max: e.max });
+      haccpSave(h); return Promise.resolve(clone(x));
+    },
+    saveTask: function (t) {
+      var h = haccpData(), x = t.id && h.tasks.filter(function (q) { return q.id === t.id; })[0];
+      if (!x) { x = { id: 'tk_' + Date.now().toString(36), active: true }; h.tasks.push(x); }
+      Object.assign(x, { station: t.station, label: t.label, frequency: t.frequency });
+      haccpSave(h); return Promise.resolve(clone(x));
+    },
+    archive: function (kind, id) {
+      var h = haccpData();
+      (kind === 'equipment' ? h.equipment : h.tasks).forEach(function (x) { if (x.id === id) x.active = false; });
+      haccpSave(h); return Promise.resolve();
+    },
+    recordTemp: function (equipmentId, temp, action, by) {
+      var h = haccpData(), e = h.equipment.filter(function (q) { return q.id === equipmentId; })[0];
+      var ok = (e.min == null || temp >= e.min) && (e.max == null || temp <= e.max);
+      if (!ok && !String(action || '').trim()) return Promise.reject(new Error('Température hors limites : indiquez l’action corrective'));
+      var row = { id: 'rd_' + Date.now().toString(36), equipmentId: e.id, station: e.station, temp: Math.round(temp * 10) / 10, ok: ok, action: action || '', by: by, at: Date.now() };
+      h.readings.unshift(row); haccpSave(h); return Promise.resolve(clone(row));
+    },
+    markClean: function (taskId, note, by) {
+      var h = haccpData(), t = h.tasks.filter(function (q) { return q.id === taskId; })[0];
+      var row = { id: 'cl_' + Date.now().toString(36), taskId: t.id, station: t.station, note: note || '', by: by, at: Date.now() };
+      h.cleanings.unshift(row); haccpSave(h); return Promise.resolve(clone(row));
+    },
+    recordReception: function (r) {
+      if (!r.ok && !String(r.action || '').trim()) return Promise.reject(new Error('Livraison non conforme : indiquez l’action (refus, avoir…)'));
+      var h = haccpData(), row = Object.assign({ id: 'rc_' + Date.now().toString(36), at: Date.now() }, r);
+      h.receptions.unshift(row); haccpSave(h); return Promise.resolve(clone(row));
+    }
+  };
+
   var margins = {
     load: function () { return Promise.resolve(clone(marginsData())); },
     saveIngredient: function (id, name, unit, cost) {
@@ -749,6 +842,7 @@
     forecast: forecast,
     expiry: expiry,
     margins: margins,
+    haccp: haccp,
     getTableServers: getTableServers,
     getTableServer: getTableServer,
     setTableServers: setTableServers,

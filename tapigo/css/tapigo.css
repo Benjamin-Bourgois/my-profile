@@ -948,3 +948,23 @@ button.table-badge:active { transform: scale(.96); }
 .recipe-opt__head > span { color: var(--ink-2); font-size: 13px; }
 .recipe-opt__cost { margin-left: auto; font-variant-numeric: tabular-nums; }
 .switch small.help { display: block; font-weight: 400; }
+
+/* ---------- Pack HACCP ---------- */
+.haccp { display: grid; gap: 16px; }
+.haccp-title { font-size: 22px; margin: 0 0 4px; }
+.haccp-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.haccp .date-list { display: grid; gap: 8px; margin-top: 10px; }
+.haccp-row .date-row__when b { font-variant-numeric: tabular-nums; text-transform: none; }
+.haccp-task { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.haccp-task:last-child { border-bottom: 0; }
+.haccp-task strong { display: block; font-size: 14px; }
+.haccp-task small { font-size: 12px; color: var(--muted); }
+.haccp-task__check { width: 36px; height: 36px; border-radius: 10px; border: 2px solid var(--line); background: #fff; font-size: 18px; font-weight: 700; color: #fff; cursor: pointer; }
+.haccp-task__check:hover { border-color: var(--ink-2); }
+.haccp-task.is-done .haccp-task__check { background: var(--ok, #3f7d4e); border-color: var(--ok, #3f7d4e); cursor: default; }
+.haccp-task.is-done strong { color: var(--ink-2); }
+.haccp-alert { margin: 0 0 8px; font-weight: 700; color: var(--danger); }
+.temp-input { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.temp-input input { height: 46px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; font: inherit; font-size: 20px; min-width: 0; }
+.temp-input .btn { height: 46px; padding: 0; font-size: 18px; }
+@media (max-width: 560px) { .haccp-row { grid-template-columns: 96px minmax(0, 1fr); } .haccp-row .date-row__actions { grid-column: 1 / -1; } }

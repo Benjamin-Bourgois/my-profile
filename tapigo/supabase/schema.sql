@@ -1723,6 +1723,291 @@ grant execute on function public.delete_ingredient(uuid, uuid) to authenticated;
 grant execute on function public.save_recipe(uuid, text, text, numeric, jsonb, numeric, jsonb) to authenticated;
 grant execute on function public.record_ingredient_prices(uuid, jsonb) to authenticated;
 
+-- ---------- Pack HACCP ----------
+-- Relevés de température des enceintes froides, plan de nettoyage, contrôles à
+-- réception. Saisis par l'équipe de chaque poste (avec ses initiales : la tablette est
+-- souvent partagée), réglés par le gérant, imprimés en registre pour un contrôle.
+create table if not exists public.haccp_equipment (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  station       text not null check (station in ('cuisine', 'bar')),
+  name          text not null check (length(name) between 1 and 60),
+  kind          text not null default 'positif' check (kind in ('positif', 'negatif', 'autre')),
+  min_temp      numeric(5, 1),
+  max_temp      numeric(5, 1),
+  active        boolean not null default true,
+  created_at    timestamptz not null default now()
+);
+create index if not exists haccp_equipment_idx on public.haccp_equipment (restaurant_id, active);
+
+create table if not exists public.haccp_readings (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  equipment_id  uuid not null references public.haccp_equipment (id) on delete cascade,
+  station       text not null check (station in ('cuisine', 'bar')),
+  temp          numeric(5, 1) not null,
+  ok            boolean not null,
+  action        text not null default '' check (length(action) <= 200),
+  by_name       text not null check (length(by_name) between 1 and 40),
+  by_user       uuid references auth.users (id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+create index if not exists haccp_readings_idx on public.haccp_readings (restaurant_id, created_at desc);
+
+create table if not exists public.haccp_tasks (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  station       text not null check (station in ('cuisine', 'bar')),
+  label         text not null check (length(label) between 1 and 80),
+  frequency     text not null default 'jour' check (frequency in ('jour', 'semaine', 'mois')),
+  active        boolean not null default true,
+  created_at    timestamptz not null default now()
+);
+create index if not exists haccp_tasks_idx on public.haccp_tasks (restaurant_id, active);
+
+create table if not exists public.haccp_cleanings (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  task_id       uuid not null references public.haccp_tasks (id) on delete cascade,
+  station       text not null check (station in ('cuisine', 'bar')),
+  note          text not null default '' check (length(note) <= 200),
+  by_name       text not null check (length(by_name) between 1 and 40),
+  by_user       uuid references auth.users (id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+create index if not exists haccp_cleanings_idx on public.haccp_cleanings (restaurant_id, created_at desc);
+
+create table if not exists public.haccp_receptions (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  station       text not null check (station in ('cuisine', 'bar')),
+  supplier      text not null default '' check (length(supplier) <= 80),
+  product       text not null check (length(product) between 1 and 120),
+  temp          numeric(5, 1),
+  ok            boolean not null,
+  action        text not null default '' check (length(action) <= 200),
+  by_name       text not null check (length(by_name) between 1 and 40),
+  by_user       uuid references auth.users (id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+create index if not exists haccp_receptions_idx on public.haccp_receptions (restaurant_id, created_at desc);
+
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['haccp_equipment', 'haccp_readings', 'haccp_tasks', 'haccp_cleanings', 'haccp_receptions'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists "HACCP visible par le poste concerné" on public.%I', t);
+    execute format('create policy "HACCP visible par le poste concerné" on public.%I for select using (public.member_station(restaurant_id) in (''all'', station))', t);
+    execute format('revoke all on public.%I from anon', t);
+    execute format('revoke insert, update, delete on public.%I from authenticated', t);
+    execute format('grant select on public.%I to authenticated', t);
+  end loop;
+end $$;
+
+-- Contrôle commun : membre du restaurant, autorisé sur ce poste.
+create or replace function public.haccp_check_station(p_restaurant uuid, p_station text)
+returns void
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if public.member_station(p_restaurant) is null then raise exception 'Accès refusé'; end if;
+  if p_station not in ('cuisine', 'bar') then raise exception 'Choisissez cuisine ou bar'; end if;
+  if public.member_station(p_restaurant) not in ('all', p_station) then
+    raise exception 'Votre compte ne gère que le poste %', public.member_station(p_restaurant);
+  end if;
+end;
+$$;
+
+-- Gérant : ajouter ou modifier une enceinte froide (frigo, congélateur, chambre froide…).
+create or replace function public.haccp_save_equipment(p_restaurant uuid, p_id uuid, p_station text, p_name text,
+                                                       p_kind text, p_min numeric, p_max numeric)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_row public.haccp_equipment;
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  if p_station not in ('cuisine', 'bar') then raise exception 'Choisissez cuisine ou bar'; end if;
+  if btrim(coalesce(p_name, '')) = '' then raise exception 'Indiquez le nom de l''appareil'; end if;
+  if p_kind not in ('positif', 'negatif', 'autre') then raise exception 'Type invalide'; end if;
+  if p_min is null and p_max is null then raise exception 'Indiquez au moins une température limite'; end if;
+  if (p_min is not null and (p_min < -60 or p_min > 100)) or (p_max is not null and (p_max < -60 or p_max > 100))
+     or (p_min is not null and p_max is not null and p_min > p_max) then
+    raise exception 'Températures limites invalides';
+  end if;
+  if p_id is null then
+    insert into public.haccp_equipment (restaurant_id, station, name, kind, min_temp, max_temp)
+    values (p_restaurant, p_station, left(btrim(p_name), 60), p_kind, p_min, p_max) returning * into v_row;
+  else
+    update public.haccp_equipment set station = p_station, name = left(btrim(p_name), 60), kind = p_kind, min_temp = p_min, max_temp = p_max
+    where id = p_id and restaurant_id = p_restaurant returning * into v_row;
+    if not found then raise exception 'Appareil introuvable'; end if;
+  end if;
+  return to_jsonb(v_row);
+end;
+$$;
+
+-- Gérant : ajouter ou modifier une tâche du plan de nettoyage.
+create or replace function public.haccp_save_task(p_restaurant uuid, p_id uuid, p_station text, p_label text, p_frequency text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_row public.haccp_tasks;
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  if p_station not in ('cuisine', 'bar') then raise exception 'Choisissez cuisine ou bar'; end if;
+  if btrim(coalesce(p_label, '')) = '' then raise exception 'Indiquez la tâche'; end if;
+  if p_frequency not in ('jour', 'semaine', 'mois') then raise exception 'Fréquence invalide'; end if;
+  if p_id is null then
+    insert into public.haccp_tasks (restaurant_id, station, label, frequency)
+    values (p_restaurant, p_station, left(btrim(p_label), 80), p_frequency) returning * into v_row;
+  else
+    update public.haccp_tasks set station = p_station, label = left(btrim(p_label), 80), frequency = p_frequency
+    where id = p_id and restaurant_id = p_restaurant returning * into v_row;
+    if not found then raise exception 'Tâche introuvable'; end if;
+  end if;
+  return to_jsonb(v_row);
+end;
+$$;
+
+-- Gérant : retirer un appareil ou une tâche. L'historique reste dans le registre.
+create or replace function public.haccp_archive(p_restaurant uuid, p_kind text, p_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  if p_kind = 'equipment' then
+    update public.haccp_equipment set active = false where id = p_id and restaurant_id = p_restaurant;
+  elsif p_kind = 'task' then
+    update public.haccp_tasks set active = false where id = p_id and restaurant_id = p_restaurant;
+  else
+    raise exception 'Type invalide';
+  end if;
+end;
+$$;
+
+-- Gérant : plan type pour démarrer (seulement si rien n'est encore réglé).
+create or replace function public.haccp_seed(p_restaurant uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  if not exists (select 1 from public.haccp_equipment where restaurant_id = p_restaurant) then
+    insert into public.haccp_equipment (restaurant_id, station, name, kind, min_temp, max_temp) values
+      (p_restaurant, 'cuisine', 'Réfrigérateur cuisine', 'positif', 0, 4),
+      (p_restaurant, 'cuisine', 'Congélateur cuisine', 'negatif', null, -18),
+      (p_restaurant, 'bar', 'Réfrigérateur bar', 'positif', 0, 4);
+  end if;
+  if not exists (select 1 from public.haccp_tasks where restaurant_id = p_restaurant) then
+    insert into public.haccp_tasks (restaurant_id, station, label, frequency) values
+      (p_restaurant, 'cuisine', 'Plans de travail et planches désinfectés', 'jour'),
+      (p_restaurant, 'cuisine', 'Sols de la cuisine lavés', 'jour'),
+      (p_restaurant, 'cuisine', 'Poignées, interrupteurs et lave-mains', 'jour'),
+      (p_restaurant, 'cuisine', 'Trancheuse et petit matériel démontés et lavés', 'jour'),
+      (p_restaurant, 'cuisine', 'Poubelles vidées et lavées', 'jour'),
+      (p_restaurant, 'cuisine', 'Réfrigérateurs vidés et nettoyés à l''intérieur', 'semaine'),
+      (p_restaurant, 'cuisine', 'Filtres de la hotte dégraissés', 'semaine'),
+      (p_restaurant, 'cuisine', 'Four et plaques décapés', 'semaine'),
+      (p_restaurant, 'cuisine', 'Congélateur dégivré et nettoyé', 'mois'),
+      (p_restaurant, 'cuisine', 'Murs, plafonds et réserves', 'mois'),
+      (p_restaurant, 'bar', 'Comptoir, tireuse et becs verseurs', 'jour'),
+      (p_restaurant, 'bar', 'Machine à café purgée et nettoyée', 'jour'),
+      (p_restaurant, 'bar', 'Machine à glaçons et bac nettoyés', 'semaine'),
+      (p_restaurant, 'bar', 'Lignes de bière nettoyées', 'semaine'),
+      (p_restaurant, 'bar', 'Réfrigérateurs du bar nettoyés', 'semaine');
+  end if;
+end;
+$$;
+
+-- Équipe : relevé de température. Hors limites, l'action corrective est obligatoire.
+create or replace function public.haccp_record_temp(p_restaurant uuid, p_equipment uuid, p_temp numeric, p_action text, p_by text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_eq  public.haccp_equipment;
+  v_ok  boolean;
+  v_row public.haccp_readings;
+begin
+  select * into v_eq from public.haccp_equipment where id = p_equipment and restaurant_id = p_restaurant and active;
+  if not found then raise exception 'Appareil introuvable'; end if;
+  perform public.haccp_check_station(p_restaurant, v_eq.station);
+  if p_temp is null or p_temp < -60 or p_temp > 100 then raise exception 'Température invalide'; end if;
+  if btrim(coalesce(p_by, '')) = '' then raise exception 'Indiquez vos initiales'; end if;
+  v_ok := (v_eq.min_temp is null or p_temp >= v_eq.min_temp) and (v_eq.max_temp is null or p_temp <= v_eq.max_temp);
+  if not v_ok and btrim(coalesce(p_action, '')) = '' then raise exception 'Température hors limites : indiquez l''action corrective'; end if;
+  insert into public.haccp_readings (restaurant_id, equipment_id, station, temp, ok, action, by_name, by_user)
+  values (p_restaurant, p_equipment, v_eq.station, round(p_temp, 1), v_ok, left(btrim(coalesce(p_action, '')), 200), left(btrim(p_by), 40), auth.uid())
+  returning * into v_row;
+  return to_jsonb(v_row);
+end;
+$$;
+
+-- Équipe : tâche de nettoyage faite.
+create or replace function public.haccp_mark_clean(p_restaurant uuid, p_task uuid, p_note text, p_by text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_task public.haccp_tasks;
+  v_row  public.haccp_cleanings;
+begin
+  select * into v_task from public.haccp_tasks where id = p_task and restaurant_id = p_restaurant and active;
+  if not found then raise exception 'Tâche introuvable'; end if;
+  perform public.haccp_check_station(p_restaurant, v_task.station);
+  if btrim(coalesce(p_by, '')) = '' then raise exception 'Indiquez vos initiales'; end if;
+  insert into public.haccp_cleanings (restaurant_id, task_id, station, note, by_name, by_user)
+  values (p_restaurant, p_task, v_task.station, left(btrim(coalesce(p_note, '')), 200), left(btrim(p_by), 40), auth.uid())
+  returning * into v_row;
+  return to_jsonb(v_row);
+end;
+$$;
+
+-- Équipe : contrôle d'une livraison à réception. Non conforme : action obligatoire.
+create or replace function public.haccp_record_reception(p_restaurant uuid, p_station text, p_supplier text, p_product text,
+                                                         p_temp numeric, p_ok boolean, p_action text, p_by text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_row public.haccp_receptions;
+begin
+  perform public.haccp_check_station(p_restaurant, p_station);
+  if btrim(coalesce(p_product, '')) = '' then raise exception 'Indiquez les produits contrôlés'; end if;
+  if p_temp is not null and (p_temp < -60 or p_temp > 100) then raise exception 'Température invalide'; end if;
+  if p_ok is null then raise exception 'Indiquez si la livraison est conforme'; end if;
+  if not p_ok and btrim(coalesce(p_action, '')) = '' then raise exception 'Livraison non conforme : indiquez l''action (refus, avoir…)'; end if;
+  if btrim(coalesce(p_by, '')) = '' then raise exception 'Indiquez vos initiales'; end if;
+  insert into public.haccp_receptions (restaurant_id, station, supplier, product, temp, ok, action, by_name, by_user)
+  values (p_restaurant, p_station, left(btrim(coalesce(p_supplier, '')), 80), left(btrim(p_product), 120),
+          round(p_temp, 1), p_ok, left(btrim(coalesce(p_action, '')), 200), left(btrim(p_by), 40), auth.uid())
+  returning * into v_row;
+  return to_jsonb(v_row);
+end;
+$$;
+
+revoke all on function public.haccp_check_station(uuid, text) from public;
+revoke all on function public.haccp_save_equipment(uuid, uuid, text, text, text, numeric, numeric) from public;
+revoke all on function public.haccp_save_task(uuid, uuid, text, text, text) from public;
+revoke all on function public.haccp_archive(uuid, text, uuid) from public;
+revoke all on function public.haccp_seed(uuid) from public;
+revoke all on function public.haccp_record_temp(uuid, uuid, numeric, text, text) from public;
+revoke all on function public.haccp_mark_clean(uuid, uuid, text, text) from public;
+revoke all on function public.haccp_record_reception(uuid, text, text, text, numeric, boolean, text, text) from public;
+grant execute on function public.haccp_save_equipment(uuid, uuid, text, text, text, numeric, numeric) to authenticated;
+grant execute on function public.haccp_save_task(uuid, uuid, text, text, text) to authenticated;
+grant execute on function public.haccp_archive(uuid, text, uuid) to authenticated;
+grant execute on function public.haccp_seed(uuid) to authenticated;
+grant execute on function public.haccp_record_temp(uuid, uuid, numeric, text, text) to authenticated;
+grant execute on function public.haccp_mark_clean(uuid, uuid, text, text) to authenticated;
+grant execute on function public.haccp_record_reception(uuid, text, text, text, numeric, boolean, text, text) to authenticated;
+
 -- ---------- Temps réel ----------
 do $$
 begin

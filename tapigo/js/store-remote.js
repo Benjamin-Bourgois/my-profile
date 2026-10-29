@@ -804,6 +804,54 @@
     recordPrices: function (lines) { return rpc('record_ingredient_prices', { p_restaurant: current.id, p_lines: lines }); }
   };
 
+  /* ---------------- Pack HACCP ---------------- */
+  // Le poste du compte filtre côté base (un compte « bar » ne voit que le bar).
+  function haccpRow(x) {
+    var n = function (v) { return v == null ? null : Number(v); };
+    return {
+      id: x.id, station: x.station, name: x.name, kind: x.kind, min: n(x.min_temp), max: n(x.max_temp), active: x.active,
+      label: x.label, frequency: x.frequency, equipmentId: x.equipment_id, taskId: x.task_id, temp: n(x.temp), ok: x.ok,
+      action: x.action, note: x.note, supplier: x.supplier, product: x.product, by: x.by_name,
+      at: x.created_at ? Date.parse(x.created_at) : null
+    };
+  }
+  T.haccp = {
+    // Appareils et tâches (y compris retirés, pour le registre) + saisies depuis `since` (ms) jusqu'à `until` (ms, facultatif).
+    load: function (since, until) {
+      var from = new Date(since).toISOString(), to = until ? new Date(until).toISOString() : null;
+      var all = function (t) { return sb.from(t).select('*').eq('restaurant_id', current.id).order('created_at'); };
+      var log = function (t) {
+        var q = sb.from(t).select('*').eq('restaurant_id', current.id).gte('created_at', from);
+        if (to) q = q.lt('created_at', to);
+        return q.order('created_at', { ascending: false }).limit(5000);
+      };
+      return Promise.all([all('haccp_equipment'), all('haccp_tasks'), log('haccp_readings'), log('haccp_cleanings'), log('haccp_receptions')]).then(function (r) {
+        var bad = r.filter(function (x) { return x.error; })[0];
+        if (bad) throw new Error(/haccp_/.test(bad.error.message) ? 'Relancez supabase/schema.sql pour activer le pack HACCP.' : bad.error.message);
+        var m = function (i) { return r[i].data.map(haccpRow); };
+        return { equipment: m(0), tasks: m(1), readings: m(2), cleanings: m(3), receptions: m(4) };
+      });
+    },
+    seed: function () { return rpc('haccp_seed', { p_restaurant: current.id }); },
+    saveEquipment: function (e) {
+      return rpc('haccp_save_equipment', { p_restaurant: current.id, p_id: e.id || null, p_station: e.station, p_name: e.name, p_kind: e.kind, p_min: e.min, p_max: e.max });
+    },
+    saveTask: function (t) {
+      return rpc('haccp_save_task', { p_restaurant: current.id, p_id: t.id || null, p_station: t.station, p_label: t.label, p_frequency: t.frequency });
+    },
+    archive: function (kind, id) { return rpc('haccp_archive', { p_restaurant: current.id, p_kind: kind, p_id: id }); },
+    recordTemp: function (equipmentId, temp, action, by) {
+      return rpc('haccp_record_temp', { p_restaurant: current.id, p_equipment: equipmentId, p_temp: temp, p_action: action || '', p_by: by }).then(haccpRow);
+    },
+    markClean: function (taskId, note, by) {
+      return rpc('haccp_mark_clean', { p_restaurant: current.id, p_task: taskId, p_note: note || '', p_by: by }).then(haccpRow);
+    },
+    recordReception: function (r) {
+      return rpc('haccp_record_reception', { p_restaurant: current.id, p_station: r.station, p_supplier: r.supplier || '', p_product: r.product,
+        p_temp: r.temp, p_ok: r.ok, p_action: r.action || '', p_by: r.by }).then(haccpRow);
+    }
+  };
+
   /* ---------------- Administration Tapigo ---------------- */
   function rpc(name, args) {
     return sb.rpc(name, args || {}).then(function (r) {
