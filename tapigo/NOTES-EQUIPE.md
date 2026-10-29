@@ -71,6 +71,9 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **29/10/2026 · Benjamin** : « Utilisé » / « Jeté » avec quantité, unité et motif (`move_expiry`, table
+  `expiry_moves`, lots `amount` + `unit`) et « Bilan des pertes » dans l'onglet Dates. À faire une fois : relancer
+  `supabase/schema.sql`. Fichiers en `?v=27`.
 - **29/10/2026 · Benjamin** : lots datés reliés au stock : `expiry_items.portions`, déclencheur `expiry_follow_stock`
   sur `item_stock` (décompte FEFO à chaque baisse de stock), lot jeté retiré du stock. À faire une fois : relancer
   `supabase/schema.sql`. Fichiers en `?v=26`.

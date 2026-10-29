@@ -1205,6 +1205,40 @@ create index if not exists expiry_items_open_idx on public.expiry_items (restaur
 -- seules par les commandes (le lot qui périme le premier part en premier).
 -- null = lot non suivi en portions (ingrédient, produit hors carte).
 alter table public.expiry_items add column if not exists portions int;
+-- Quantité restante d'un lot hors carte (ingrédient), avec son unité.
+alter table public.expiry_items add column if not exists amount numeric(12, 3);
+alter table public.expiry_items add column if not exists unit text;
+do $$
+begin
+  alter table public.expiry_items add constraint expiry_items_unit_check check (unit is null or unit in ('portion', 'piece', 'g', 'kg', 'cl', 'l'));
+exception when duplicate_object then null;
+end $$;
+
+-- Sorties de lots datés saisies par l'équipe : utilisé ou jeté, avec la quantité et,
+-- pour une perte, le motif. Sert au bilan des pertes matières.
+create table if not exists public.expiry_moves (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  expiry_id     uuid references public.expiry_items (id) on delete set null,
+  station       text not null check (station in ('cuisine', 'bar')),
+  label         text not null,
+  item_id       text,
+  kind          text not null check (kind in ('utilise', 'jete')),
+  amount        numeric(12, 3) not null check (amount > 0),
+  unit          text not null check (unit in ('portion', 'piece', 'g', 'kg', 'cl', 'l')),
+  value         numeric(10, 2), -- produit de la carte : portions × prix de vente
+  reason        text not null default '' check (length(reason) <= 60),
+  created_by    uuid references auth.users (id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+create index if not exists expiry_moves_idx on public.expiry_moves (restaurant_id, created_at desc);
+alter table public.expiry_moves enable row level security;
+drop policy if exists "Sorties visibles par le poste concerné" on public.expiry_moves;
+create policy "Sorties visibles par le poste concerné" on public.expiry_moves
+  for select using (public.member_station(restaurant_id) in ('all', station));
+revoke all on public.expiry_moves from anon;
+revoke insert, update, delete on public.expiry_moves from authenticated;
+grant select on public.expiry_moves to authenticated;
 do $$
 begin
   alter table public.expiry_items add constraint expiry_items_portions_check check (portions is null or portions >= 0);
@@ -1219,9 +1253,10 @@ revoke insert, update, delete on public.expiry_items from authenticated;
 grant select on public.expiry_items to authenticated;
 
 drop function if exists public.add_expiry(uuid, text, text, text, text, date, text, text);
+drop function if exists public.add_expiry(uuid, text, text, text, text, date, text, text, int);
 create or replace function public.add_expiry(p_restaurant uuid, p_station text, p_label text, p_item text,
                                              p_kind text, p_date date, p_quantity text default '', p_note text default '',
-                                             p_portions int default null)
+                                             p_portions int default null, p_amount numeric default null, p_unit text default null)
 returns jsonb
 language plpgsql security definer set search_path = public
 as $$
@@ -1237,10 +1272,17 @@ begin
   if p_kind not in ('dlc', 'ddm') then raise exception 'Type de date invalide'; end if;
   if p_date is null or p_date < current_date - 365 or p_date > current_date + 3650 then raise exception 'Date invalide'; end if;
   if p_portions is not null and (p_portions < 1 or p_portions > 100000) then raise exception 'Nombre de portions invalide'; end if;
-  insert into public.expiry_items (restaurant_id, station, label, item_id, kind, expires_on, quantity, note, created_by, portions)
+  if p_amount is not null and (p_amount <= 0 or p_amount > 1000000 or p_unit is null
+                               or p_unit not in ('portion', 'piece', 'g', 'kg', 'cl', 'l')) then
+    raise exception 'Quantité invalide';
+  end if;
+  insert into public.expiry_items (restaurant_id, station, label, item_id, kind, expires_on, quantity, note, created_by, portions, amount, unit)
   values (p_restaurant, p_station, left(btrim(p_label), 80), nullif(left(coalesce(p_item, ''), 60), ''), p_kind, p_date,
           left(btrim(coalesce(p_quantity, '')), 30), left(btrim(coalesce(p_note, '')), 140), auth.uid(),
-          case when nullif(btrim(coalesce(p_item, '')), '') is not null then p_portions end)
+          case when nullif(btrim(coalesce(p_item, '')), '') is not null then p_portions end,
+          case when p_portions is null or nullif(btrim(coalesce(p_item, '')), '') is null then p_amount end,
+          case when p_portions is not null and nullif(btrim(coalesce(p_item, '')), '') is not null then 'portion'
+               when p_amount is not null then p_unit end)
   returning * into v_row;
   return to_jsonb(v_row);
 end;
@@ -1274,10 +1316,102 @@ begin
 end;
 $$;
 revoke all on function public.member_station(uuid) from public;
-revoke all on function public.add_expiry(uuid, text, text, text, text, date, text, text, int) from public;
+revoke all on function public.add_expiry(uuid, text, text, text, text, date, text, text, int, numeric, text) from public;
 revoke all on function public.close_expiry(uuid, text) from public;
 grant execute on function public.member_station(uuid) to authenticated;
-grant execute on function public.add_expiry(uuid, text, text, text, text, date, text, text, int) to authenticated;
+grant execute on function public.add_expiry(uuid, text, text, text, text, date, text, text, int, numeric, text) to authenticated;
+
+-- Conversion vers l'unité de base d'une famille : g, cl, portion ou pièce.
+create or replace function public.unit_base(p_amount numeric, p_unit text)
+returns numeric
+language sql immutable set search_path = public
+as $$
+  select case p_unit when 'kg' then p_amount * 1000 when 'l' then p_amount * 100 else p_amount end;
+$$;
+create or replace function public.unit_family(p_unit text)
+returns text
+language sql immutable set search_path = public
+as $$
+  select case when p_unit in ('g', 'kg') then 'masse' when p_unit in ('cl', 'l') then 'volume' else p_unit end;
+$$;
+
+-- L'équipe sort une quantité d'un lot : 'utilise' ou 'jete' (avec un motif).
+-- Lot d'un produit de la carte : en portions ; une perte retire aussi les portions du stock.
+-- Ingrédient : dans son unité (g / kg, cl / L, pièces). p_all : sortir tout ce qui reste.
+-- Le lot se ferme quand il est vide.
+create or replace function public.move_expiry(p_id uuid, p_kind text, p_amount numeric, p_unit text,
+                                              p_reason text default '', p_all boolean default false)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_row    public.expiry_items;
+  v_amount numeric := p_amount;
+  v_unit   text := p_unit;
+  v_left   numeric;
+  v_price  numeric;
+  v_value  numeric;
+begin
+  select * into v_row from public.expiry_items where id = p_id for update;
+  if not found or public.member_station(v_row.restaurant_id) is null
+     or public.member_station(v_row.restaurant_id) not in ('all', v_row.station) then
+    raise exception 'Accès refusé';
+  end if;
+  if v_row.status <> 'actif' then raise exception 'Ce lot est déjà clos.'; end if;
+  if p_kind not in ('utilise', 'jete') then raise exception 'Choix invalide'; end if;
+
+  if v_row.portions is not null then
+    -- Produit de la carte, suivi en portions.
+    v_unit := 'portion';
+    if coalesce(p_all, false) then v_amount := v_row.portions; end if;
+    v_amount := round(coalesce(v_amount, 0));
+    if v_amount < 1 then raise exception 'Indiquez le nombre de portions'; end if;
+    if v_amount > v_row.portions then raise exception 'Il ne reste que % portion(s) dans ce lot', v_row.portions; end if;
+    update public.expiry_items
+    set portions = portions - v_amount,
+        status = case when portions - v_amount = 0 then p_kind else status end,
+        closed_at = case when portions - v_amount = 0 then now() else closed_at end,
+        closed_by = case when portions - v_amount = 0 then auth.uid() else closed_by end
+    where id = p_id;
+    if p_kind = 'jete' then
+      update public.item_stock set quantity = greatest(quantity - v_amount::int, 0), updated_at = now()
+      where restaurant_id = v_row.restaurant_id and item_id = v_row.item_id;
+    end if;
+    select (x ->> 'price')::numeric into v_price
+    from public.restaurants r, jsonb_array_elements(r.menu -> 'items') x
+    where r.id = v_row.restaurant_id and x ->> 'id' = v_row.item_id;
+    v_value := case when v_price is not null then round(v_price * v_amount, 2) end;
+  else
+    -- Ingrédient : quantité dans son unité.
+    if coalesce(p_all, false) and v_row.amount is not null then v_amount := v_row.amount; v_unit := v_row.unit; end if;
+    if v_amount is null or v_amount <= 0 or v_amount > 1000000 then raise exception 'Indiquez la quantité'; end if;
+    if v_unit is null or v_unit not in ('portion', 'piece', 'g', 'kg', 'cl', 'l') then raise exception 'Unité invalide'; end if;
+    if v_row.amount is not null then
+      if public.unit_family(v_unit) <> public.unit_family(v_row.unit) then
+        raise exception 'Ce lot se compte en %', v_row.unit;
+      end if;
+      v_left := public.unit_base(v_row.amount, v_row.unit) - public.unit_base(v_amount, v_unit);
+      if v_left < -0.0005 then raise exception 'Il ne reste que % % dans ce lot', v_row.amount, v_row.unit; end if;
+      v_left := greatest(v_left, 0) / public.unit_base(1, v_row.unit);
+      update public.expiry_items
+      set amount = v_left,
+          status = case when v_left = 0 or coalesce(p_all, false) then p_kind else status end,
+          closed_at = case when v_left = 0 or coalesce(p_all, false) then now() else closed_at end,
+          closed_by = case when v_left = 0 or coalesce(p_all, false) then auth.uid() else closed_by end
+      where id = p_id;
+    elsif coalesce(p_all, false) then
+      update public.expiry_items set status = p_kind, closed_at = now(), closed_by = auth.uid() where id = p_id;
+    end if;
+  end if;
+
+  insert into public.expiry_moves (restaurant_id, expiry_id, station, label, item_id, kind, amount, unit, value, reason, created_by)
+  values (v_row.restaurant_id, p_id, v_row.station, v_row.label, v_row.item_id, p_kind, v_amount, v_unit, v_value,
+          case when p_kind = 'jete' then left(btrim(coalesce(p_reason, '')), 60) else '' end, auth.uid());
+  return (select to_jsonb(e) from public.expiry_items e where id = p_id);
+end;
+$$;
+revoke all on function public.move_expiry(uuid, text, numeric, text, text, boolean) from public;
+grant execute on function public.move_expiry(uuid, text, numeric, text, text, boolean) to authenticated;
 
 -- Le stock d'un produit baisse (commande, saisie, « Épuisé », lot jeté) : les lots datés
 -- de ce produit sont décomptés d'autant, le plus proche de sa date d'abord. Un lot à 0
@@ -1322,6 +1456,11 @@ grant execute on function public.close_expiry(uuid, text) to authenticated;
 do $$
 begin
   alter publication supabase_realtime add table public.expiry_items;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table public.expiry_moves;
 exception when duplicate_object then null;
 end $$;
 

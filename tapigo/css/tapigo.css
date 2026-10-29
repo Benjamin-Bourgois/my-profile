@@ -910,3 +910,9 @@ button.table-badge:active { transform: scale(.96); }
 .label-scan { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .label-scan .btn { cursor: pointer; }
 .scan-row select[data-dated-station] { min-width: 0; height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; font: inherit; font-size: 14px; }
+.qty-unit { display: grid; grid-template-columns: minmax(0, 1fr) 110px; gap: 8px; }
+.qty-unit select { height: 46px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; font: inherit; }
+.loss-reasons { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.loss-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.loss-table th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 700; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.loss-table td { padding: 10px; border-bottom: 1px solid var(--line); }

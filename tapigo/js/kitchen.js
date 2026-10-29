@@ -1271,7 +1271,8 @@
       var station = zone !== 'all' ? zone : (l.station || (item && item.station === 'bar' ? 'bar' : 'cuisine'));
       return { on: true, label: item ? item.name : l.label, itemId: l.item_id || null, kind: l.date_kind || 'dlc', expiresOn: l.expires_on,
         quantity: l.quantity_text || '', note: l.lot ? 'Lot ' + l.lot : '', station: station,
-        portions: item && l.quantity > 0 ? l.quantity : null }; // décomptées ensuite par les commandes
+        portions: item && l.quantity > 0 ? l.quantity : null, // décomptées ensuite par les commandes
+        amount: item ? null : (parseQty(l.quantity_text) || {}).amount || null, unit: item ? null : (parseQty(l.quantity_text) || {}).unit || null };
     });
   }
 
@@ -1403,9 +1404,34 @@
      Dates limites (DLC / DDM) — cuisine et bar, chacun voit son poste ;
      le gérant voit tout.
      ====================================================================== */
-  var dates = { zone: 'all' };
+  var dates = { zone: 'all', view: 'list', lossDays: 'month', moves: null, movesErr: '' };
   var ZONE = { cuisine: 'Cuisine', bar: 'Bar' };
   var KIND = { dlc: 'DLC', ddm: 'DDM / DLUO' };
+  var UNITS = { portion: 'portions', piece: 'pièces', g: 'g', kg: 'kg', cl: 'cl', l: 'L' };
+  var LOSS_REASONS = ['Date dépassée', 'Abîmé / mauvais état', 'Erreur de préparation', 'Retour client', 'Autre'];
+
+  function qtyText(n, unit) {
+    var v = Math.round(n * 1000) / 1000;
+    var txt = String(v).replace('.', ',');
+    if (unit === 'portion') return txt + ' portion' + (v > 1 ? 's' : '');
+    if (unit === 'piece') return txt + ' pièce' + (v > 1 ? 's' : '');
+    return txt + ' ' + UNITS[unit];
+  }
+  // Unités proposées pour un lot : celles de sa famille (masse, volume) ou toutes.
+  function unitChoices(x) {
+    if (x.portions != null) return ['portion'];
+    if (x.unit === 'g' || x.unit === 'kg') return ['g', 'kg'];
+    if (x.unit === 'cl' || x.unit === 'l') return ['cl', 'l'];
+    if (x.unit) return [x.unit];
+    return ['piece', 'g', 'kg', 'cl', 'l'];
+  }
+  // « 1 L », « 4 × 125 g », « 2,5 kg » -> { amount, unit } (étiquette lue par l'IA).
+  function parseQty(t) {
+    var m = /(\d+(?:[.,]\d+)?)\s*(kg|g|cl|l)\b/i.exec(String(t || ''));
+    if (m) return { amount: parseFloat(m[1].replace(',', '.')), unit: m[2].toLowerCase() };
+    m = /(\d+)\s*(pi[eè]ces?|unit[eé]s?|bouteilles?|canettes?)/i.exec(String(t || ''));
+    return m ? { amount: +m[1], unit: 'piece' } : null;
+  }
 
   function todayISO(offset) {
     var d = new Date(); d.setDate(d.getDate() + (offset || 0));
@@ -1439,18 +1465,20 @@
       '<div class="date-row__name"><strong>' + esc(x.label) + '</strong>' +
         '<span><span class="badge ' + (x.kind === 'dlc' ? 'badge--danger' : 'badge--info') + '">' + KIND[x.kind] + '</span> ' +
         (myZone() === 'all' ? '<span class="badge">' + ZONE[x.station] + '</span> ' : '') +
-        (x.portions != null ? '<strong>reste ' + x.portions + ' portion' + (x.portions > 1 ? 's' : '') + '</strong> · décompté par les commandes'
+        (x.portions != null ? '<strong>reste ' + qtyText(x.portions, 'portion') + '</strong> · décompté par les commandes'
+          : x.amount != null ? '<strong>reste ' + qtyText(x.amount, x.unit) + '</strong>'
           : (x.quantity ? esc(x.quantity) : '')) +
         (x.note ? ' · ' + esc(x.note) : '') + '</span></div>' +
       '<div class="date-row__actions">' +
         // Lot rattaché à un produit de la carte : il se vide tout seul avec les commandes.
-        (x.portions != null ? '' : '<button class="btn btn--soft btn--sm" type="button" data-exp-done="utilise">Utilisé</button>') +
-        '<button class="btn btn--danger btn--sm" type="button" data-exp-done="jete">Jeté</button>' +
+        (x.portions != null ? '' : '<button class="btn btn--soft btn--sm" type="button" data-exp-move="utilise">Utilisé</button>') +
+        '<button class="btn btn--danger btn--sm" type="button" data-exp-move="jete">Jeté</button>' +
         '<button class="icon-btn" type="button" data-exp-done="supprime" aria-label="Supprimer (saisie par erreur)" title="Supprimer (saisie par erreur)">' + I.trash + '</button>' +
       '</div></div>';
   }
 
   function renderDates() {
+    if (dates.view === 'losses') return renderLosses();
     var view = $('#datesView');
     var list = T.expiry && T.expiry.list();
     if (list === null) {
@@ -1481,6 +1509,7 @@
           : '<span class="badge badge--info">Poste : ' + ZONE[zone] + '</span>') +
         '<div class="k-top__spacer"></div>' +
         (LIVE && T.expiry.team && T.currentRestaurant().role !== 'equipe' ? '<button class="btn btn--ghost btn--sm" type="button" data-exp-team>Postes de l’équipe</button>' : '') +
+        (T.expiry.moves ? '<button class="btn btn--ghost btn--sm" type="button" data-losses>Bilan des pertes</button>' : '') +
         '<button class="btn btn--primary btn--sm" type="button" data-exp-add>+ Ajouter un produit daté</button>' +
       '</div>' +
       '<div class="stat-tiles">' +
@@ -1497,6 +1526,145 @@
         '<strong>DDM / DLUO</strong> (« à consommer de préférence avant ») : le produit reste consommable après, mais sa qualité n’est plus garantie. ' +
         'Pensez à dater aussi les produits ouverts (sauces, lait, bouteilles entamées). ' +
         'Un lot rattaché à un produit de la carte se décompte tout seul à chaque commande, le plus proche de sa date d’abord.</p>' +
+    '</div>';
+  }
+
+  /* ---------------- Utilisé / Jeté : quantité et motif ---------------- */
+  function openMove(x, kind) {
+    var units = unitChoices(x);
+    var left = x.portions != null ? x.portions : x.amount;
+    var leftUnit = x.portions != null ? 'portion' : x.unit;
+    UI.openSheet({
+      label: kind === 'jete' ? 'Perte' : 'Utilisé',
+      head: '<p class="eyebrow">' + esc(x.label) + '</p><h2>' + (kind === 'jete' ? 'Déclarer une perte' : 'Quantité utilisée') + '</h2>',
+      body: '<form id="moveForm" class="form-grid" novalidate>' +
+        (left != null ? '<p class="help span-2">Reste dans ce lot : <strong>' + qtyText(left, leftUnit) + '</strong>' +
+          (x.portions != null && kind === 'jete' ? ' · les portions jetées sortent aussi du stock' : '') + '</p>' : '') +
+        '<label class="field"><span>Quantité</span><input name="amount" type="number" min="0" step="any" inputmode="decimal" placeholder="Ex : 250" autofocus></label>' +
+        '<label class="field"><span>Unité</span><select name="unit">' + units.map(function (u) {
+          return '<option value="' + u + '"' + (u === leftUnit ? ' selected' : '') + '>' + UNITS[u] + '</option>';
+        }).join('') + '</select></label>' +
+        '<label class="check-line span-2"><input type="checkbox" name="all"><span>' + (left != null ? 'Tout ce qui reste (' + qtyText(left, leftUnit) + ')' : 'Le lot est terminé (le retirer de la liste)') + '</span></label>' +
+        (kind === 'jete'
+          ? '<div class="span-2"><p class="help" style="margin-bottom:6px">Motif</p><div class="tip-chips onsite-chips loss-reasons">' + LOSS_REASONS.map(function (r, i) {
+              return '<button type="button" class="tip-chip' + (i === 0 ? ' is-on' : '') + '" data-reason="' + esc(r) + '"><b>' + esc(r) + '</b></button>';
+            }).join('') + '</div></div>'
+          : '') +
+      '</form>',
+      footer: '<button class="btn ' + (kind === 'jete' ? 'btn--danger' : 'btn--primary') + '" type="submit" form="moveForm">' + (kind === 'jete' ? 'Enregistrer la perte' : 'Enregistrer') + '</button>',
+      onMount: function (sheet) {
+        var form = $('#moveForm', sheet), reason = LOSS_REASONS[0];
+        sheet.addEventListener('click', function (e) {
+          var r = e.target.closest('[data-reason]');
+          if (!r) return;
+          reason = r.dataset.reason;
+          sheet.querySelectorAll('[data-reason]').forEach(function (b) { b.classList.toggle('is-on', b === r); });
+        });
+        form.elements.all.addEventListener('change', function (e) {
+          if (e.target.checked && left != null) { form.elements.amount.value = String(left); form.elements.unit.value = leftUnit; }
+        });
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var f = form.elements, all = f.all.checked;
+          var amount = parseFloat(String(f.amount.value).replace(',', '.'));
+          if (!all && !(amount > 0)) { f.amount.focus(); return UI.toast('Indiquez la quantité'); }
+          if (all && left == null && !(amount > 0)) return UI.toast('Indiquez la quantité, même approximative, pour le bilan');
+          var btn = sheet.querySelector('[type="submit"]');
+          if (btn) btn.disabled = true;
+          T.expiry.move(x.id, kind, amount > 0 ? amount : null, f.unit.value, kind === 'jete' ? reason : '', all).then(function () {
+            UI.closeSheet();
+            UI.toast('<strong>' + esc(x.label) + '</strong> · ' + (kind === 'jete' ? 'perte enregistrée' : 'utilisation enregistrée'));
+            dates.moves = null;
+            renderDates();
+          }, function (err) { if (btn) btn.disabled = false; UI.toast(esc(err.message), 5000); });
+        });
+      }
+    });
+  }
+
+  /* ---------------- Bilan des pertes matières ---------------- */
+  function lossRange() {
+    var now = new Date(), from, to = Date.now(), label;
+    if (dates.lossDays === 'month') { from = new Date(now.getFullYear(), now.getMonth(), 1); label = 'ce mois-ci'; }
+    else if (dates.lossDays === 'prev') { from = new Date(now.getFullYear(), now.getMonth() - 1, 1); to = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); label = 'le mois dernier'; }
+    else { from = new Date(Date.now() - 30 * 86400000); label = 'sur 30 jours'; }
+    return { from: from.getTime(), to: to, label: label };
+  }
+
+  function loadMoves() {
+    dates.moves = 'loading'; dates.movesErr = '';
+    T.expiry.moves(70).then(function (list) { dates.moves = list; }, function (err) { dates.moves = []; dates.movesErr = err.message; })
+      .then(function () { if (state.view === 'dates' && dates.view === 'losses') renderLosses(); });
+  }
+
+  // Somme par produit et par famille d'unité (g et kg ensemble, cl et L ensemble).
+  function lossTotals(list) {
+    var byItem = {}, byReason = {}, value = 0, valued = 0;
+    list.forEach(function (m) {
+      var fam = m.unit === 'kg' || m.unit === 'g' ? 'g' : m.unit === 'l' || m.unit === 'cl' ? 'cl' : m.unit;
+      var base = m.unit === 'kg' ? m.amount * 1000 : m.unit === 'l' ? m.amount * 100 : m.amount;
+      var key = m.label.toLowerCase() + '|' + m.station;
+      var it = byItem[key] || (byItem[key] = { label: m.label, station: m.station, qty: {}, count: 0, value: 0 });
+      it.qty[fam] = (it.qty[fam] || 0) + base; it.count++;
+      if (m.value != null) { it.value += m.value; value += m.value; valued++; }
+      byReason[m.reason || 'Autre'] = (byReason[m.reason || 'Autre'] || 0) + 1;
+    });
+    var fmtQty = function (q) {
+      return Object.keys(q).map(function (fam) {
+        var v = q[fam];
+        if (fam === 'g') return v >= 1000 ? qtyText(v / 1000, 'kg') : qtyText(v, 'g');
+        if (fam === 'cl') return v >= 100 ? qtyText(v / 100, 'l') : qtyText(v, 'cl');
+        return qtyText(v, fam);
+      }).join(' + ');
+    };
+    var items = Object.keys(byItem).map(function (k) { var it = byItem[k]; it.qtyText = fmtQty(it.qty); return it; })
+      .sort(function (a, b) { return b.value - a.value || b.count - a.count; });
+    return { items: items, reasons: byReason, value: value, valued: valued };
+  }
+
+  function renderLosses() {
+    var view = $('#datesView'), zone = myZone();
+    if (dates.moves === null) loadMoves();
+    var head = '<div class="dates-bar">' +
+      '<button class="btn btn--ghost btn--sm" type="button" data-losses-back>← Dates</button>' +
+      '<div class="seg" role="group" aria-label="Période">' + [['month', 'Ce mois-ci'], ['prev', 'Mois dernier'], ['30', '30 jours']].map(function (p) {
+        return '<button type="button" data-loss-days="' + p[0] + '" aria-pressed="' + (dates.lossDays === p[0]) + '">' + p[1] + '</button>';
+      }).join('') + '</div>' +
+      (zone === 'all' ? '<div class="seg" role="group" aria-label="Poste">' + [['all', 'Tout'], ['cuisine', 'Cuisine'], ['bar', 'Bar']].map(function (z) {
+        return '<button type="button" data-zone="' + z[0] + '" aria-pressed="' + (dates.zone === z[0]) + '">' + z[1] + '</button>';
+      }).join('') + '</div>' : '<span class="badge badge--info">Poste : ' + ZONE[zone] + '</span>') +
+      '</div>';
+    if (dates.moves === 'loading') { view.innerHTML = '<div class="editor">' + head + '<p class="help"><span class="spinner"></span> Chargement…</p></div>'; return; }
+    var r = lossRange();
+    var inRange = (dates.moves || []).filter(function (m) {
+      return m.at >= r.from && m.at < r.to && (zone !== 'all' || dates.zone === 'all' || m.station === dates.zone);
+    });
+    var losses = inRange.filter(function (m) { return m.kind === 'jete'; });
+    var used = inRange.filter(function (m) { return m.kind === 'utilise'; }).length;
+    var t = lossTotals(losses);
+    var reasons = Object.keys(t.reasons).sort(function (a, b) { return t.reasons[b] - t.reasons[a]; });
+    view.innerHTML = '<div class="editor">' + head +
+      '<h2 style="font-size:30px">Pertes matières ' + esc(r.label) + '</h2>' +
+      (dates.movesErr ? '<p class="help" style="color:var(--danger)">' + esc(dates.movesErr) + '</p>' : '') +
+      '<div class="stat-tiles">' +
+        '<div class="stat-tile"><span>Pertes déclarées</span><b>' + losses.length + '</b><small>lots ou parties de lots jetés</small></div>' +
+        '<div class="stat-tile"><span>Valeur perdue</span><b>' + (t.valued ? fmt(t.value) : '—') + '</b><small>' + (t.valued ? 'produits de la carte, au prix de vente' : 'aucun produit de la carte jeté') + '</small></div>' +
+        '<div class="stat-tile"><span>Produits concernés</span><b>' + t.items.length + '</b><small>' + used + ' utilisation' + (used > 1 ? 's' : '') + ' saisie' + (used > 1 ? 's' : '') + ' en plus</small></div>' +
+        '<div class="stat-tile"><span>Motif principal</span><b style="font-size:20px">' + (reasons[0] ? esc(reasons[0]) : '—') + '</b><small>' + (reasons[0] ? t.reasons[reasons[0]] + ' perte' + (t.reasons[reasons[0]] > 1 ? 's' : '') : '') + '</small></div>' +
+      '</div>' +
+      (losses.length
+        ? '<section class="chart-card"><h3>Par produit</h3><div style="overflow-x:auto"><table class="loss-table"><thead><tr><th>Produit</th><th>Poste</th><th>Quantité jetée</th><th>Pertes</th><th>Valeur</th></tr></thead><tbody>' +
+            t.items.map(function (it) {
+              return '<tr><td><strong>' + esc(it.label) + '</strong></td><td>' + ZONE[it.station] + '</td><td>' + esc(it.qtyText) + '</td><td>' + it.count + '</td><td>' + (it.value ? fmt(it.value) : '—') + '</td></tr>';
+            }).join('') + '</tbody></table></div></section>' +
+          '<div class="stats-grid">' +
+            '<section class="chart-card"><h3>Par motif</h3><ul class="bilan__facts">' + reasons.map(function (k) { return '<li><span>' + esc(k) + '</span><strong>' + t.reasons[k] + '</strong></li>'; }).join('') + '</ul></section>' +
+            '<section class="chart-card"><h3>Dernières pertes</h3><ul class="bilan__facts">' + losses.slice(0, 8).map(function (m) {
+              return '<li><span>' + esc(new Date(m.at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })) + ' · ' + esc(m.label) + (m.reason ? ' · ' + esc(m.reason) : '') + '</span><strong>' + esc(qtyText(m.amount, m.unit)) + '</strong></li>';
+            }).join('') + '</ul></section>' +
+          '</div>'
+        : '<div class="empty"><h3>Aucune perte déclarée ' + esc(r.label) + '</h3><p>Quand un produit est jeté, touchez « Jeté » sur sa ligne et indiquez la quantité : la perte apparaît ici.</p></div>') +
+      '<p class="help">Valeur au prix de vente de la carte pour les produits vendus tels quels. Les ingrédients (crème, citrons…) sont comptés en quantité.</p>' +
     '</div>';
   }
 
@@ -1546,7 +1714,10 @@
           : '<input type="hidden" name="station" value="' + zone + '">') +
         '<label class="field"><span>Type de date</span><select name="kind"><option value="dlc">DLC · à consommer jusqu’au</option><option value="ddm">DDM / DLUO · de préférence avant</option></select></label>' +
         '<label class="field"><span>Date limite</span><input name="date" type="date" value="' + todayISO(3) + '" min="' + todayISO(-30) + '"></label>' +
-        '<label class="field"><span>Quantité (facultatif)</span><input name="quantity" maxlength="30" placeholder="Ex : 2 L, 4 pièces"></label>' +
+        '<div class="field" data-amount-field><span>Quantité du lot</span><div class="qty-unit"><input name="amount" type="number" min="0" step="any" inputmode="decimal" placeholder="Ex : 2">' +
+          '<select name="unit" aria-label="Unité">' + ['piece', 'g', 'kg', 'cl', 'l'].map(function (u) { return '<option value="' + u + '"' + (u === 'kg' ? ' selected' : '') + '>' + UNITS[u] + '</option>'; }).join('') + '</select></div>' +
+          '<small class="help">Pour suivre ce qui est utilisé ou jeté.</small></div>' +
+        '<input type="hidden" name="quantity">' +
         '<label class="field" data-portions-field hidden><span>Portions de ce lot</span><input name="portions" type="number" min="1" max="100000" inputmode="numeric" placeholder="Ex : 12">' +
           '<small class="help">Produit de la carte : le lot se vide tout seul avec les commandes.</small></label>' +
         '<label class="field span-2"><span>Note (facultatif)</span><input name="note" maxlength="140" placeholder="Ex : ouvert le 28/10, lot n°…"></label>' +
@@ -1562,6 +1733,7 @@
           var v = form.elements.label.value.trim().toLowerCase();
           var hit = items.filter(function (i) { return i.name.toLowerCase() === v; })[0];
           $('[data-portions-field]', sheet).hidden = !hit;
+          $('[data-amount-field]', sheet).hidden = !!hit;
         };
         form.elements.label.addEventListener('input', syncPortions);
         sheet.addEventListener('change', function (e) {
@@ -1575,7 +1747,11 @@
             if (r.label) { f.label.value = r.label; syncPortions(); }
             if (r.expires_on) f.date.value = r.expires_on;
             if (r.kind) f.kind.value = r.kind;
-            if (r.quantity) f.quantity.value = r.quantity;
+            if (r.quantity) {
+              f.quantity.value = r.quantity;
+              var pq = parseQty(r.quantity);
+              if (pq) { f.amount.value = String(pq.amount); f.unit.value = pq.unit; }
+            }
             if (r.lot && !f.note.value) f.note.value = 'Lot ' + r.lot;
             help.textContent = r.warning || 'Étiquette lue : vérifiez les informations, puis « Ajouter ».';
             help.style.color = r.warning ? 'var(--danger)' : '';
@@ -1596,8 +1772,9 @@
           var btn = sheet.querySelector('[type="submit"]');
           if (btn) btn.disabled = true;
           T.expiry.add({ station: f.station.value, label: label, itemId: match ? match.id : null, kind: f.kind.value,
-            expiresOn: f.date.value, quantity: f.quantity.value.trim(), note: f.note.value.trim(),
-            portions: match ? (parseInt(f.portions.value, 10) || null) : null })
+            expiresOn: f.date.value, quantity: match ? '' : (parseFloat(String(f.amount.value).replace(',', '.')) > 0 ? f.amount.value + ' ' + UNITS[f.unit.value] : f.quantity.value.trim()), note: f.note.value.trim(),
+            portions: match ? (parseInt(f.portions.value, 10) || null) : null,
+            amount: match ? null : (parseFloat(String(f.amount.value).replace(',', '.')) || null), unit: f.unit.value })
             .then(function () { UI.closeSheet(); UI.toast('<strong>' + esc(label) + '</strong> ajouté'); renderDates(); },
               function (err) { if (btn) btn.disabled = false; UI.toast(esc(err.message), 5000); });
         });
@@ -1763,6 +1940,15 @@
       if (z) { dates.zone = z.dataset.zone; return renderDates(); }
       if (e.target.closest('[data-exp-add]')) return openDateForm();
       if (e.target.closest('[data-exp-team]')) return openTeamStations();
+      if (e.target.closest('[data-losses]')) { dates.view = 'losses'; dates.moves = null; return renderDates(); }
+      if (e.target.closest('[data-losses-back]')) { dates.view = 'list'; return renderDates(); }
+      var ld = e.target.closest('[data-loss-days]');
+      if (ld) { dates.lossDays = ld.dataset.lossDays; return renderDates(); }
+      var mv = e.target.closest('[data-exp-move]');
+      if (mv) {
+        var lot = (T.expiry.list() || []).filter(function (y) { return y.id === mv.closest('[data-exp]').dataset.exp; })[0];
+        return lot && openMove(lot, mv.dataset.expMove);
+      }
       var b = e.target.closest('[data-exp-done]');
       if (!b) return;
       var row = b.closest('[data-exp]');
