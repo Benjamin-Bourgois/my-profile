@@ -245,6 +245,7 @@
       station: item.station || 'cuisine',
       qty: qty,
       unitPrice: Math.round(unit * 100) / 100,
+      vat: item.alcohol === true ? 20 : item.alcohol === false ? 10 : (item.station === 'bar' ? 20 : 10),
       options: options,
       selections: selections || {},
       note: note || '',
@@ -406,7 +407,7 @@
     var out = lines.slice();
     if (line.qty > 1) out[idx] = Object.assign({}, line, { qty: line.qty - 1, suggested: Math.min(line.suggested || 0, line.qty - 1) });
     else out.splice(idx, 1);
-    out.push(Object.assign({}, line, { qty: 1, suggested: 0, unitPrice: Math.round((line.unitPrice - base) * 100) / 100, reward: rw.label }));
+    out.push(Object.assign({}, line, { qty: 1, suggested: 0, unitPrice: Math.round((line.unitPrice - base) * 100) / 100, reward: rw.label, discount: Math.round(base * 100) / 100 }));
     return { lines: out, card: card, reward: rw };
   }
   function loyaltyCardJson(c) {

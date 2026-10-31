@@ -481,6 +481,8 @@ begin
       'station', coalesce(v_item ->> 'station', 'cuisine'),
       'qty', v_qty,
       'unitPrice', round(v_unit, 2),
+      -- Taux de TVA figé au moment de la vente (export comptable) : 20 % avec alcool, 10 % sinon.
+      'vat', case when v_item ->> 'alcohol' = 'true' then 20 when v_item ->> 'alcohol' = 'false' then 10 when coalesce(v_item ->> 'station', 'cuisine') = 'bar' then 20 else 10 end,
       'options', v_options,
       'note', left(coalesce(v_req ->> 'note', ''), 140),
       -- Plat mis en avant contre le gaspillage (remise en %, 0 = simple mise en avant).
@@ -524,7 +526,7 @@ begin
         v_lines := v_lines - v_idx;
       end if;
       v_lines := v_lines || jsonb_build_array(v_line || jsonb_build_object('qty', 1, 'suggested', 0,
-                   'unitPrice', round((v_line ->> 'unitPrice')::numeric - v_base, 2), 'reward', v_reward ->> 'label'));
+                   'unitPrice', round((v_line ->> 'unitPrice')::numeric - v_base, 2), 'reward', v_reward ->> 'label', 'discount', round(v_base, 2)));
       v_total := v_total - v_base;
     end if;
   end if;
@@ -977,7 +979,7 @@ begin
         end loop;
         v_lines := v_lines || jsonb_build_array(jsonb_build_object(
           'itemId', v_item ->> 'id', 'name', v_item ->> 'name', 'station', coalesce(v_item ->> 'station', 'cuisine'),
-          'qty', v_qty, 'unitPrice', round(v_unit, 2), 'options', v_opts, 'note', '',
+          'qty', v_qty, 'unitPrice', round(v_unit, 2), 'vat', case when v_item ->> 'alcohol' = 'true' then 20 when v_item ->> 'alcohol' = 'false' then 10 when coalesce(v_item ->> 'station', 'cuisine') = 'bar' then 20 else 10 end, 'options', v_opts, 'note', '',
           'suggested', case when v_j > 1 and random() < 0.12 then v_qty else 0 end));
         v_total := v_total + v_unit * v_qty;
       end loop;

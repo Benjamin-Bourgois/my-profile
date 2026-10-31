@@ -1174,3 +1174,35 @@ button.table-badge:active { transform: scale(.96); }
   .c-header__row:has(.loy-btn:not([hidden])) .c-header__name ~ * { order: 2; }
   .c-header__row:has(.loy-btn:not([hidden])) .table-badge { order: 1; }
 }
+
+/* ---------------- Export comptable ---------------- */
+.cp-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 14px; }
+.cp-custom { display: flex; gap: 8px; }
+.cp-custom[hidden] { display: none; }
+.cp-custom .field input { height: 38px; }
+.cp-period { margin: 0 0 10px; font-weight: 800; }
+.cp-files { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; width: 100%; }
+.cp-files .btn { flex: 1 1 auto; }
+.cp-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+.cp-kpis div { display: grid; gap: 2px; padding: 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); }
+.cp-kpis b { font-size: 20px; }
+.cp-kpis span { font-size: 12px; color: var(--muted); }
+.cp-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; align-items: start; }
+.cp-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.cp-table th, .cp-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.cp-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.cp-table td:last-child, .cp-table th:last-child { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cp-table--days td, .cp-table--days th { text-align: right; font-variant-numeric: tabular-nums; }
+.cp-table--days td:first-child, .cp-table--days th:first-child { text-align: left; }
+.cp-strong td { font-weight: 800; }
+.cp-sum .help { margin: 6px 0 0; }
+.cp-acc { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.cp-acc summary { cursor: pointer; font-weight: 700; font-size: 14px; }
+.cp-acc__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+.cp-acc__grid .field input { height: 38px; }
+@media (max-width: 640px) {
+  .cp-kpis { grid-template-columns: repeat(2, 1fr); }
+  .cp-cols { grid-template-columns: 1fr; }
+  .cp-acc__grid { grid-template-columns: 1fr 1fr; }
+  .cp-files .btn { flex: 1 1 calc(50% - 4px); padding-left: 8px; padding-right: 8px; }
+}

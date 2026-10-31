@@ -71,6 +71,10 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **31/10/2026 · Benjamin** : export comptable (Statistiques → « 📒 Export comptable », `js/compta.js`) : synthèse PDF,
+  journal des ventes, récap par jour, écritures comptables CSV (comptes modifiables, gardés dans `restaurants.info.accounting`).
+  Chaque ligne de commande garde désormais son taux de TVA (`vat`) et la remise fidélité (`discount`). À faire une fois :
+  relancer `supabase/schema.sql`. Fichiers en `?v=37`.
 - **31/10/2026 · Benjamin** : programme de fidélité (Menu → « ★ Fidélité ») : carte client sans compte (jeton gardé
   sur le téléphone, `menu.html?r=…&carte=…` pour la retrouver ailleurs), points crédités à « Servie », récompenses
   « produit offert » appliquées et vérifiées par `place_order` (ligne « Offert »), points rendus si la commande est

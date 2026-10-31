@@ -234,6 +234,7 @@
             return '<button type="button" data-month="' + p[0] + '" aria-pressed="' + (monthOffset === p[0]) + '">' + p[1] + '</button>';
           }).join('') + '</div>' : '') +
           '<div class="k-top__spacer"></div>' +
+          (opts.compta ? '<button class="btn btn--ghost btn--sm" type="button" data-compta>📒 Export comptable</button>' : '') +
           (days === 'bilan' ? '<button class="btn btn--primary btn--sm" type="button" data-print-bilan>🖨 Imprimer / PDF</button>'
             : '<button class="btn btn--ghost btn--sm" type="button" data-export>⬇ Export CSV</button>') +
           (opts.demoTools ? '<button class="btn btn--soft btn--sm" type="button" data-seed>Générer 30 jours de démo</button>' +
@@ -388,6 +389,7 @@
       var mo = e.target.closest('[data-month]');
       if (mo) { monthOffset = +mo.dataset.month; return paint(); }
       if (e.target.closest('[data-print-bilan]')) return printBilan();
+      if (e.target.closest('[data-compta]')) return opts.compta();
       if (e.target.closest('[data-export]')) {
         if (!orders.length) return UI.toast('Aucune commande sur la période');
         return exportCSV(orders, opts.restaurantName || 'restaurant');
