@@ -37,7 +37,8 @@
     moves: NS + 'expiry-moves',
     margins: NS + 'margins.v2',
     haccp: NS + 'haccp',
-    suppliers: NS + 'suppliers'
+    suppliers: NS + 'suppliers',
+    planning: NS + 'planning'
   };
 
   var memory = {};
@@ -610,6 +611,143 @@
     }
     return m;
   }
+  // Planning de démonstration : 6 personnes, semaine en cours publiée, suivante en brouillon.
+  function ymdLocal(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function ymdPlus(ymd, n) { var d = new Date(ymd + 'T12:00:00'); d.setDate(d.getDate() + n); return ymdLocal(d); }
+  function mondayOf(d) { var x = new Date(d); x.setHours(12, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return ymdLocal(x); }
+  function planningData() {
+    var p = read(K.planning, null);
+    if (p) return p;
+    var staff = [
+      { id: 'st1', name: 'Léa', poste: 'bar', weeklyHours: 35, active: true },
+      { id: 'st2', name: 'Hugo', poste: 'salle', weeklyHours: 35, active: true },
+      { id: 'st3', name: 'Inès', poste: 'salle', weeklyHours: 24, active: true },
+      { id: 'st4', name: 'Sami', poste: 'cuisine', weeklyHours: 39, active: true },
+      { id: 'st5', name: 'Karim', poste: 'cuisine', weeklyHours: 35, active: true },
+      { id: 'st6', name: 'Chloé', poste: 'bar', weeklyHours: 20, active: true }
+    ];
+    var priv = { st1: { hourlyCost: 16.5, pin: '1234' }, st2: { hourlyCost: 15.8, pin: '1111' }, st3: { hourlyCost: 15.2, pin: null },
+      st4: { hourlyCost: 18.9, pin: null }, st5: { hourlyCost: 16.4, pin: null }, st6: { hourlyCost: 15.2, pin: null } };
+    // [staff, jour 0=lundi, début, fin, pause, poste]
+    var pattern = [
+      ['st1', 1, 17 * 60, 120, 30, 'bar'], ['st1', 2, 17 * 60, 120, 30, 'bar'], ['st1', 4, 18 * 60, 120, 30, 'bar'], ['st1', 5, 18 * 60, 180, 30, 'bar'], ['st1', 6, 11 * 60, 17 * 60, 30, 'bar'],
+      ['st6', 3, 17 * 60, 0, 0, 'bar'], ['st6', 4, 19 * 60, 120, 0, 'bar'], ['st6', 5, 19 * 60, 180, 30, 'bar'],
+      ['st2', 0, 11 * 60, 15 * 60, 0, 'salle'], ['st2', 1, 11 * 60, 15 * 60, 0, 'salle'], ['st2', 2, 18 * 60, 0, 30, 'salle'], ['st2', 4, 18 * 60, 60, 30, 'salle'], ['st2', 5, 18 * 60, 60, 30, 'salle'], ['st2', 6, 11 * 60, 16 * 60, 30, 'salle'],
+      ['st3', 3, 18 * 60, 0, 30, 'salle'], ['st3', 4, 11 * 60, 15 * 60, 0, 'salle'], ['st3', 5, 11 * 60, 15 * 60, 0, 'salle'], ['st3', 6, 18 * 60, 23 * 60, 0, 'salle'],
+      ['st4', 0, 10 * 60, 15 * 60, 30, 'cuisine'], ['st4', 1, 10 * 60, 15 * 60, 30, 'cuisine'], ['st4', 2, 17 * 60, 23 * 60, 30, 'cuisine'], ['st4', 4, 17 * 60, 23 * 60 + 30, 30, 'cuisine'], ['st4', 5, 10 * 60, 23 * 60 + 30, 60, 'cuisine'],
+      ['st5', 2, 10 * 60, 15 * 60, 30, 'cuisine'], ['st5', 3, 10 * 60, 23 * 60, 60, 'cuisine'], ['st5', 4, 10 * 60, 15 * 60, 30, 'cuisine'], ['st5', 6, 10 * 60, 23 * 60, 60, 'cuisine']
+    ];
+    var week = mondayOf(new Date()), next = ymdPlus(week, 7), shifts = [], n = 0;
+    [week, next].forEach(function (w) {
+      pattern.forEach(function (x) {
+        shifts.push({ id: 'sh' + (++n), staffId: x[0], day: ymdPlus(w, x[1]), start: x[2], end: x[3], brk: x[4], poste: x[5], note: '', status: 'prevu', swapReason: '', proposedStaff: null });
+      });
+    });
+    // Un créneau à remplacer la semaine en cours, une indisponibilité à valider la semaine suivante.
+    var later = shifts.filter(function (x) { return x.day >= ymdLocal(new Date()) && x.staffId === 'st2'; })[0];
+    if (later) { later.status = 'a_remplacer'; later.swapReason = 'Rendez-vous médical'; }
+    var weeks = {}; weeks[week] = Date.now() - 3 * 86400000;
+    p = { staff: staff, priv: priv, shifts: shifts, weeks: weeks,
+      unav: [{ id: 'un1', staffId: 'st3', day: ymdPlus(next, 5), start: null, end: null, reason: 'Examen', status: 'en_attente' }],
+      punches: [] };
+    write(K.planning, p);
+    return p;
+  }
+  function planningSave(p) { write(K.planning, p); }
+  function planningFind(list, id) { return list.filter(function (x) { return x.id === id; })[0]; }
+  function planningPin(p, staffId, pin, manager) {
+    var pv = p.priv[staffId] || {};
+    if (!manager && pv.pin && pv.pin !== pin) throw new Error('Code PIN incorrect');
+  }
+  var planning = {
+    // En démo, `asTeam` simule la vue d'un compte équipe (semaines publiées seulement, code PIN demandé).
+    asTeam: false,
+    load: function (week) {
+      var p = planningData(), from = ymdPlus(week, -1), to = ymdPlus(week, 7), today = ymdLocal(new Date());
+      var team = planning.asTeam, published = p.weeks[week] || null;
+      var visible = function (x) { return !team || p.weeks[mondayOf(new Date(x.day + 'T12:00:00'))]; };
+      return Promise.resolve(clone({
+        staff: p.staff.map(function (x) {
+          var pv = p.priv[x.id] || {};
+          return Object.assign({}, x, { hourlyCost: team ? null : (pv.hourlyCost == null ? null : pv.hourlyCost), hasPin: !team && !!pv.pin });
+        }),
+        shifts: p.shifts.filter(function (x) { return x.day >= from && x.day < to && visible(x); }),
+        published: published,
+        unav: p.unav.filter(function (x) { return x.day >= from && x.day < to; }),
+        punches: p.punches.filter(function (x) { return x.start >= Date.parse(from + 'T00:00:00') && x.start < Date.parse(ymdPlus(week, 8) + 'T00:00:00'); }),
+        pendingUnav: p.unav.filter(function (x) { return x.status === 'en_attente' && x.day >= today; }),
+        pendingSwaps: p.shifts.filter(function (x) { return (x.status === 'a_remplacer' || x.status === 'propose') && x.day >= today && visible(x); })
+      }));
+    },
+    saveStaff: function (x) {
+      var p = planningData(), row = x.id && planningFind(p.staff, x.id);
+      if (!row) { row = { id: 'st_' + Date.now().toString(36) }; p.staff.push(row); }
+      Object.assign(row, { name: x.name, poste: x.poste, weeklyHours: x.weeklyHours, active: x.active !== false });
+      var pv = p.priv[row.id] = p.priv[row.id] || {};
+      pv.hourlyCost = x.hourlyCost;
+      if (x.pin !== undefined && x.pin !== null) pv.pin = x.pin || null;
+      planningSave(p); return Promise.resolve(clone(row));
+    },
+    saveShift: function (x) {
+      var p = planningData();
+      if (x.start === x.end) return Promise.reject(new Error('Le début et la fin sont identiques'));
+      var row = x.id && planningFind(p.shifts, x.id);
+      if (!row) { row = { id: 'sh_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), status: 'prevu', swapReason: '', proposedStaff: null }; p.shifts.push(row); }
+      if (row.staffId && row.staffId !== x.staffId) { row.status = 'prevu'; row.proposedStaff = null; }
+      Object.assign(row, { staffId: x.staffId, day: x.day, start: x.start, end: x.end, brk: x.brk || 0, poste: x.poste, note: x.note || '' });
+      planningSave(p); return Promise.resolve(clone(row));
+    },
+    deleteShift: function (id) { var p = planningData(); p.shifts = p.shifts.filter(function (x) { return x.id !== id; }); planningSave(p); return Promise.resolve(); },
+    copyWeek: function (from, to) {
+      var p = planningData(), n = 0;
+      p.shifts.filter(function (x) { return x.day >= from && x.day < ymdPlus(from, 7); }).forEach(function (x) {
+        var day = ymdPlus(x.day, 7 * Math.round((Date.parse(to) - Date.parse(from)) / (7 * 86400000)));
+        if (p.shifts.some(function (y) { return y.staffId === x.staffId && y.day === day; })) return;
+        p.shifts.push(Object.assign({}, x, { id: 'sh_' + Date.now().toString(36) + (++n), day: day, status: 'prevu', swapReason: '', proposedStaff: null }));
+      });
+      planningSave(p); return Promise.resolve(n);
+    },
+    publish: function (week, on) { var p = planningData(); p.weeks[week] = on ? Date.now() : null; planningSave(p); return Promise.resolve(); },
+    addUnav: function (x, pin) {
+      var p = planningData();
+      try { planningPin(p, x.staffId, pin, !planning.asTeam); } catch (e) { return Promise.reject(e); }
+      var row = { id: 'un_' + Date.now().toString(36), staffId: x.staffId, day: x.day, start: x.start == null ? null : x.start, end: x.end == null ? null : x.end,
+        reason: x.reason || '', status: planning.asTeam ? 'en_attente' : 'acceptee' };
+      p.unav.push(row); planningSave(p); return Promise.resolve(clone(row));
+    },
+    cancelUnav: function (id, pin) {
+      var p = planningData(), u = planningFind(p.unav, id);
+      try { planningPin(p, u.staffId, pin, !planning.asTeam); } catch (e) { return Promise.reject(e); }
+      p.unav = p.unav.filter(function (x) { return x.id !== id; }); planningSave(p); return Promise.resolve();
+    },
+    decideUnav: function (id, accept) { var p = planningData(), u = planningFind(p.unav, id); if (u) u.status = accept ? 'acceptee' : 'refusee'; planningSave(p); return Promise.resolve(); },
+    release: function (id, reason, pin) {
+      var p = planningData(), s = planningFind(p.shifts, id);
+      try { planningPin(p, s.staffId, pin, !planning.asTeam); } catch (e) { return Promise.reject(e); }
+      s.status = 'a_remplacer'; s.swapReason = reason || ''; s.proposedStaff = null; planningSave(p); return Promise.resolve();
+    },
+    take: function (id, staffId, pin) {
+      var p = planningData(), s = planningFind(p.shifts, id);
+      if (s.staffId === staffId) return Promise.reject(new Error('C’est déjà votre créneau'));
+      try { planningPin(p, staffId, pin, !planning.asTeam); } catch (e) { return Promise.reject(e); }
+      s.status = 'propose'; s.proposedStaff = staffId; planningSave(p); return Promise.resolve();
+    },
+    decideSwap: function (id, accept) {
+      var p = planningData(), s = planningFind(p.shifts, id);
+      if (accept && s.proposedStaff) s.staffId = s.proposedStaff;
+      s.status = 'prevu'; s.proposedStaff = null; s.swapReason = ''; planningSave(p); return Promise.resolve();
+    },
+    clock: function (staffId, pin) {
+      var p = planningData();
+      try { planningPin(p, staffId, pin, !planning.asTeam); } catch (e) { return Promise.reject(e); }
+      var open = p.punches.filter(function (x) { return x.staffId === staffId && !x.end && Date.now() - x.start < 20 * 3600000; })[0];
+      if (open) { open.end = Date.now(); planningSave(p); return Promise.resolve({ kind: 'out', at: open.end, startedAt: open.start }); }
+      var row = { id: 'pu_' + Date.now().toString(36), staffId: staffId, start: Date.now(), end: null, edited: false };
+      p.punches.push(row); planningSave(p); return Promise.resolve({ kind: 'in', at: row.start });
+    },
+    editPunch: function (id, start, end) { var p = planningData(), x = planningFind(p.punches, id); Object.assign(x, { start: start, end: end || null, edited: true }); planningSave(p); return Promise.resolve(); }
+  };
+
   // Fournisseurs de démonstration.
   function suppliersData() {
     var d = read(K.suppliers, null);
@@ -929,6 +1067,7 @@
     margins: margins,
     haccp: haccp,
     suppliers: suppliers,
+    planning: planning,
     getTableServers: getTableServers,
     getTableServer: getTableServer,
     setTableServers: setTableServers,

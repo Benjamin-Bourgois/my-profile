@@ -2257,6 +2257,420 @@ grant execute on function public.learn_supplier(uuid, text, text[]) to authentic
 grant execute on function public.record_supplier_order(uuid, uuid, jsonb, text, text) to authenticated;
 grant execute on function public.close_supplier_order(uuid, uuid, text) to authenticated;
 
+-- ---------- Planning de l'équipe ----------
+-- Les personnes de l'équipe (pas forcément des comptes : la tablette est souvent partagée),
+-- leurs créneaux par jour, la publication de chaque semaine (l'équipe ne voit que les
+-- semaines publiées), les indisponibilités, les remplacements et le pointage (code PIN).
+create table if not exists public.staff (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  name          text not null check (length(name) between 1 and 40),
+  poste         text not null default 'salle' check (poste in ('bar', 'salle', 'cuisine', 'plonge', 'direction')),
+  weekly_hours  numeric(4, 1) check (weekly_hours is null or (weekly_hours >= 0 and weekly_hours <= 60)),
+  active        boolean not null default true,
+  created_at    timestamptz not null default now()
+);
+create index if not exists staff_restaurant_idx on public.staff (restaurant_id, active);
+
+-- Données réservées au gérant : coût horaire et code PIN (empreinte).
+create table if not exists public.staff_private (
+  staff_id      uuid primary key references public.staff (id) on delete cascade,
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  hourly_cost   numeric(6, 2) check (hourly_cost is null or (hourly_cost >= 0 and hourly_cost <= 500)),
+  pin_hash      text
+);
+
+create table if not exists public.shifts (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  staff_id      uuid not null references public.staff (id) on delete cascade,
+  day           date not null,
+  start_min     int not null check (start_min between 0 and 1439),
+  end_min       int not null check (end_min between 0 and 1440),  -- fin ≤ début : le créneau finit le lendemain
+  break_min     int not null default 0 check (break_min between 0 and 240),
+  poste         text not null default 'salle' check (poste in ('bar', 'salle', 'cuisine', 'plonge', 'direction')),
+  note          text not null default '' check (length(note) <= 120),
+  status        text not null default 'prevu' check (status in ('prevu', 'a_remplacer', 'propose')),
+  swap_reason   text not null default '' check (length(swap_reason) <= 120),
+  proposed_staff uuid references public.staff (id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+create index if not exists shifts_restaurant_day_idx on public.shifts (restaurant_id, day);
+
+create table if not exists public.planning_weeks (
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  week_start    date not null,  -- lundi
+  published_at  timestamptz,
+  primary key (restaurant_id, week_start)
+);
+
+create table if not exists public.staff_unavailability (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  staff_id      uuid not null references public.staff (id) on delete cascade,
+  day           date not null,
+  start_min     int check (start_min is null or start_min between 0 and 1439),  -- null : toute la journée
+  end_min       int check (end_min is null or end_min between 0 and 1440),
+  reason        text not null default '' check (length(reason) <= 120),
+  status        text not null default 'en_attente' check (status in ('en_attente', 'acceptee', 'refusee')),
+  created_at    timestamptz not null default now()
+);
+create index if not exists staff_unav_idx on public.staff_unavailability (restaurant_id, day);
+
+create table if not exists public.staff_punches (
+  id            uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references public.restaurants (id) on delete cascade,
+  staff_id      uuid not null references public.staff (id) on delete cascade,
+  started_at    timestamptz not null default now(),
+  ended_at      timestamptz,
+  edited        boolean not null default false
+);
+create index if not exists staff_punches_idx on public.staff_punches (restaurant_id, started_at desc);
+
+alter table public.staff enable row level security;
+drop policy if exists "Équipe visible par le restaurant" on public.staff;
+create policy "Équipe visible par le restaurant" on public.staff
+  for select using (public.member_role(restaurant_id) is not null);
+revoke all on public.staff from anon;
+revoke insert, update, delete on public.staff from authenticated;
+grant select on public.staff to authenticated;
+
+alter table public.staff_private enable row level security;
+drop policy if exists "Données de paie réservées au gérant" on public.staff_private;
+create policy "Données de paie réservées au gérant" on public.staff_private
+  for select using (public.member_role(restaurant_id) in ('admin', 'owner'));
+revoke all on public.staff_private from anon;
+revoke insert, update, delete on public.staff_private from authenticated;
+grant select on public.staff_private to authenticated;
+
+-- Créneaux : le gérant voit tout ; l'équipe, seulement les semaines publiées.
+alter table public.shifts enable row level security;
+drop policy if exists "Créneaux visibles une fois publiés" on public.shifts;
+create policy "Créneaux visibles une fois publiés" on public.shifts
+  for select using (
+    public.member_role(restaurant_id) in ('admin', 'owner')
+    or (public.member_role(restaurant_id) is not null and exists (
+      select 1 from public.planning_weeks w
+      where w.restaurant_id = shifts.restaurant_id and w.week_start = date_trunc('week', shifts.day)::date and w.published_at is not null))
+  );
+revoke all on public.shifts from anon;
+revoke insert, update, delete on public.shifts from authenticated;
+grant select on public.shifts to authenticated;
+
+alter table public.planning_weeks enable row level security;
+drop policy if exists "Semaines visibles par le restaurant" on public.planning_weeks;
+create policy "Semaines visibles par le restaurant" on public.planning_weeks
+  for select using (public.member_role(restaurant_id) is not null);
+revoke all on public.planning_weeks from anon;
+revoke insert, update, delete on public.planning_weeks from authenticated;
+grant select on public.planning_weeks to authenticated;
+
+alter table public.staff_unavailability enable row level security;
+drop policy if exists "Indisponibilités visibles par le restaurant" on public.staff_unavailability;
+create policy "Indisponibilités visibles par le restaurant" on public.staff_unavailability
+  for select using (public.member_role(restaurant_id) is not null);
+revoke all on public.staff_unavailability from anon;
+revoke insert, update, delete on public.staff_unavailability from authenticated;
+grant select on public.staff_unavailability to authenticated;
+
+alter table public.staff_punches enable row level security;
+drop policy if exists "Pointages visibles par le restaurant" on public.staff_punches;
+create policy "Pointages visibles par le restaurant" on public.staff_punches
+  for select using (public.member_role(restaurant_id) is not null);
+revoke all on public.staff_punches from anon;
+revoke insert, update, delete on public.staff_punches from authenticated;
+grant select on public.staff_punches to authenticated;
+
+create or replace function public.planning_is_manager(p_restaurant uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$ select coalesce(public.member_role(p_restaurant), '') in ('admin', 'owner'); $$;
+
+-- Action de l'équipe pour une personne : le gérant agit librement ; sinon le code PIN de
+-- la personne est demandé quand il en a un (la tablette est partagée).
+create or replace function public.planning_check_person(p_restaurant uuid, p_staff uuid, p_pin text)
+returns void
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v_hash text;
+begin
+  if public.member_role(p_restaurant) is null then raise exception 'Accès refusé'; end if;
+  if not exists (select 1 from public.staff where id = p_staff and restaurant_id = p_restaurant and active) then
+    raise exception 'Personne introuvable';
+  end if;
+  if public.planning_is_manager(p_restaurant) then return; end if;
+  select pin_hash into v_hash from public.staff_private where staff_id = p_staff;
+  if v_hash is not null and v_hash <> md5(coalesce(p_pin, '') || p_staff::text) then
+    raise exception 'Code PIN incorrect';
+  end if;
+end;
+$$;
+
+create or replace function public.save_staff(p_restaurant uuid, p_id uuid, p_name text, p_poste text, p_weekly_hours numeric,
+                                             p_hourly_cost numeric, p_pin text, p_active boolean)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_row public.staff;
+begin
+  if not public.planning_is_manager(p_restaurant) then raise exception 'Accès refusé'; end if;
+  if btrim(coalesce(p_name, '')) = '' then raise exception 'Indiquez le prénom'; end if;
+  if p_poste not in ('bar', 'salle', 'cuisine', 'plonge', 'direction') then raise exception 'Poste invalide'; end if;
+  if p_weekly_hours is not null and (p_weekly_hours < 0 or p_weekly_hours > 60) then raise exception 'Heures du contrat invalides'; end if;
+  if p_hourly_cost is not null and (p_hourly_cost < 0 or p_hourly_cost > 500) then raise exception 'Coût horaire invalide'; end if;
+  if p_pin is not null and p_pin <> '' and p_pin !~ '^[0-9]{4}$' then raise exception 'Le code PIN fait 4 chiffres'; end if;
+  if p_id is null then
+    insert into public.staff (restaurant_id, name, poste, weekly_hours, active)
+    values (p_restaurant, left(btrim(p_name), 40), p_poste, p_weekly_hours, coalesce(p_active, true)) returning * into v_row;
+  else
+    update public.staff set name = left(btrim(p_name), 40), poste = p_poste, weekly_hours = p_weekly_hours, active = coalesce(p_active, true)
+    where id = p_id and restaurant_id = p_restaurant returning * into v_row;
+    if not found then raise exception 'Personne introuvable'; end if;
+  end if;
+  insert into public.staff_private (staff_id, restaurant_id, hourly_cost, pin_hash)
+  values (v_row.id, p_restaurant, p_hourly_cost, case when coalesce(p_pin, '') <> '' then md5(p_pin || v_row.id::text) end)
+  on conflict (staff_id) do update
+    set hourly_cost = excluded.hourly_cost,
+        -- p_pin null : code inchangé ; '' : code retiré ; 4 chiffres : nouveau code.
+        pin_hash = case when p_pin is null then public.staff_private.pin_hash when p_pin = '' then null else excluded.pin_hash end;
+  return to_jsonb(v_row);
+end;
+$$;
+
+create or replace function public.save_shift(p_restaurant uuid, p_id uuid, p_staff uuid, p_day date, p_start int, p_end int,
+                                             p_break int, p_poste text, p_note text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_row public.shifts;
+begin
+  if not public.planning_is_manager(p_restaurant) then raise exception 'Accès refusé'; end if;
+  if not exists (select 1 from public.staff where id = p_staff and restaurant_id = p_restaurant) then raise exception 'Personne introuvable'; end if;
+  if p_day is null or p_start is null or p_end is null or p_start < 0 or p_start > 1439 or p_end < 0 or p_end > 1440 then
+    raise exception 'Horaires invalides';
+  end if;
+  if p_start = p_end then raise exception 'Le début et la fin sont identiques'; end if;
+  if coalesce(p_break, 0) < 0 or coalesce(p_break, 0) > 240 then raise exception 'Pause invalide'; end if;
+  if p_poste not in ('bar', 'salle', 'cuisine', 'plonge', 'direction') then raise exception 'Poste invalide'; end if;
+  if p_id is null then
+    insert into public.shifts (restaurant_id, staff_id, day, start_min, end_min, break_min, poste, note)
+    values (p_restaurant, p_staff, p_day, p_start, p_end, coalesce(p_break, 0), p_poste, left(btrim(coalesce(p_note, '')), 120))
+    returning * into v_row;
+  else
+    update public.shifts set staff_id = p_staff, day = p_day, start_min = p_start, end_min = p_end, break_min = coalesce(p_break, 0),
+      poste = p_poste, note = left(btrim(coalesce(p_note, '')), 120),
+      status = case when staff_id <> p_staff then 'prevu' else status end,
+      proposed_staff = case when staff_id <> p_staff then null else proposed_staff end
+    where id = p_id and restaurant_id = p_restaurant returning * into v_row;
+    if not found then raise exception 'Créneau introuvable'; end if;
+  end if;
+  return to_jsonb(v_row);
+end;
+$$;
+
+create or replace function public.delete_shift(p_restaurant uuid, p_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.planning_is_manager(p_restaurant) then raise exception 'Accès refusé'; end if;
+  delete from public.shifts where id = p_id and restaurant_id = p_restaurant;
+end;
+$$;
+
+-- Recopie une semaine sur une autre (même jour de la semaine), sans toucher aux créneaux déjà posés.
+create or replace function public.copy_planning_week(p_restaurant uuid, p_from date, p_to date)
+returns int
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_n int;
+begin
+  if not public.planning_is_manager(p_restaurant) then raise exception 'Accès refusé'; end if;
+  if extract(isodow from p_from) <> 1 or extract(isodow from p_to) <> 1 then raise exception 'Semaine invalide'; end if;
+  insert into public.shifts (restaurant_id, staff_id, day, start_min, end_min, break_min, poste, note)
+  select s.restaurant_id, s.staff_id, s.day + (p_to - p_from), s.start_min, s.end_min, s.break_min, s.poste, s.note
+  from public.shifts s join public.staff p on p.id = s.staff_id and p.active
+  where s.restaurant_id = p_restaurant and s.day >= p_from and s.day < p_from + 7
+    and not exists (select 1 from public.shifts t where t.restaurant_id = p_restaurant and t.staff_id = s.staff_id
+                    and t.day = s.day + (p_to - p_from));
+  get diagnostics v_n = row_count;
+  return v_n;
+end;
+$$;
+
+create or replace function public.publish_planning_week(p_restaurant uuid, p_week date, p_publish boolean)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.planning_is_manager(p_restaurant) then raise exception 'Accès refusé'; end if;
+  if extract(isodow from p_week) <> 1 then raise exception 'Semaine invalide'; end if;
+  insert into public.planning_weeks (restaurant_id, week_start, published_at)
+  values (p_restaurant, p_week, case when p_publish then now() end)
+  on conflict (restaurant_id, week_start) do update set published_at = case when p_publish then now() end;
+end;
+$$;
+
+-- Équipe : indisponibilité (le gérant l'accepte ou la refuse).
+create or replace function public.add_unavailability(p_restaurant uuid, p_staff uuid, p_day date, p_start int, p_end int,
+                                                     p_reason text, p_pin text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_row public.staff_unavailability;
+begin
+  perform public.planning_check_person(p_restaurant, p_staff, p_pin);
+  if p_day is null or p_day < current_date - 1 or p_day > current_date + 365 then raise exception 'Date invalide'; end if;
+  if (p_start is null) <> (p_end is null) or (p_start is not null and (p_start < 0 or p_start > 1439 or p_end < 0 or p_end > 1440)) then
+    raise exception 'Horaires invalides';
+  end if;
+  insert into public.staff_unavailability (restaurant_id, staff_id, day, start_min, end_min, reason, status)
+  values (p_restaurant, p_staff, p_day, p_start, p_end, left(btrim(coalesce(p_reason, '')), 120),
+          case when public.planning_is_manager(p_restaurant) then 'acceptee' else 'en_attente' end)
+  returning * into v_row;
+  return to_jsonb(v_row);
+end;
+$$;
+
+create or replace function public.cancel_unavailability(p_restaurant uuid, p_id uuid, p_pin text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_staff uuid;
+begin
+  select staff_id into v_staff from public.staff_unavailability where id = p_id and restaurant_id = p_restaurant;
+  if v_staff is null then raise exception 'Indisponibilité introuvable'; end if;
+  perform public.planning_check_person(p_restaurant, v_staff, p_pin);
+  delete from public.staff_unavailability where id = p_id;
+end;
+$$;
+
+create or replace function public.decide_unavailability(p_restaurant uuid, p_id uuid, p_accept boolean)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.planning_is_manager(p_restaurant) then raise exception 'Accès refusé'; end if;
+  update public.staff_unavailability set status = case when p_accept then 'acceptee' else 'refusee' end
+  where id = p_id and restaurant_id = p_restaurant;
+end;
+$$;
+
+-- Équipe : « je ne peux pas » sur son créneau (semaine publiée), puis un collègue le prend.
+create or replace function public.release_shift(p_restaurant uuid, p_shift uuid, p_reason text, p_pin text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_s public.shifts;
+begin
+  select * into v_s from public.shifts where id = p_shift and restaurant_id = p_restaurant;
+  if not found then raise exception 'Créneau introuvable'; end if;
+  perform public.planning_check_person(p_restaurant, v_s.staff_id, p_pin);
+  if v_s.day < current_date then raise exception 'Ce créneau est passé'; end if;
+  update public.shifts set status = 'a_remplacer', swap_reason = left(btrim(coalesce(p_reason, '')), 120), proposed_staff = null
+  where id = p_shift;
+end;
+$$;
+
+create or replace function public.take_shift(p_restaurant uuid, p_shift uuid, p_staff uuid, p_pin text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_s public.shifts;
+begin
+  select * into v_s from public.shifts where id = p_shift and restaurant_id = p_restaurant;
+  if not found then raise exception 'Créneau introuvable'; end if;
+  if v_s.status <> 'a_remplacer' then raise exception 'Ce créneau n''est plus à remplacer'; end if;
+  if v_s.staff_id = p_staff then raise exception 'C''est déjà votre créneau'; end if;
+  perform public.planning_check_person(p_restaurant, p_staff, p_pin);
+  update public.shifts set status = 'propose', proposed_staff = p_staff where id = p_shift;
+end;
+$$;
+
+-- Gérant : valide le remplacement (le créneau change de personne) ou le refuse.
+create or replace function public.decide_swap(p_restaurant uuid, p_shift uuid, p_accept boolean)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.planning_is_manager(p_restaurant) then raise exception 'Accès refusé'; end if;
+  update public.shifts
+  set staff_id = case when p_accept and proposed_staff is not null then proposed_staff else staff_id end,
+      status = 'prevu', proposed_staff = null, swap_reason = ''
+  where id = p_shift and restaurant_id = p_restaurant;
+end;
+$$;
+
+-- Pointage : arrivée puis départ (un appui de plus termine le service en cours).
+create or replace function public.clock_staff(p_restaurant uuid, p_staff uuid, p_pin text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_open public.staff_punches;
+begin
+  perform public.planning_check_person(p_restaurant, p_staff, p_pin);
+  select * into v_open from public.staff_punches
+  where restaurant_id = p_restaurant and staff_id = p_staff and ended_at is null and started_at > now() - interval '20 hours'
+  order by started_at desc limit 1;
+  if found then
+    update public.staff_punches set ended_at = now() where id = v_open.id returning * into v_open;
+    return jsonb_build_object('kind', 'out', 'at', v_open.ended_at, 'started_at', v_open.started_at);
+  end if;
+  insert into public.staff_punches (restaurant_id, staff_id) values (p_restaurant, p_staff) returning * into v_open;
+  return jsonb_build_object('kind', 'in', 'at', v_open.started_at);
+end;
+$$;
+
+-- Gérant : corrige un pointage (oubli de départ, erreur).
+create or replace function public.edit_punch(p_restaurant uuid, p_id uuid, p_start timestamptz, p_end timestamptz)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.planning_is_manager(p_restaurant) then raise exception 'Accès refusé'; end if;
+  if p_start is null or (p_end is not null and p_end <= p_start) or p_end - p_start > interval '20 hours' then raise exception 'Horaires invalides'; end if;
+  update public.staff_punches set started_at = p_start, ended_at = p_end, edited = true where id = p_id and restaurant_id = p_restaurant;
+end;
+$$;
+
+revoke all on function public.planning_is_manager(uuid) from public;
+revoke all on function public.planning_check_person(uuid, uuid, text) from public;
+revoke all on function public.save_staff(uuid, uuid, text, text, numeric, numeric, text, boolean) from public;
+revoke all on function public.save_shift(uuid, uuid, uuid, date, int, int, int, text, text) from public;
+revoke all on function public.delete_shift(uuid, uuid) from public;
+revoke all on function public.copy_planning_week(uuid, date, date) from public;
+revoke all on function public.publish_planning_week(uuid, date, boolean) from public;
+revoke all on function public.add_unavailability(uuid, uuid, date, int, int, text, text) from public;
+revoke all on function public.cancel_unavailability(uuid, uuid, text) from public;
+revoke all on function public.decide_unavailability(uuid, uuid, boolean) from public;
+revoke all on function public.release_shift(uuid, uuid, text, text) from public;
+revoke all on function public.take_shift(uuid, uuid, uuid, text) from public;
+revoke all on function public.decide_swap(uuid, uuid, boolean) from public;
+revoke all on function public.clock_staff(uuid, uuid, text) from public;
+revoke all on function public.edit_punch(uuid, uuid, timestamptz, timestamptz) from public;
+grant execute on function public.save_staff(uuid, uuid, text, text, numeric, numeric, text, boolean) to authenticated;
+grant execute on function public.save_shift(uuid, uuid, uuid, date, int, int, int, text, text) to authenticated;
+grant execute on function public.delete_shift(uuid, uuid) to authenticated;
+grant execute on function public.copy_planning_week(uuid, date, date) to authenticated;
+grant execute on function public.publish_planning_week(uuid, date, boolean) to authenticated;
+grant execute on function public.add_unavailability(uuid, uuid, date, int, int, text, text) to authenticated;
+grant execute on function public.cancel_unavailability(uuid, uuid, text) to authenticated;
+grant execute on function public.decide_unavailability(uuid, uuid, boolean) to authenticated;
+grant execute on function public.release_shift(uuid, uuid, text, text) to authenticated;
+grant execute on function public.take_shift(uuid, uuid, uuid, text) to authenticated;
+grant execute on function public.decide_swap(uuid, uuid, boolean) to authenticated;
+grant execute on function public.clock_staff(uuid, uuid, text) to authenticated;
+grant execute on function public.edit_punch(uuid, uuid, timestamptz, timestamptz) to authenticated;
+
 -- ---------- Temps réel ----------
 do $$
 begin
