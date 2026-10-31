@@ -439,10 +439,16 @@
           return '<tr' + (x.active ? '' : ' style="opacity:.55"') + '><td><span class="pl-dot pl-dot--' + x.poste + '"></span> <strong>' + esc(x.name) + '</strong>' +
             '<small class="margin-src">' + POSTES[x.poste] + (x.weeklyHours ? ' · ' + x.weeklyHours + ' h / semaine' : '') + (x.hourlyCost != null ? ' · ' + fmt(x.hourlyCost) + ' / h' : '') +
             (x.hasPin ? ' · code PIN ✓' : ' · sans code PIN') + (x.active ? '' : ' · ne travaille plus ici') + '</small></td>' +
-            '<td style="text-align:right"><button class="link-btn" type="button" data-staff-edit="' + esc(x.id) + '">Modifier</button></td></tr>';
+            '<td style="text-align:right; white-space:nowrap">' + (x.active ? '<button class="btn btn--soft btn--sm" type="button" data-staff-link="' + esc(x.id) + '">Envoyer son planning</button> ' : '') +
+              '<button class="link-btn" type="button" data-staff-edit="' + esc(x.id) + '">Modifier</button></td></tr>';
         }).join('') + '</tbody></table>',
       onMount: function (sheet) {
-        sheet.addEventListener('click', function (e) { var b = e.target.closest('[data-staff-edit]'); if (b) openStaff(b.dataset.staffEdit || null); });
+        sheet.addEventListener('click', function (e) {
+          var b = e.target.closest('[data-staff-edit]');
+          if (b) return openStaff(b.dataset.staffEdit || null);
+          var l = e.target.closest('[data-staff-link]');
+          if (l) return openLink(l.dataset.staffLink);
+        });
       }
     });
   }
@@ -461,8 +467,10 @@
         '<label class="field"><span>Coût horaire chargé (facultatif)</span><input name="cost" type="number" min="0" max="500" step="0.01" value="' + (x.hourlyCost == null ? '' : x.hourlyCost) + '" placeholder="€ / heure"></label>' +
         '<label class="field"><span>Code PIN (4 chiffres)</span><input name="pin" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="' + (x.hasPin ? 'inchangé' : 'aucun') + '"></label>' +
         (x.hasPin ? '<label class="check-line"><input type="checkbox" name="nopin"><span>Retirer le code PIN</span></label>' : '<span></span>') +
+        '<label class="field"><span>E-mail (facultatif)</span><input name="email" type="email" maxlength="120" value="' + esc(x.email || '') + '" placeholder="pour lui envoyer son planning"></label>' +
+        '<label class="field"><span>Téléphone (facultatif)</span><input name="phone" type="tel" maxlength="30" value="' + esc(x.phone || '') + '" placeholder="pour WhatsApp ou SMS"></label>' +
         '<label class="switch span-2"><input type="checkbox" name="active"' + (x.active ? ' checked' : '') + '><span class="switch__track"></span><span>Travaille actuellement ici</span></label>' +
-        '<p class="help span-2">Le coût horaire n’est visible que par le gérant : il sert à estimer la masse salariale de la semaine.</p>' +
+        '<p class="help span-2">Le coût horaire et les coordonnées ne sont visibles que par le gérant. Les coordonnées servent à envoyer à chacun son lien de planning.</p>' +
       '</form>',
       footer: '<button class="btn btn--primary" type="submit" form="staffForm">Enregistrer</button>',
       onMount: function (sheet) {
@@ -474,10 +482,77 @@
           if (pin && !/^\d{4}$/.test(pin)) return UI.toast('Le code PIN fait 4 chiffres');
           var num = function (v) { return v === '' ? null : Number(v); };
           T.planning.saveStaff({ id: id, name: f.name.value.trim(), poste: f.poste.value, weeklyHours: num(f.hours.value), hourlyCost: num(f.cost.value), pin: pin, active: f.active.checked })
+            .then(function (row) { return T.planning.saveContact(row.id, f.email.value.trim(), f.phone.value.trim()); })
             .then(function () { return load(); }).then(function () { UI.toast('Équipe enregistrée'); openStaffList(); }, fail);
         });
       }
     });
+  }
+
+  /* ---------------- Lien personnel et envoi du planning ---------------- */
+  function linkUrl(token) { return new URL('planning.html?t=' + token, location.href).href; }
+  function digits(phone) { return String(phone || '').replace(/[^0-9]/g, '').replace(/^0(?=[1-9])/, '33'); }
+  function message(p, url) {
+    return 'Bonjour ' + p.name + ', ton planning ' + (state.opts.restaurantName ? 'chez ' + state.opts.restaurantName + ' ' : '') +
+      'est disponible (' + weekLabel().toLowerCase() + ') : ' + url + '\nCe lien est personnel, garde-le pour consulter tes services.';
+  }
+  function sendButtons(p, url) {
+    var msg = encodeURIComponent(message(p, url));
+    return '<div class="pl-send">' +
+      '<a class="btn btn--primary btn--sm" target="_blank" rel="noopener" href="https://wa.me/' + digits(p.phone) + '?text=' + msg + '">WhatsApp</a>' +
+      (p.phone ? '<a class="btn btn--soft btn--sm" href="sms:' + esc(p.phone.replace(/\s/g, '')) + '?&body=' + msg + '">SMS</a>' : '') +
+      (p.email ? '<a class="btn btn--soft btn--sm" href="mailto:' + esc(p.email) + '?subject=' + encodeURIComponent('Ton planning') + '&body=' + msg + '">E-mail</a>' : '') +
+      '<button class="btn btn--ghost btn--sm" type="button" data-copy="' + esc(url) + '">Copier le lien</button></div>';
+  }
+  function copy(text) {
+    var done = function () { UI.toast('Lien copié'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(done, function () { prompt('Copiez ce lien :', text); });
+    prompt('Copiez ce lien :', text);
+  }
+
+  function openLink(staffId) {
+    var p = staff(staffId);
+    T.planning.link(staffId, false).then(function (token) {
+      var url = linkUrl(token);
+      UI.openSheet({
+        label: 'Lien personnel',
+        head: '<p class="eyebrow">Planning sur son téléphone</p><h2>' + esc(p.name) + '</h2>',
+        body: '<p class="help">Avec ce lien, ' + esc(p.name) + ' voit son planning, ses heures et ses collègues, déclare ses indisponibilités et propose ou reprend des créneaux. Sans compte ni mot de passe.</p>' +
+          '<input class="input pl-link" readonly value="' + esc(url) + '">' + sendButtons(p, url) +
+          (!p.phone && !p.email ? '<p class="help">Ajoutez son téléphone ou son e-mail (bouton « Modifier ») pour l’envoyer en un geste.</p>' : '') +
+          '<p class="help" style="margin-top:16px">Lien perdu ou personne partie ? <button class="link-btn" type="button" data-renew>Créer un nouveau lien</button> : l’ancien ne fonctionnera plus.</p>',
+        onMount: function (sheet) {
+          sheet.addEventListener('click', function (e) {
+            var c = e.target.closest('[data-copy]');
+            if (c) return copy(c.dataset.copy);
+            if (e.target.closest('[data-renew]')) {
+              if (!confirm('Créer un nouveau lien pour ' + p.name + ' ? L’ancien ne fonctionnera plus.')) return;
+              T.planning.link(staffId, true).then(function () { UI.closeSheet().then(function () { openLink(staffId); }); UI.toast('Nouveau lien créé'); }, fail);
+            }
+          });
+        }
+      });
+    }, fail);
+  }
+
+  // Après la publication : prévenir chacun avec son lien.
+  function openNotify() {
+    var people = activeStaff().filter(function (p) { return weekShifts(p.id).length; });
+    if (!people.length) return;
+    Promise.all(people.map(function (p) { return T.planning.link(p.id, false); })).then(function (tokens) {
+      UI.openSheet({
+        label: 'Prévenir l’équipe',
+        head: '<p class="eyebrow">Semaine publiée</p><h2>Prévenir l’équipe</h2>',
+        body: '<p class="help">Envoyez à chacun son lien personnel : il voit son planning sur son téléphone.</p><div class="pl-mine">' +
+          people.map(function (p, i) {
+            var url = linkUrl(tokens[i]);
+            return '<div class="pl-notify"><div><strong>' + esc(p.name) + '</strong><span>' + hours(plannedMin(p.id)) + ' cette semaine</span></div>' + sendButtons(p, url) + '</div>';
+          }).join('') + '</div>',
+        onMount: function (sheet) {
+          sheet.addEventListener('click', function (e) { var c = e.target.closest('[data-copy]'); if (c) copy(c.dataset.copy); });
+        }
+      });
+    }, fail);
   }
 
   /* ---------------- Indisponibilité ---------------- */
@@ -659,7 +734,8 @@
     if (t.closest('[data-pl-publish]')) {
       var on = !state.data.published;
       if (on && !weekShifts().length) return UI.toast('Ajoutez des créneaux avant de publier');
-      return T.planning.publish(state.week, on).then(function () { reload(on ? 'Semaine publiée : l’équipe la voit' : 'Semaine repassée en brouillon'); }, fail);
+      return T.planning.publish(state.week, on).then(function () { return reload(on ? 'Semaine publiée : l’équipe la voit' : 'Semaine repassée en brouillon'); })
+        .then(function () { if (on) openNotify(); }, fail);
     }
     if (t.closest('[data-pl-copy]')) {
       return T.planning.copyWeek(addDays(state.week, -7), state.week).then(function (n) {

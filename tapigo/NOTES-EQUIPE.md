@@ -71,6 +71,10 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **31/10/2026 · Benjamin** : planning sur le téléphone de chaque salarié : lien personnel `planning.html?t=…` (fonctions
+  `staff_link`, `staff_portal`, `portal_*`), coordonnées dans `staff_private` (e-mail, téléphone), envoi par WhatsApp /
+  SMS / e-mail à la publication, ajout à l'agenda (.ics). À faire une fois : relancer `supabase/schema.sql`. Fichiers en
+  `?v=35`.
 - **31/10/2026 · Benjamin** : onglet « Planning » : planning de la semaine (gérant), publication, alertes (heures, repos,
   indisponibilités), affluence et coût estimé, demandes de l'équipe (indisponibilités, remplacements), pointage avec code
   PIN, export des heures. Tables `staff`, `staff_private`, `shifts`, `planning_weeks`, `staff_unavailability`,

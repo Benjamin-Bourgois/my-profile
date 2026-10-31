@@ -2671,6 +2671,173 @@ grant execute on function public.decide_swap(uuid, uuid, boolean) to authenticat
 grant execute on function public.clock_staff(uuid, uuid, text) to authenticated;
 grant execute on function public.edit_punch(uuid, uuid, timestamptz, timestamptz) to authenticated;
 
+-- ---------- Planning : lien personnel de chaque salarié ----------
+-- Chaque personne reçoit un lien secret (planning.html?t=…) pour voir son planning sur son
+-- téléphone, sans compte. Le gérant l'envoie par WhatsApp, SMS ou e-mail, et peut le
+-- remplacer à tout moment (l'ancien lien ne marche plus).
+alter table public.staff_private add column if not exists access_token text;
+alter table public.staff_private add column if not exists email text check (email is null or length(email) <= 120);
+alter table public.staff_private add column if not exists phone text check (phone is null or length(phone) <= 30);
+create unique index if not exists staff_private_token_idx on public.staff_private (access_token) where access_token is not null;
+
+-- Gérant : coordonnées pour prévenir la personne, et lien personnel (créé ou remplacé).
+create or replace function public.save_staff_contact(p_restaurant uuid, p_staff uuid, p_email text, p_phone text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.planning_is_manager(p_restaurant) then raise exception 'Accès refusé'; end if;
+  if btrim(coalesce(p_email, '')) <> '' and btrim(p_email) !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then raise exception 'Adresse e-mail invalide'; end if;
+  insert into public.staff_private (staff_id, restaurant_id, email, phone)
+  select p_staff, p_restaurant, nullif(btrim(coalesce(p_email, '')), ''), nullif(btrim(coalesce(p_phone, '')), '')
+  where exists (select 1 from public.staff where id = p_staff and restaurant_id = p_restaurant)
+  on conflict (staff_id) do update set email = excluded.email, phone = excluded.phone;
+end;
+$$;
+
+create or replace function public.staff_link(p_restaurant uuid, p_staff uuid, p_renew boolean)
+returns text
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_token text;
+begin
+  if not public.planning_is_manager(p_restaurant) then raise exception 'Accès refusé'; end if;
+  if not exists (select 1 from public.staff where id = p_staff and restaurant_id = p_restaurant) then raise exception 'Personne introuvable'; end if;
+  insert into public.staff_private (staff_id, restaurant_id) values (p_staff, p_restaurant) on conflict (staff_id) do nothing;
+  select access_token into v_token from public.staff_private where staff_id = p_staff;
+  if v_token is null or p_renew then
+    v_token := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
+    update public.staff_private set access_token = v_token where staff_id = p_staff;
+  end if;
+  return v_token;
+end;
+$$;
+
+-- Personne correspondant à un lien (salarié actif d'un restaurant actif), sinon erreur.
+create or replace function public.portal_person(p_token text)
+returns public.staff
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v public.staff;
+begin
+  if coalesce(length(p_token), 0) < 32 then raise exception 'Lien invalide'; end if;
+  select s.* into v from public.staff s
+  join public.staff_private p on p.staff_id = s.id
+  join public.restaurants r on r.id = s.restaurant_id
+  where p.access_token = p_token and s.active and r.active;
+  if not found then raise exception 'Ce lien n''est plus valide : demandez-en un nouveau à votre responsable.'; end if;
+  return v;
+end;
+$$;
+
+-- Page personnelle : semaines publiées de la semaine passée à +4 semaines.
+create or replace function public.staff_portal(p_token text)
+returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v public.staff;
+  v_from date := date_trunc('week', current_date)::date - 7;
+  v_to date := date_trunc('week', current_date)::date + 35;
+begin
+  v := public.portal_person(p_token);
+  return jsonb_build_object(
+    'me', jsonb_build_object('id', v.id, 'name', v.name, 'poste', v.poste, 'weeklyHours', v.weekly_hours),
+    'restaurant', (select coalesce(r.info ->> 'name', 'Restaurant') from public.restaurants r where r.id = v.restaurant_id),
+    'staff', (select coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'poste', s.poste) order by s.name), '[]'::jsonb)
+              from public.staff s where s.restaurant_id = v.restaurant_id and s.active),
+    'weeks', (select coalesce(jsonb_agg(w.week_start order by w.week_start), '[]'::jsonb) from public.planning_weeks w
+              where w.restaurant_id = v.restaurant_id and w.published_at is not null and w.week_start >= v_from and w.week_start < v_to),
+    'shifts', (select coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'staffId', s.staff_id, 'day', s.day, 'start', s.start_min, 'end', s.end_min,
+                 'brk', s.break_min, 'poste', s.poste, 'note', s.note, 'status', s.status, 'swapReason', s.swap_reason, 'proposedStaff', s.proposed_staff)
+                 order by s.day, s.start_min), '[]'::jsonb)
+               from public.shifts s join public.planning_weeks w on w.restaurant_id = s.restaurant_id and w.week_start = date_trunc('week', s.day)::date
+               where s.restaurant_id = v.restaurant_id and w.published_at is not null and s.day >= v_from and s.day < v_to),
+    'unav', (select coalesce(jsonb_agg(jsonb_build_object('id', u.id, 'day', u.day, 'start', u.start_min, 'end', u.end_min, 'reason', u.reason, 'status', u.status)
+               order by u.day), '[]'::jsonb)
+             from public.staff_unavailability u where u.staff_id = v.id and u.day >= current_date - 7)
+  );
+end;
+$$;
+
+create or replace function public.portal_add_unavailability(p_token text, p_day date, p_start int, p_end int, p_reason text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v public.staff;
+begin
+  v := public.portal_person(p_token);
+  if p_day is null or p_day < current_date or p_day > current_date + 365 then raise exception 'Date invalide'; end if;
+  if (p_start is null) <> (p_end is null) or (p_start is not null and (p_start < 0 or p_start > 1439 or p_end < 0 or p_end > 1440)) then
+    raise exception 'Horaires invalides';
+  end if;
+  if (select count(*) from public.staff_unavailability where staff_id = v.id and created_at > now() - interval '1 day') >= 20 then
+    raise exception 'Trop de demandes aujourd''hui';
+  end if;
+  insert into public.staff_unavailability (restaurant_id, staff_id, day, start_min, end_min, reason, status)
+  values (v.restaurant_id, v.id, p_day, p_start, p_end, left(btrim(coalesce(p_reason, '')), 120), 'en_attente');
+end;
+$$;
+
+create or replace function public.portal_cancel_unavailability(p_token text, p_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v public.staff;
+begin
+  v := public.portal_person(p_token);
+  delete from public.staff_unavailability where id = p_id and staff_id = v.id and day >= current_date;
+end;
+$$;
+
+create or replace function public.portal_release_shift(p_token text, p_shift uuid, p_reason text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v public.staff;
+begin
+  v := public.portal_person(p_token);
+  update public.shifts set status = 'a_remplacer', swap_reason = left(btrim(coalesce(p_reason, '')), 120), proposed_staff = null
+  where id = p_shift and staff_id = v.id and day >= current_date and status = 'prevu';
+  if not found then raise exception 'Créneau introuvable'; end if;
+end;
+$$;
+
+create or replace function public.portal_take_shift(p_token text, p_shift uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v public.staff;
+begin
+  v := public.portal_person(p_token);
+  update public.shifts set status = 'propose', proposed_staff = v.id
+  where id = p_shift and restaurant_id = v.restaurant_id and status = 'a_remplacer' and staff_id <> v.id and day >= current_date;
+  if not found then raise exception 'Ce créneau n''est plus disponible'; end if;
+end;
+$$;
+
+revoke all on function public.save_staff_contact(uuid, uuid, text, text) from public;
+revoke all on function public.staff_link(uuid, uuid, boolean) from public;
+revoke all on function public.portal_person(text) from public;
+revoke all on function public.staff_portal(text) from public;
+revoke all on function public.portal_add_unavailability(text, date, int, int, text) from public;
+revoke all on function public.portal_cancel_unavailability(text, uuid) from public;
+revoke all on function public.portal_release_shift(text, uuid, text) from public;
+revoke all on function public.portal_take_shift(text, uuid) from public;
+grant execute on function public.save_staff_contact(uuid, uuid, text, text) to authenticated;
+grant execute on function public.staff_link(uuid, uuid, boolean) to authenticated;
+grant execute on function public.staff_portal(text) to anon, authenticated;
+grant execute on function public.portal_add_unavailability(text, date, int, int, text) to anon, authenticated;
+grant execute on function public.portal_cancel_unavailability(text, uuid) to anon, authenticated;
+grant execute on function public.portal_release_shift(text, uuid, text) to anon, authenticated;
+grant execute on function public.portal_take_shift(text, uuid) to anon, authenticated;
+
 -- ---------- Temps réel ----------
 do $$
 begin

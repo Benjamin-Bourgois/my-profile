@@ -669,7 +669,8 @@
       return Promise.resolve(clone({
         staff: p.staff.map(function (x) {
           var pv = p.priv[x.id] || {};
-          return Object.assign({}, x, { hourlyCost: team ? null : (pv.hourlyCost == null ? null : pv.hourlyCost), hasPin: !team && !!pv.pin });
+          return Object.assign({}, x, { hourlyCost: team ? null : (pv.hourlyCost == null ? null : pv.hourlyCost), hasPin: !team && !!pv.pin,
+            email: team ? '' : pv.email || '', phone: team ? '' : pv.phone || '', hasLink: !team && !!pv.token });
         }),
         shifts: p.shifts.filter(function (x) { return x.day >= from && x.day < to && visible(x); }),
         published: published,
@@ -745,7 +746,65 @@
       var row = { id: 'pu_' + Date.now().toString(36), staffId: staffId, start: Date.now(), end: null, edited: false };
       p.punches.push(row); planningSave(p); return Promise.resolve({ kind: 'in', at: row.start });
     },
+    link: function (staffId, renew) {
+      var p = planningData(), pv = p.priv[staffId] = p.priv[staffId] || {};
+      if (!pv.token || renew) pv.token = (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + Date.now().toString(36) + 'demo0000000000').slice(0, 40);
+      planningSave(p); return Promise.resolve(pv.token);
+    },
+    saveContact: function (staffId, email, phone) {
+      var p = planningData(), pv = p.priv[staffId] = p.priv[staffId] || {};
+      pv.email = email || ''; pv.phone = phone || ''; planningSave(p); return Promise.resolve();
+    },
     editPunch: function (id, start, end) { var p = planningData(), x = planningFind(p.punches, id); Object.assign(x, { start: start, end: end || null, edited: true }); planningSave(p); return Promise.resolve(); }
+  };
+
+  // Page personnelle d'un salarié (démo : mêmes données, dans ce navigateur).
+  function portalPerson(p, token) {
+    var id = Object.keys(p.priv).filter(function (k) { return p.priv[k].token && p.priv[k].token === token; })[0];
+    var x = id && planningFind(p.staff, id);
+    if (!x || !x.active) throw new Error('Ce lien n’est plus valide : demandez-en un nouveau à votre responsable.');
+    return x;
+  }
+  var portal = {
+    load: function (token) {
+      var p = planningData(), me;
+      try { me = portalPerson(p, token); } catch (e) { return Promise.reject(e); }
+      var from = ymdPlus(mondayOf(new Date()), -7), to = ymdPlus(mondayOf(new Date()), 35);
+      var weeks = Object.keys(p.weeks).filter(function (w) { return p.weeks[w] && w >= from && w < to; }).sort();
+      return Promise.resolve(clone({
+        me: { id: me.id, name: me.name, poste: me.poste, weeklyHours: me.weeklyHours },
+        restaurant: (getRestaurant() || {}).name || 'Restaurant',
+        staff: p.staff.filter(function (x) { return x.active; }).map(function (x) { return { id: x.id, name: x.name, poste: x.poste }; }),
+        weeks: weeks,
+        shifts: p.shifts.filter(function (x) { return weeks.indexOf(mondayOf(new Date(x.day + 'T12:00:00'))) >= 0; }),
+        unav: p.unav.filter(function (u) { return u.staffId === me.id; })
+      }));
+    },
+    addUnav: function (token, x) {
+      var p = planningData(), me;
+      try { me = portalPerson(p, token); } catch (e) { return Promise.reject(e); }
+      p.unav.push({ id: 'un_' + Date.now().toString(36), staffId: me.id, day: x.day, start: x.start, end: x.end, reason: x.reason || '', status: 'en_attente' });
+      planningSave(p); return Promise.resolve();
+    },
+    cancelUnav: function (token, id) {
+      var p = planningData(), me;
+      try { me = portalPerson(p, token); } catch (e) { return Promise.reject(e); }
+      p.unav = p.unav.filter(function (u) { return !(u.id === id && u.staffId === me.id); }); planningSave(p); return Promise.resolve();
+    },
+    release: function (token, id, reason) {
+      var p = planningData(), me;
+      try { me = portalPerson(p, token); } catch (e) { return Promise.reject(e); }
+      var s = planningFind(p.shifts, id);
+      if (!s || s.staffId !== me.id) return Promise.reject(new Error('Créneau introuvable'));
+      s.status = 'a_remplacer'; s.swapReason = reason || ''; planningSave(p); return Promise.resolve();
+    },
+    take: function (token, id) {
+      var p = planningData(), me;
+      try { me = portalPerson(p, token); } catch (e) { return Promise.reject(e); }
+      var s = planningFind(p.shifts, id);
+      if (!s || s.status !== 'a_remplacer' || s.staffId === me.id) return Promise.reject(new Error('Ce créneau n’est plus disponible'));
+      s.status = 'propose'; s.proposedStaff = me.id; planningSave(p); return Promise.resolve();
+    }
   };
 
   // Fournisseurs de démonstration.
@@ -1068,6 +1127,7 @@
     haccp: haccp,
     suppliers: suppliers,
     planning: planning,
+    portal: portal,
     getTableServers: getTableServers,
     getTableServer: getTableServer,
     setTableServers: setTableServers,

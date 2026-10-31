@@ -885,7 +885,8 @@
           staff: r[0].data.map(function (x) {
             var p = priv[x.id] || {};
             return { id: x.id, name: x.name, poste: x.poste, weeklyHours: x.weekly_hours == null ? null : Number(x.weekly_hours), active: x.active,
-              hourlyCost: p.hourly_cost == null ? null : Number(p.hourly_cost), hasPin: !!p.pin_hash };
+              hourlyCost: p.hourly_cost == null ? null : Number(p.hourly_cost), hasPin: !!p.pin_hash,
+              email: p.email || '', phone: p.phone || '', hasLink: !!p.access_token };
           }),
           shifts: r[2].data.map(planShift),
           published: r[3].data[0] && r[3].data[0].published_at ? Date.parse(r[3].data[0].published_at) : null,
@@ -921,9 +922,23 @@
         return { kind: r.kind, at: Date.parse(r.at), startedAt: r.started_at ? Date.parse(r.started_at) : null };
       });
     },
+    // Lien personnel du salarié (planning.html?t=…) ; renew : remplace l'ancien.
+    link: function (staffId, renew) { return rpc('staff_link', { p_restaurant: current.id, p_staff: staffId, p_renew: !!renew }); },
+    saveContact: function (staffId, email, phone) {
+      return rpc('save_staff_contact', { p_restaurant: current.id, p_staff: staffId, p_email: email || '', p_phone: phone || '' });
+    },
     editPunch: function (id, start, end) {
       return rpc('edit_punch', { p_restaurant: current.id, p_id: id, p_start: new Date(start).toISOString(), p_end: end ? new Date(end).toISOString() : null });
     }
+  };
+
+  /* ---------------- Planning : page personnelle du salarié (sans compte) ---------------- */
+  T.portal = {
+    load: function (token) { return rpc('staff_portal', { p_token: token }); },
+    addUnav: function (token, x) { return rpc('portal_add_unavailability', { p_token: token, p_day: x.day, p_start: x.start, p_end: x.end, p_reason: x.reason || '' }); },
+    cancelUnav: function (token, id) { return rpc('portal_cancel_unavailability', { p_token: token, p_id: id }); },
+    release: function (token, shiftId, reason) { return rpc('portal_release_shift', { p_token: token, p_shift: shiftId, p_reason: reason || '' }); },
+    take: function (token, shiftId) { return rpc('portal_take_shift', { p_token: token, p_shift: shiftId }); }
   };
 
   /* ---------------- Pack HACCP ---------------- */
