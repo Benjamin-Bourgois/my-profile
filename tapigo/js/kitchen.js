@@ -2017,7 +2017,9 @@
       clear: function () {
         return LIVE ? T.admin.clearDemo(cur.id) : Promise.resolve(T.clearDemoOrders());
       },
-      restaurantName: T.getRestaurant().name
+      restaurantName: T.getRestaurant().name,
+      // Export comptable : réservé au gérant (et à l'équipe Tapigo).
+      compta: window.TapigoCompta && (!LIVE || (cur && cur.role !== 'equipe')) ? function () { window.TapigoCompta.open({ live: LIVE }); } : null
     });
   }
 
