@@ -80,7 +80,8 @@
       '<ul class="ticket__lines">' + o.lines.map(function (l) {
         var other = state.station !== 'all' && l.station !== state.station;
         return '<li class="ticket__line' + (other ? ' is-other' : '') + '"><span class="q">' + l.qty + '×</span><div>' +
-          '<div class="n">' + esc(l.name) + (l.station === 'bar' ? ' <span class="badge badge--info">Bar</span>' : '') + '</div>' +
+          '<div class="n">' + esc(l.name) + (l.station === 'bar' ? ' <span class="badge badge--info">Bar</span>' : '') +
+            (l.reward ? ' <span class="badge badge--gold">★ Offert (fidélité)</span>' : '') + '</div>' +
           l.options.map(function (op) { return '<div class="o">' + esc(op.group) + ' : ' + esc(op.values.join(', ')) + '</div>'; }).join('') +
           (l.note ? '<div class="note">⚠ ' + esc(l.note) + '</div>' : '') +
         '</div></li>';
@@ -329,6 +330,7 @@
         '<button class="btn btn--primary" type="button" data-new>' + I.plus.replace('<svg ', '<svg width="16" height="16" ') + ' Ajouter un plat</button>' +
         '<button class="btn btn--ghost" type="button" data-categories>Catégories</button>' +
         (window.TapigoI18n ? '<button class="btn btn--ghost" type="button" data-langs>Langues</button>' : '') +
+        (T.loyalty ? '<button class="btn btn--ghost" type="button" data-loyalty>★ Fidélité</button>' : '') +
         '<button class="btn btn--ghost" type="button" data-settings>Établissement</button>' +
       '</div>' +
       '<p class="eyebrow">' + menu.items.length + ' produits · ' + off + ' en rupture (masqué' + (off > 1 ? 's' : '') + ' côté client)</p>' +
@@ -598,6 +600,127 @@
             box.innerHTML = body();
           }, function (err) { UI.toast(esc(err.message), 6000); })
             .then(function () { b.disabled = false; b.innerHTML = I.bolt.replace('<svg ', '<svg width="16" height="16" ') + ' Traduire avec l’IA'; });
+        });
+      }
+    });
+  }
+
+  /* ---------------- Fidélité (gérant) ---------------- */
+  function openLoyalty() {
+    UI.openSheet({
+      label: 'Programme de fidélité',
+      head: '<p class="eyebrow">Clients fidèles</p><h2>Programme de fidélité</h2>',
+      body: '<div id="loyBody"><p class="help"><span class="spinner"></span> Chargement…</p></div>',
+      footer: '<button class="btn btn--primary" type="button" id="loySave">Enregistrer</button>',
+      onMount: function (sheet) {
+        var box = $('#loyBody', sheet), data = null, q = '';
+        var items = T.getMenu().items.slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'fr'); });
+        var day = function (t) { return t ? new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '—'; };
+        var rwRow = function (r) {
+          return '<div class="loy-rw" data-rw="' + esc(r.id || '') + '">' +
+            '<input class="loy-rw__label" maxlength="60" placeholder="Ex. : Café offert" value="' + esc(r.label || '') + '" aria-label="Nom de la récompense">' +
+            '<select class="loy-rw__item" aria-label="Produit offert"><option value="">Produit offert…</option>' + items.map(function (it) {
+              return '<option value="' + esc(it.id) + '"' + (it.id === r.itemId ? ' selected' : '') + '>' + esc(it.name) + ' · ' + fmt(it.price) + '</option>';
+            }).join('') + '</select>' +
+            '<label class="loy-rw__pts"><input inputmode="numeric" value="' + (r.points || '') + '" aria-label="Points nécessaires"><span>pts</span></label>' +
+            '<button class="icon-btn" type="button" data-rw-del aria-label="Retirer">✕</button></div>';
+        };
+        var cardsHTML = function () {
+          var list = data.cards.filter(function (c) { return !q || (c.firstName + ' ' + c.email).toLowerCase().indexOf(q) >= 0; });
+          return list.length ? list.slice(0, 200).map(function (c) {
+            return '<div class="loy-client"><div><strong>' + esc(c.firstName) + '</strong>' + (c.email ? '<small>' + esc(c.email) + (c.marketingOk ? ' · ✉ accepte les offres' : '') + '</small>' : '') + '</div>' +
+              '<span><b>' + c.points + '</b> pts</span><span>' + c.visits + ' visite' + (c.visits > 1 ? 's' : '') + '</span><span>' + day(c.lastVisitAt || c.createdAt) + '</span>' +
+              '<button class="btn btn--soft btn--sm" type="button" data-adjust="' + esc(c.id) + '">± points</button></div>';
+          }).join('') : '<p class="help">' + (data.cards.length ? 'Aucun client trouvé.' : 'Pas encore de client fidèle : les clients créent leur carte depuis la carte du restaurant, en 10 secondes.') + '</p>';
+        };
+        var paint = function () {
+          var p = data.program, used = data.events.filter(function (e) { return e.kind === 'depense'; }).length;
+          var given = data.cards.reduce(function (n, c) { return n + (c.earned || 0); }, 0);
+          var mail = data.cards.filter(function (c) { return c.email && c.marketingOk; }).length;
+          box.innerHTML =
+            '<label class="check-line"><input type="checkbox" id="loyOn"' + (p.enabled ? ' checked' : '') + '><span><strong>Proposer la carte de fidélité aux clients</strong> (sur la carte et au moment de commander)</span></label>' +
+            '<div class="form-grid" style="margin-top:12px">' +
+              '<label class="field"><span>Points gagnés par euro dépensé</span><input id="loyRate" inputmode="decimal" value="' + String(p.pointsPerEuro).replace('.', ',') + '"></label>' +
+              '<label class="field"><span>Points de bienvenue</span><input id="loyWelcome" inputmode="numeric" value="' + (p.welcomePoints || 0) + '"></label>' +
+            '</div>' +
+            '<p class="help">Les points sont crédités quand la commande passe « Servie » (pourboire non compris). Exemple : 1 point par euro, un café offert à 30 points ≈ 1 café offert tous les 30 € dépensés.</p>' +
+            '<h3 class="loy-h">Récompenses (un produit offert)</h3><div id="loyRewards">' + p.rewards.map(rwRow).join('') + '</div>' +
+            '<button class="btn btn--soft btn--sm" type="button" data-rw-add>+ Ajouter une récompense</button>' +
+            '<div class="loy-stats"><div><b>' + data.cards.length + '</b><span>clients fidèles</span></div><div><b>' + given + '</b><span>points distribués</span></div>' +
+              '<div><b>' + used + '</b><span>récompenses utilisées</span></div><div><b>' + mail + '</b><span>e-mails (offres acceptées)</span></div></div>' +
+            '<div class="loy-clients-head"><h3 class="loy-h">Clients</h3><label class="search"><input id="loyQ" type="search" placeholder="Rechercher…" value="' + esc(q) + '" aria-label="Rechercher un client"></label>' +
+              (mail ? '<button class="btn btn--ghost btn--sm" type="button" data-loy-csv>Exporter les e-mails (CSV)</button>' : '') + '</div>' +
+            '<div id="loyClients">' + cardsHTML() + '</div>';
+        };
+        var collect = function () {
+          var rate = parseFloat(($('#loyRate', sheet).value || '').replace(',', '.'));
+          var welcome = parseInt($('#loyWelcome', sheet).value, 10) || 0;
+          if (!(rate > 0 && rate <= 100)) throw new Error('Points par euro : entre 0,1 et 100');
+          if (welcome < 0 || welcome > 10000) throw new Error('Points de bienvenue : entre 0 et 10 000');
+          var rewards = Array.prototype.map.call(box.querySelectorAll('.loy-rw'), function (row) {
+            return { id: row.dataset.rw || undefined, label: $('.loy-rw__label', row).value.trim(), itemId: $('.loy-rw__item', row).value,
+              points: parseInt($('.loy-rw__pts input', row).value, 10) || 0 };
+          }).filter(function (r) { return r.label || r.itemId || r.points; });
+          rewards.forEach(function (r) {
+            if (!r.itemId) throw new Error('Choisissez le produit offert pour « ' + (r.label || 'récompense') + ' »');
+            if (!r.label) r.label = (T.getItem(r.itemId) || {}).name + ' offert';
+            if (!(r.points > 0)) throw new Error('Indiquez les points nécessaires pour « ' + r.label + ' »');
+          });
+          if ($('#loyOn', sheet).checked && !rewards.length) throw new Error('Ajoutez au moins une récompense');
+          return { enabled: $('#loyOn', sheet).checked, pointsPerEuro: Math.round(rate * 100) / 100, welcomePoints: welcome, rewards: rewards };
+        };
+        var load = function () {
+          return T.loyalty.manage.load().then(function (d) {
+            data = d;
+            if (!d.program.rewards.length && !d.program.enabled) {
+              var cafe = items.filter(function (it) { return /caf|espresso/i.test(it.name); })[0];
+              if (cafe) d.program.rewards = [{ label: cafe.name + ' offert', itemId: cafe.id, points: 30 }];
+            }
+            paint();
+          }, function (err) { box.innerHTML = '<p class="help">' + esc(err.message) + '</p>'; });
+        };
+        load();
+        box.addEventListener('input', function (e) {
+          if (e.target.id !== 'loyQ') return;
+          q = e.target.value.trim().toLowerCase(); $('#loyClients', sheet).innerHTML = cardsHTML();
+        });
+        box.addEventListener('click', function (e) {
+          if (e.target.closest('[data-rw-add]')) {
+            if (box.querySelectorAll('.loy-rw').length >= 12) return UI.toast('12 récompenses maximum');
+            return $('#loyRewards', sheet).insertAdjacentHTML('beforeend', rwRow({}));
+          }
+          var del = e.target.closest('[data-rw-del]');
+          if (del) return del.closest('.loy-rw').remove();
+          if (e.target.closest('[data-loy-csv]')) {
+            var rows = [['Prénom', 'E-mail', 'Points', 'Visites', 'Carte créée le']].concat(data.cards.filter(function (c) { return c.email && c.marketingOk; }).map(function (c) {
+              return [c.firstName, c.email, c.points, c.visits, new Date(c.createdAt).toLocaleDateString('fr-FR')];
+            }));
+            var csv = '\ufeff' + rows.map(function (r) { return r.map(function (v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(';'); }).join('\n');
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+            a.download = 'clients-fideles.csv'; document.body.appendChild(a); a.click(); a.remove();
+            return;
+          }
+          var adj = e.target.closest('[data-adjust]');
+          if (adj) {
+            var c = data.cards.filter(function (x) { return x.id === adj.dataset.adjust; })[0];
+            var v = prompt('Points à ajouter pour ' + c.firstName + ' (ex. 20, ou -20 pour en retirer) :', '');
+            if (v === null) return;
+            var n = parseInt(v, 10);
+            if (!n) return UI.toast('Nombre de points invalide');
+            T.loyalty.manage.adjust(c.id, n, n > 0 ? 'Geste du restaurant' : 'Correction').then(function () {
+              UI.toast((n > 0 ? '+' : '') + n + ' points pour ' + esc(c.firstName)); load();
+            }, function (err) { UI.toast(esc(err.message), 4000); });
+          }
+        });
+        $('#loySave', sheet).addEventListener('click', function () {
+          if (!data) return;
+          var prog;
+          try { prog = collect(); } catch (err) { return UI.toast(esc(err.message), 4000); }
+          T.loyalty.manage.save(prog).then(function () {
+            UI.closeSheet();
+            UI.toast(prog.enabled ? 'Fidélité activée · ' + prog.rewards.length + ' récompense' + (prog.rewards.length > 1 ? 's' : '') : 'Programme de fidélité enregistré (désactivé)');
+          }, function (err) { UI.toast(esc(err.message), 5000); });
         });
       }
     });
@@ -2159,6 +2282,7 @@
       if (e.target.closest('[data-categories]')) return openCategories();
       if (e.target.closest('[data-settings]')) return openSettings();
       if (e.target.closest('[data-langs]')) return openLanguages();
+      if (e.target.closest('[data-loyalty]')) return openLoyalty();
       if (e.target.closest('[data-reset]')) {
         if (confirm('Réinitialiser le menu et les commandes de démonstration ?')) { T.resetDemo(); UI.toast('Données de démo restaurées'); }
         return;

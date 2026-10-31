@@ -1117,3 +1117,60 @@ button.table-badge:active { transform: scale(.96); }
 .portal__team small { color: var(--muted); }
 .portal__foot { text-align: center; }
 .pl-send a { text-decoration: none; }
+
+/* ---------------- Fidélité ---------------- */
+.loy-btn { height: 40px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--gold-soft); background: var(--gold-soft); color: #7C6338; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; flex: none; white-space: nowrap; }
+.loy-box { margin: 14px 0 4px; padding: 14px; border-radius: 14px; background: var(--gold-soft); color: var(--ink); }
+.loy-box__title { margin: 0 0 4px; font-weight: 800; font-size: 14px; color: #7C6338; }
+.loy-box .help { margin: 0 0 10px; }
+.loy-rewards { display: flex; flex-wrap: wrap; gap: 8px; }
+.loy-reward { display: grid; gap: 2px; text-align: left; padding: 9px 12px; border-radius: 12px; border: 1px solid rgba(124, 99, 56, .25); background: var(--card); font: inherit; color: var(--ink); cursor: pointer; max-width: 100%; }
+.loy-reward b { font-size: 13px; }
+.loy-reward small { font-size: 12px; color: var(--muted); }
+.loy-reward.is-on { border-color: #7C6338; box-shadow: 0 0 0 2px #7C6338 inset; }
+.loy-reward.is-on small { color: #7C6338; font-weight: 700; }
+.loy-reward:disabled { opacity: .6; cursor: default; }
+.loy-card { display: grid; gap: 4px; padding: 18px; border-radius: 18px; background: linear-gradient(135deg, #2B2A27, #4A4234); color: #F6EFE2; }
+.loy-card span { font-size: 13px; opacity: .8; }
+.loy-card b { font-family: 'Cormorant Garamond', serif; font-size: 38px; line-height: 1.1; }
+.loy-card small { font-size: 12px; opacity: .8; }
+.loy-progress { height: 6px; border-radius: 6px; background: rgba(255,255,255,.18); overflow: hidden; margin-top: 8px; }
+.loy-progress span { display: block; height: 100%; background: #D9B97A; border-radius: 6px; }
+.loy-h { margin: 18px 0 8px; font-size: 14px; font-weight: 800; }
+.loy-list { display: grid; gap: 6px; }
+.loy-item { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); font-size: 14px; }
+.loy-item small { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
+.loy-item.is-ok { border-color: #C9A86A; }
+.loy-plus { color: var(--ok, #2F7D4F); font-weight: 800; }
+.loy-minus { color: var(--danger); font-weight: 800; }
+.loy-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; }
+.loy-rw { display: grid; grid-template-columns: 1.2fr 1.4fr 90px 36px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.loy-rw input, .loy-rw select { width: 100%; min-width: 0; height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); font: inherit; font-size: 14px; color: var(--ink); }
+.loy-rw__pts { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
+.loy-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 18px 0 4px; }
+.loy-stats div { display: grid; padding: 10px; border-radius: 12px; background: var(--gold-soft); text-align: center; }
+.loy-stats b { font-size: 20px; color: #7C6338; }
+.loy-stats span { font-size: 11px; color: var(--muted); }
+.loy-clients-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.loy-clients-head .loy-h { margin-right: auto; }
+.loy-clients-head .search { max-width: 200px; }
+.loy-client { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.loy-client small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .loy-rw { grid-template-columns: 1fr 80px 36px; }
+  .loy-rw__item { grid-column: 1 / -1; grid-row: 2; }
+  .loy-stats { grid-template-columns: repeat(2, 1fr); }
+  .loy-client { grid-template-columns: 1fr auto auto; }
+  .loy-client > span:nth-of-type(2), .loy-client > span:nth-of-type(3) { display: none; }
+}
+.loy-btn b { font-weight: 800; }
+.loy-clients-head .search input { padding-left: 14px; }
+@media (max-width: 480px) { .loy-btn { padding: 0 10px; } .loy-btn__u { display: none; } }
+/* En-tête client : avec la pastille fidélité, la ligne passe sur deux rangées sur petit écran. */
+@media (max-width: 480px) {
+  .c-header__row:has(.loy-btn:not([hidden])) { flex-wrap: wrap; row-gap: 10px; }
+  .c-header__row:has(.loy-btn:not([hidden])) .c-header__name { flex: 1 1 calc(100% - 140px); }
+  .c-header__row:has(.loy-btn:not([hidden])) .service-trigger { margin-left: auto; }
+  .c-header__row:has(.loy-btn:not([hidden])) .c-header__name ~ * { order: 2; }
+  .c-header__row:has(.loy-btn:not([hidden])) .table-badge { order: 1; }
+}

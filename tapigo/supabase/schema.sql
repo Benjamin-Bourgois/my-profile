@@ -242,7 +242,72 @@ $$;
 -- un client ne peut pas modifier le montant de sa commande.
 drop function if exists public.place_order(text, text, jsonb, text);
 drop function if exists public.place_order(text, text, jsonb, text, text);
-create or replace function public.place_order(p_restaurant text, p_table text, p_items jsonb, p_note text default '', p_pay text default 'onsite', p_tip numeric default 0)
+-- ---------- Fidélité (tables) ----------
+-- Programme du restaurant (réglé par le gérant), cartes des clients (sans compte : un
+-- jeton gardé sur le téléphone) et historique des points. Les fonctions sont plus bas.
+create table if not exists public.loyalty_programs (
+  restaurant_id   uuid primary key references public.restaurants (id) on delete cascade,
+  enabled         boolean not null default false,
+  points_per_euro numeric(5, 2) not null default 1 check (points_per_euro > 0 and points_per_euro <= 100),
+  welcome_points  int not null default 0 check (welcome_points between 0 and 10000),
+  rewards         jsonb not null default '[]'::jsonb,  -- [{ id, label, itemId, points }]
+  updated_at      timestamptz not null default now()
+);
+create table if not exists public.loyalty_cards (
+  id              uuid primary key default gen_random_uuid(),
+  restaurant_id   uuid not null references public.restaurants (id) on delete cascade,
+  token           text not null unique,
+  first_name      text not null check (length(first_name) between 1 and 40),
+  email           text check (email is null or length(email) <= 120),
+  marketing_ok    boolean not null default false,
+  points          int not null default 0 check (points >= 0),
+  earned          int not null default 0,
+  visits          int not null default 0,
+  created_at      timestamptz not null default now(),
+  last_visit_at   timestamptz
+);
+create index if not exists loyalty_cards_restaurant_idx on public.loyalty_cards (restaurant_id, last_visit_at desc);
+create table if not exists public.loyalty_events (
+  id              uuid primary key default gen_random_uuid(),
+  restaurant_id   uuid not null references public.restaurants (id) on delete cascade,
+  card_id         uuid not null references public.loyalty_cards (id) on delete cascade,
+  order_id        uuid references public.orders (id) on delete set null,
+  kind            text not null check (kind in ('bienvenue', 'gain', 'depense', 'remboursement', 'ajustement')),
+  points          int not null,
+  label           text not null default '' check (length(label) <= 120),
+  created_at      timestamptz not null default now()
+);
+create index if not exists loyalty_events_card_idx on public.loyalty_events (card_id, created_at desc);
+alter table public.orders add column if not exists loyalty_card uuid references public.loyalty_cards (id) on delete set null;
+alter table public.orders add column if not exists loyalty_reward jsonb;
+alter table public.orders add column if not exists loyalty_credited boolean not null default false;
+
+alter table public.loyalty_programs enable row level security;
+drop policy if exists "Programme visible par la direction" on public.loyalty_programs;
+create policy "Programme visible par la direction" on public.loyalty_programs
+  for select using (public.member_role(restaurant_id) in ('admin', 'owner'));
+revoke all on public.loyalty_programs from anon;
+revoke insert, update, delete on public.loyalty_programs from authenticated;
+grant select on public.loyalty_programs to authenticated;
+alter table public.loyalty_cards enable row level security;
+drop policy if exists "Cartes visibles par la direction" on public.loyalty_cards;
+create policy "Cartes visibles par la direction" on public.loyalty_cards
+  for select using (public.member_role(restaurant_id) in ('admin', 'owner'));
+revoke all on public.loyalty_cards from anon;
+revoke insert, update, delete on public.loyalty_cards from authenticated;
+grant select on public.loyalty_cards to authenticated;
+alter table public.loyalty_events enable row level security;
+drop policy if exists "Historique visible par la direction" on public.loyalty_events;
+create policy "Historique visible par la direction" on public.loyalty_events
+  for select using (public.member_role(restaurant_id) in ('admin', 'owner'));
+revoke all on public.loyalty_events from anon;
+revoke insert, update, delete on public.loyalty_events from authenticated;
+grant select on public.loyalty_events to authenticated;
+
+-- p_loyalty : { card: jeton de la carte de fidélité, reward: récompense utilisée } (facultatif).
+drop function if exists public.place_order(text, text, jsonb, text, text, numeric);
+create or replace function public.place_order(p_restaurant text, p_table text, p_items jsonb, p_note text default '', p_pay text default 'onsite', p_tip numeric default 0,
+                                              p_loyalty jsonb default null)
 returns jsonb
 language plpgsql security definer set search_path = public
 as $$
@@ -274,6 +339,13 @@ declare
   v_online  boolean;
   v_payment jsonb := '{"method": "onsite", "status": "pending"}'::jsonb;
   v_tip     numeric := 0;
+  v_card    public.loyalty_cards;
+  v_rate    numeric;
+  v_rewards jsonb;
+  v_reward  jsonb;
+  v_idx     int;
+  v_line    jsonb;
+  v_base    numeric;
 begin
   select id, menu, info, online_payment into v_rid, v_menu, v_info, v_online
   from public.restaurants where slug = p_restaurant and active;
@@ -420,6 +492,46 @@ begin
     v_total := v_total + v_unit * v_qty;
   end loop;
 
+  -- Fidélité : la carte du client, et la récompense utilisée (un produit offert : son prix,
+  -- hors options, est retiré sur une unité ; la ligne offerte est séparée pour la cuisine).
+  if jsonb_typeof(p_loyalty) = 'object' and coalesce(p_loyalty ->> 'card', '') <> '' then
+    select * into v_card from public.loyalty_cards where token = p_loyalty ->> 'card' and restaurant_id = v_rid for update;
+    if not found then raise exception 'Carte de fidélité introuvable : recréez-la depuis la carte.'; end if;
+    select points_per_euro, rewards into v_rate, v_rewards from public.loyalty_programs where restaurant_id = v_rid and enabled;
+    if v_rate is null then
+      v_card := null;  -- programme arrêté : commande normale
+    elsif coalesce(p_loyalty ->> 'reward', '') <> '' then
+      select r into v_reward from jsonb_array_elements(coalesce(v_rewards, '[]'::jsonb)) r where r ->> 'id' = p_loyalty ->> 'reward';
+      if v_reward is null then raise exception 'Cette récompense n''existe plus'; end if;
+      if v_card.points < (v_reward ->> 'points')::int then
+        raise exception 'Pas assez de points pour « % »', v_reward ->> 'label';
+      end if;
+      for i in 0 .. jsonb_array_length(v_lines) - 1 loop
+        if v_lines -> i ->> 'itemId' = v_reward ->> 'itemId' then v_idx := i; exit; end if;
+      end loop;
+      if v_idx is null then
+        raise exception 'Ajoutez « % » au panier pour utiliser votre récompense', v_reward ->> 'label';
+      end if;
+      select x.value into v_item from jsonb_array_elements(v_menu -> 'items') x where x.value ->> 'id' = v_reward ->> 'itemId' limit 1;
+      v_line := v_lines -> v_idx;
+      v_base := coalesce((v_item ->> 'price')::numeric, 0);
+      if coalesce((v_line ->> 'promo')::int, 0) > 0 then v_base := round(v_base * (100 - (v_line ->> 'promo')::int) / 100.0, 2); end if;
+      v_base := least(v_base, (v_line ->> 'unitPrice')::numeric);
+      if (v_line ->> 'qty')::int > 1 then
+        v_lines := jsonb_set(v_lines, array[v_idx::text], v_line || jsonb_build_object('qty', (v_line ->> 'qty')::int - 1,
+                     'suggested', least(coalesce((v_line ->> 'suggested')::int, 0), (v_line ->> 'qty')::int - 1)));
+      else
+        v_lines := v_lines - v_idx;
+      end if;
+      v_lines := v_lines || jsonb_build_array(v_line || jsonb_build_object('qty', 1, 'suggested', 0,
+                   'unitPrice', round((v_line ->> 'unitPrice')::numeric - v_base, 2), 'reward', v_reward ->> 'label'));
+      v_total := v_total - v_base;
+    end if;
+  end if;
+  if coalesce(p_pay, 'onsite') = 'online' and round(v_total, 2) <= 0 then
+    raise exception 'Commande entièrement offerte : choisissez « Payer à table ».';
+  end if;
+
   -- Stocks : vérifiés puis décrémentés sous verrou (deux clients ne peuvent
   -- pas commander le dernier plat en même temps).
   for v_key, v_val in select key, value::int from jsonb_each_text(v_need) loop
@@ -462,11 +574,19 @@ begin
     end if;
   end if;
 
-  insert into public.orders (restaurant_id, number, table_label, lines, note, payment, total, tip, source, taken_by)
+  insert into public.orders (restaurant_id, number, table_label, lines, note, payment, total, tip, source, taken_by, loyalty_card, loyalty_reward)
   values (v_rid, v_number, p_table, v_lines, left(coalesce(p_note, ''), 200), v_payment, round(v_total, 2), v_tip,
           case when v_staff then 'serveur' else 'client' end,
-          case when v_staff then auth.uid() end)
+          case when v_staff then auth.uid() end,
+          v_card.id,
+          case when v_reward is not null then jsonb_build_object('id', v_reward ->> 'id', 'label', v_reward ->> 'label', 'points', (v_reward ->> 'points')::int) end)
   returning * into v_order;
+
+  if v_reward is not null and v_card.id is not null then
+    update public.loyalty_cards set points = points - (v_reward ->> 'points')::int where id = v_card.id;
+    insert into public.loyalty_events (restaurant_id, card_id, order_id, kind, points, label)
+    values (v_rid, v_card.id, v_order.id, 'depense', -(v_reward ->> 'points')::int, v_reward ->> 'label');
+  end if;
 
   return to_jsonb(v_order);
 end;
@@ -1060,7 +1180,7 @@ end;
 $$;
 
 -- ---------- Droits d'exécution ----------
-revoke all on function public.place_order(text, text, jsonb, text, text, numeric) from public;
+revoke all on function public.place_order(text, text, jsonb, text, text, numeric, jsonb) from public;
 revoke all on function public.get_order(uuid) from public;
 revoke all on function public.set_order_status(uuid, text) from public;
 revoke all on function public.my_restaurants() from public;
@@ -1074,7 +1194,7 @@ revoke all on function public.set_member_station(uuid, uuid, text) from public;
 grant execute on function public.team_members(uuid) to authenticated;
 grant execute on function public.set_member_station(uuid, uuid, text) to authenticated;
 
-grant execute on function public.place_order(text, text, jsonb, text, text, numeric) to anon, authenticated;
+grant execute on function public.place_order(text, text, jsonb, text, text, numeric, jsonb) to anon, authenticated;
 grant execute on function public.get_order(uuid) to anon, authenticated;
 grant execute on function public.is_admin() to anon, authenticated;
 grant execute on function public.member_role(uuid) to anon, authenticated;
@@ -2837,6 +2957,186 @@ grant execute on function public.portal_add_unavailability(text, date, int, int,
 grant execute on function public.portal_cancel_unavailability(text, uuid) to anon, authenticated;
 grant execute on function public.portal_release_shift(text, uuid, text) to anon, authenticated;
 grant execute on function public.portal_take_shift(text, uuid) to anon, authenticated;
+
+-- ---------- Fidélité (fonctions) ----------
+-- Points crédités quand la commande est servie ou terminée (jamais pour une commande
+-- annulée) ; récompense rendue si une commande en attente de paiement est supprimée.
+create or replace function public.loyalty_on_order()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_rate numeric;
+  v_pts  int;
+begin
+  if tg_op = 'UPDATE' then
+    if new.loyalty_card is not null and not new.loyalty_credited and new.status in ('servie', 'terminee')
+       and coalesce(new.payment ->> 'status', '') <> 'awaiting' then
+      new.loyalty_credited := true;
+      select points_per_euro into v_rate from public.loyalty_programs where restaurant_id = new.restaurant_id and enabled;
+      if v_rate is not null then
+        v_pts := floor(greatest(new.total, 0) * v_rate);
+        update public.loyalty_cards set points = points + v_pts, earned = earned + v_pts, visits = visits + 1, last_visit_at = now()
+        where id = new.loyalty_card;
+        if v_pts > 0 then
+          insert into public.loyalty_events (restaurant_id, card_id, order_id, kind, points, label)
+          values (new.restaurant_id, new.loyalty_card, new.id, 'gain', v_pts, 'Commande n° ' || new.number);
+        end if;
+      end if;
+    end if;
+    return new;
+  end if;
+  if old.loyalty_card is not null and old.loyalty_reward is not null and not old.loyalty_credited then
+    update public.loyalty_cards set points = points + (old.loyalty_reward ->> 'points')::int where id = old.loyalty_card;
+    insert into public.loyalty_events (restaurant_id, card_id, kind, points, label)
+    values (old.restaurant_id, old.loyalty_card, 'remboursement', (old.loyalty_reward ->> 'points')::int,
+            'Commande annulée : ' || coalesce(old.loyalty_reward ->> 'label', 'récompense'));
+  end if;
+  return old;
+end;
+$$;
+drop trigger if exists loyalty_order_update on public.orders;
+create trigger loyalty_order_update before update on public.orders for each row execute function public.loyalty_on_order();
+drop trigger if exists loyalty_order_delete on public.orders;
+create trigger loyalty_order_delete before delete on public.orders for each row execute function public.loyalty_on_order();
+
+-- Client : programme du restaurant (null s'il n'est pas actif).
+create or replace function public.loyalty_info(p_restaurant text)
+returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select jsonb_build_object('pointsPerEuro', p.points_per_euro, 'welcomePoints', p.welcome_points, 'rewards', p.rewards)
+  from public.loyalty_programs p join public.restaurants r on r.id = p.restaurant_id
+  where r.slug = p_restaurant and r.active and p.enabled;
+$$;
+
+create or replace function public.loyalty_card_json(p_card public.loyalty_cards)
+returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select jsonb_build_object('firstName', p_card.first_name, 'email', p_card.email, 'marketingOk', p_card.marketing_ok,
+    'points', p_card.points, 'earned', p_card.earned, 'visits', p_card.visits, 'createdAt', p_card.created_at,
+    'number', upper(left(p_card.token, 4) || '-' || substr(p_card.token, 5, 4)),
+    'events', (select coalesce(jsonb_agg(jsonb_build_object('kind', e.kind, 'points', e.points, 'label', e.label, 'at', e.created_at)
+                 order by e.created_at desc), '[]'::jsonb)
+               from (select * from public.loyalty_events where card_id = p_card.id order by created_at desc limit 20) e));
+$$;
+
+-- Client : créer sa carte (prénom, e-mail facultatif, accord pour les nouvelles).
+create or replace function public.loyalty_join(p_restaurant text, p_name text, p_email text, p_marketing boolean)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_rid  uuid;
+  v_prog public.loyalty_programs;
+  v_card public.loyalty_cards;
+begin
+  select r.id into v_rid from public.restaurants r where r.slug = p_restaurant and r.active;
+  select * into v_prog from public.loyalty_programs where restaurant_id = v_rid and enabled;
+  if not found then raise exception 'Le programme de fidélité n''est pas actif ici'; end if;
+  if btrim(coalesce(p_name, '')) = '' then raise exception 'Indiquez votre prénom'; end if;
+  if btrim(coalesce(p_email, '')) <> '' and btrim(p_email) !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then raise exception 'Adresse e-mail invalide'; end if;
+  if (select count(*) from public.loyalty_cards where restaurant_id = v_rid and created_at > now() - interval '10 minutes') >= 60 then
+    raise exception 'Beaucoup d''inscriptions en ce moment : réessayez dans quelques minutes.';
+  end if;
+  insert into public.loyalty_cards (restaurant_id, token, first_name, email, marketing_ok, points)
+  values (v_rid, replace(gen_random_uuid()::text, '-', ''), left(btrim(p_name), 40), nullif(lower(btrim(coalesce(p_email, ''))), ''),
+          coalesce(p_marketing, false) and btrim(coalesce(p_email, '')) <> '', v_prog.welcome_points)
+  returning * into v_card;
+  if v_prog.welcome_points > 0 then
+    insert into public.loyalty_events (restaurant_id, card_id, kind, points, label) values (v_rid, v_card.id, 'bienvenue', v_prog.welcome_points, 'Bienvenue');
+  end if;
+  return public.loyalty_card_json(v_card) || jsonb_build_object('token', v_card.token);
+end;
+$$;
+
+create or replace function public.loyalty_card(p_token text)
+returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v_card public.loyalty_cards;
+begin
+  select * into v_card from public.loyalty_cards where token = p_token;
+  if not found or coalesce(length(p_token), 0) < 32 then raise exception 'Carte de fidélité introuvable'; end if;
+  return public.loyalty_card_json(v_card);
+end;
+$$;
+
+-- Client : supprimer sa carte et ses données (droit à l'effacement).
+create or replace function public.loyalty_forget(p_token text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if coalesce(length(p_token), 0) < 32 then raise exception 'Carte introuvable'; end if;
+  delete from public.loyalty_cards where token = p_token;
+end;
+$$;
+
+-- Gérant : règles du programme. p_rewards : [{ id?, label, itemId, points }].
+create or replace function public.save_loyalty_program(p_restaurant uuid, p_enabled boolean, p_rate numeric, p_welcome int, p_rewards jsonb)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_r   jsonb;
+  v_out jsonb := '[]'::jsonb;
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  if p_rate is null or p_rate <= 0 or p_rate > 100 then raise exception 'Points par euro invalides'; end if;
+  if coalesce(p_welcome, 0) < 0 or coalesce(p_welcome, 0) > 10000 then raise exception 'Points de bienvenue invalides'; end if;
+  if jsonb_typeof(coalesce(p_rewards, '[]'::jsonb)) <> 'array' or jsonb_array_length(coalesce(p_rewards, '[]'::jsonb)) > 12 then
+    raise exception 'Récompenses invalides (12 au maximum)';
+  end if;
+  for v_r in select value from jsonb_array_elements(coalesce(p_rewards, '[]'::jsonb)) loop
+    if btrim(coalesce(v_r ->> 'label', '')) = '' or coalesce(v_r ->> 'points', '') !~ '^[0-9]{1,6}$' or (v_r ->> 'points')::int < 1 then
+      raise exception 'Chaque récompense a un nom et un nombre de points';
+    end if;
+    if not exists (select 1 from public.restaurants r, jsonb_array_elements(r.menu -> 'items') x
+                   where r.id = p_restaurant and x ->> 'id' = v_r ->> 'itemId') then
+      raise exception 'Produit introuvable pour « % »', v_r ->> 'label';
+    end if;
+    v_out := v_out || jsonb_build_object('id', coalesce(nullif(v_r ->> 'id', ''), left(replace(gen_random_uuid()::text, '-', ''), 12)),
+      'label', left(btrim(v_r ->> 'label'), 60), 'itemId', v_r ->> 'itemId', 'points', (v_r ->> 'points')::int);
+  end loop;
+  insert into public.loyalty_programs (restaurant_id, enabled, points_per_euro, welcome_points, rewards, updated_at)
+  values (p_restaurant, coalesce(p_enabled, false), p_rate, coalesce(p_welcome, 0), v_out, now())
+  on conflict (restaurant_id) do update set enabled = excluded.enabled, points_per_euro = excluded.points_per_euro,
+    welcome_points = excluded.welcome_points, rewards = excluded.rewards, updated_at = now();
+end;
+$$;
+
+-- Gérant : geste commercial (ajouter ou retirer des points).
+create or replace function public.loyalty_adjust(p_restaurant uuid, p_card uuid, p_points int, p_label text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if coalesce(public.member_role(p_restaurant), '') not in ('admin', 'owner') then raise exception 'Accès refusé'; end if;
+  if p_points is null or p_points = 0 or abs(p_points) > 100000 then raise exception 'Nombre de points invalide'; end if;
+  update public.loyalty_cards set points = greatest(0, points + p_points) where id = p_card and restaurant_id = p_restaurant;
+  if not found then raise exception 'Carte introuvable'; end if;
+  insert into public.loyalty_events (restaurant_id, card_id, kind, points, label)
+  values (p_restaurant, p_card, 'ajustement', p_points, left(btrim(coalesce(nullif(p_label, ''), 'Geste du restaurant')), 120));
+end;
+$$;
+
+revoke all on function public.loyalty_on_order() from public;
+revoke all on function public.loyalty_card_json(public.loyalty_cards) from public;
+revoke all on function public.loyalty_info(text) from public;
+revoke all on function public.loyalty_join(text, text, text, boolean) from public;
+revoke all on function public.loyalty_card(text) from public;
+revoke all on function public.loyalty_forget(text) from public;
+revoke all on function public.save_loyalty_program(uuid, boolean, numeric, int, jsonb) from public;
+revoke all on function public.loyalty_adjust(uuid, uuid, int, text) from public;
+grant execute on function public.loyalty_info(text) to anon, authenticated;
+grant execute on function public.loyalty_join(text, text, text, boolean) to anon, authenticated;
+grant execute on function public.loyalty_card(text) to anon, authenticated;
+grant execute on function public.loyalty_forget(text) to anon, authenticated;
+grant execute on function public.save_loyalty_program(uuid, boolean, numeric, int, jsonb) to authenticated;
+grant execute on function public.loyalty_adjust(uuid, uuid, int, text) to authenticated;
 
 -- ---------- Temps réel ----------
 do $$
