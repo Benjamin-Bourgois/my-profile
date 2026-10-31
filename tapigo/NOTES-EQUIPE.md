@@ -71,6 +71,14 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **31/10/2026 · Benjamin** : planning sur le téléphone de chaque salarié : lien personnel `planning.html?t=…` (fonctions
+  `staff_link`, `staff_portal`, `portal_*`), coordonnées dans `staff_private` (e-mail, téléphone), envoi par WhatsApp /
+  SMS / e-mail à la publication, ajout à l'agenda (.ics). À faire une fois : relancer `supabase/schema.sql`. Fichiers en
+  `?v=35`.
+- **31/10/2026 · Benjamin** : onglet « Planning » : planning de la semaine (gérant), publication, alertes (heures, repos,
+  indisponibilités), affluence et coût estimé, demandes de l'équipe (indisponibilités, remplacements), pointage avec code
+  PIN, export des heures. Tables `staff`, `staff_private`, `shifts`, `planning_weeks`, `staff_unavailability`,
+  `staff_punches`. À faire une fois : relancer `supabase/schema.sql`. Fichiers en `?v=34`.
 - **29/10/2026 · Benjamin** : modèles d'IA par tâche : Claude Opus 5.5 pour la lecture des bons (`stock-scan`), Claude
   Sonnet 5.5 pour les étiquettes, la prévision du stock et la traduction de la carte (deux fois moins cher). Chaque
   modèle se change sans toucher au code avec les secrets Supabase `SCAN_MODEL`, `LABEL_MODEL`, `FORECAST_MODEL`,

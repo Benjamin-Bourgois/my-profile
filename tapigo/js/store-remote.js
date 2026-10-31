@@ -852,6 +852,95 @@
     closeOrder: function (id, status) { return rpc('close_supplier_order', { p_restaurant: current.id, p_id: id, p_status: status }); }
   };
 
+  /* ---------------- Planning de l'équipe ---------------- */
+  function planShift(x) {
+    return { id: x.id, staffId: x.staff_id, day: x.day, start: x.start_min, end: x.end_min, brk: x.break_min, poste: x.poste,
+      note: x.note || '', status: x.status, swapReason: x.swap_reason || '', proposedStaff: x.proposed_staff };
+  }
+  function planUnav(x) {
+    return { id: x.id, staffId: x.staff_id, day: x.day, start: x.start_min, end: x.end_min, reason: x.reason || '', status: x.status };
+  }
+  function ymdAdd(ymd, n) { var d = new Date(ymd + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+  T.planning = {
+    // Semaine du lundi `week` (AAAA-MM-JJ) : équipe, créneaux (veille comprise, pour le repos), publication,
+    // indisponibilités, pointages, et demandes en attente (à partir d'aujourd'hui).
+    load: function (week) {
+      var from = ymdAdd(week, -1), to = ymdAdd(week, 7), today = new Date().toISOString().slice(0, 10);
+      var q = function (t) { return sb.from(t).select('*').eq('restaurant_id', current.id); };
+      return Promise.all([
+        q('staff').order('name'),
+        q('staff_private'),
+        q('shifts').gte('day', from).lt('day', to).order('start_min'),
+        q('planning_weeks').eq('week_start', week),
+        q('staff_unavailability').gte('day', from).lt('day', to),
+        q('staff_punches').gte('started_at', from + 'T00:00:00').lt('started_at', ymdAdd(week, 8) + 'T00:00:00').order('started_at'),
+        q('staff_unavailability').eq('status', 'en_attente').gte('day', today).order('day'),
+        q('shifts').in('status', ['a_remplacer', 'propose']).gte('day', today).order('day')
+      ]).then(function (r) {
+        var bad = r.filter(function (x) { return x.error; })[0];
+        if (bad) throw new Error(/staff|shifts|planning/.test(bad.error.message) ? 'Relancez supabase/schema.sql pour activer le planning.' : bad.error.message);
+        var priv = {};
+        r[1].data.forEach(function (x) { priv[x.staff_id] = x; });
+        return {
+          staff: r[0].data.map(function (x) {
+            var p = priv[x.id] || {};
+            return { id: x.id, name: x.name, poste: x.poste, weeklyHours: x.weekly_hours == null ? null : Number(x.weekly_hours), active: x.active,
+              hourlyCost: p.hourly_cost == null ? null : Number(p.hourly_cost), hasPin: !!p.pin_hash,
+              email: p.email || '', phone: p.phone || '', hasLink: !!p.access_token };
+          }),
+          shifts: r[2].data.map(planShift),
+          published: r[3].data[0] && r[3].data[0].published_at ? Date.parse(r[3].data[0].published_at) : null,
+          unav: r[4].data.map(planUnav),
+          punches: r[5].data.map(function (x) { return { id: x.id, staffId: x.staff_id, start: Date.parse(x.started_at), end: x.ended_at ? Date.parse(x.ended_at) : null, edited: x.edited }; }),
+          pendingUnav: r[6].data.map(planUnav),
+          pendingSwaps: r[7].data.map(planShift)
+        };
+      });
+    },
+    saveStaff: function (x) {
+      return rpc('save_staff', { p_restaurant: current.id, p_id: x.id || null, p_name: x.name, p_poste: x.poste, p_weekly_hours: x.weeklyHours,
+        p_hourly_cost: x.hourlyCost, p_pin: x.pin === undefined ? null : x.pin, p_active: x.active !== false });
+    },
+    saveShift: function (x) {
+      return rpc('save_shift', { p_restaurant: current.id, p_id: x.id || null, p_staff: x.staffId, p_day: x.day, p_start: x.start, p_end: x.end,
+        p_break: x.brk || 0, p_poste: x.poste, p_note: x.note || '' });
+    },
+    deleteShift: function (id) { return rpc('delete_shift', { p_restaurant: current.id, p_id: id }); },
+    copyWeek: function (from, to) { return rpc('copy_planning_week', { p_restaurant: current.id, p_from: from, p_to: to }); },
+    publish: function (week, on) { return rpc('publish_planning_week', { p_restaurant: current.id, p_week: week, p_publish: !!on }); },
+    addUnav: function (x, pin) {
+      return rpc('add_unavailability', { p_restaurant: current.id, p_staff: x.staffId, p_day: x.day, p_start: x.start == null ? null : x.start,
+        p_end: x.end == null ? null : x.end, p_reason: x.reason || '', p_pin: pin || null });
+    },
+    cancelUnav: function (id, pin) { return rpc('cancel_unavailability', { p_restaurant: current.id, p_id: id, p_pin: pin || null }); },
+    decideUnav: function (id, accept) { return rpc('decide_unavailability', { p_restaurant: current.id, p_id: id, p_accept: !!accept }); },
+    release: function (shiftId, reason, pin) { return rpc('release_shift', { p_restaurant: current.id, p_shift: shiftId, p_reason: reason || '', p_pin: pin || null }); },
+    take: function (shiftId, staffId, pin) { return rpc('take_shift', { p_restaurant: current.id, p_shift: shiftId, p_staff: staffId, p_pin: pin || null }); },
+    decideSwap: function (shiftId, accept) { return rpc('decide_swap', { p_restaurant: current.id, p_shift: shiftId, p_accept: !!accept }); },
+    clock: function (staffId, pin) {
+      return rpc('clock_staff', { p_restaurant: current.id, p_staff: staffId, p_pin: pin || null }).then(function (r) {
+        return { kind: r.kind, at: Date.parse(r.at), startedAt: r.started_at ? Date.parse(r.started_at) : null };
+      });
+    },
+    // Lien personnel du salarié (planning.html?t=…) ; renew : remplace l'ancien.
+    link: function (staffId, renew) { return rpc('staff_link', { p_restaurant: current.id, p_staff: staffId, p_renew: !!renew }); },
+    saveContact: function (staffId, email, phone) {
+      return rpc('save_staff_contact', { p_restaurant: current.id, p_staff: staffId, p_email: email || '', p_phone: phone || '' });
+    },
+    editPunch: function (id, start, end) {
+      return rpc('edit_punch', { p_restaurant: current.id, p_id: id, p_start: new Date(start).toISOString(), p_end: end ? new Date(end).toISOString() : null });
+    }
+  };
+
+  /* ---------------- Planning : page personnelle du salarié (sans compte) ---------------- */
+  T.portal = {
+    load: function (token) { return rpc('staff_portal', { p_token: token }); },
+    addUnav: function (token, x) { return rpc('portal_add_unavailability', { p_token: token, p_day: x.day, p_start: x.start, p_end: x.end, p_reason: x.reason || '' }); },
+    cancelUnav: function (token, id) { return rpc('portal_cancel_unavailability', { p_token: token, p_id: id }); },
+    release: function (token, shiftId, reason) { return rpc('portal_release_shift', { p_token: token, p_shift: shiftId, p_reason: reason || '' }); },
+    take: function (token, shiftId) { return rpc('portal_take_shift', { p_token: token, p_shift: shiftId }); }
+  };
+
   /* ---------------- Pack HACCP ---------------- */
   // Le poste du compte filtre côté base (un compte « bar » ne voit que le bar).
   function haccpRow(x) {
