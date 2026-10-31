@@ -92,7 +92,9 @@
       createdAt: ts(r.created_at),
       history: (r.history || []).map(function (h) { return { status: h.status, at: ts(h.at) }; }),
       seen: !!r.seen,
-      source: r.source || 'client'
+      source: r.source || 'client',
+      loyaltyCard: r.loyalty_card || null,
+      loyaltyReward: r.loyalty_reward || null
     };
   }
 
@@ -377,6 +379,7 @@
     };
     if (payload.pay === 'online' || /^(cash|card|mixed)$/.test(payload.pay || '')) args.p_pay = payload.pay;
     if (payload.pay === 'online' && Number(payload.tip) > 0) args.p_tip = Math.round(Number(payload.tip) * 100) / 100;
+    if (payload.loyalty && payload.loyalty.card) args.p_loyalty = { card: payload.loyalty.card, reward: payload.loyalty.reward || null };
     return sb.rpc('place_order', args).then(function (r) {
       if (r.error) throw new Error(r.error.message);
       var o = upsert(fromRow(r.data));
@@ -929,6 +932,38 @@
     },
     editPunch: function (id, start, end) {
       return rpc('edit_punch', { p_restaurant: current.id, p_id: id, p_start: new Date(start).toISOString(), p_end: end ? new Date(end).toISOString() : null });
+    }
+  };
+
+  /* ---------------- Fidélité ---------------- */
+  T.loyalty = {
+    info: function () { return rpc('loyalty_info', { p_restaurant: current.slug }); },
+    join: function (name, email, marketing) { return rpc('loyalty_join', { p_restaurant: current.slug, p_name: name, p_email: email || '', p_marketing: !!marketing }); },
+    card: function (token) { return rpc('loyalty_card', { p_token: token }); },
+    forget: function (token) { return rpc('loyalty_forget', { p_token: token }); },
+    manage: {
+      load: function () {
+        var q = function (t) { return sb.from(t).select('*').eq('restaurant_id', current.id); };
+        return Promise.all([q('loyalty_programs'), q('loyalty_cards').order('last_visit_at', { ascending: false, nullsFirst: false }).limit(2000),
+          q('loyalty_events').order('created_at', { ascending: false }).limit(500)]).then(function (r) {
+          var bad = r.filter(function (x) { return x.error; })[0];
+          if (bad) throw new Error(/loyalty/.test(bad.error.message) ? 'Relancez supabase/schema.sql pour activer la fidélité.' : bad.error.message);
+          var p = r[0].data[0];
+          return {
+            program: p ? { enabled: p.enabled, pointsPerEuro: Number(p.points_per_euro), welcomePoints: p.welcome_points, rewards: p.rewards || [] }
+              : { enabled: false, pointsPerEuro: 1, welcomePoints: 0, rewards: [] },
+            cards: r[1].data.map(function (c) {
+              return { id: c.id, firstName: c.first_name, email: c.email || '', marketingOk: c.marketing_ok, points: c.points, earned: c.earned, visits: c.visits,
+                createdAt: Date.parse(c.created_at), lastVisitAt: c.last_visit_at ? Date.parse(c.last_visit_at) : null };
+            }),
+            events: r[2].data.map(function (e) { return { cardId: e.card_id, kind: e.kind, points: e.points, label: e.label, at: Date.parse(e.created_at), orderId: e.order_id }; })
+          };
+        });
+      },
+      save: function (prog) {
+        return rpc('save_loyalty_program', { p_restaurant: current.id, p_enabled: !!prog.enabled, p_rate: prog.pointsPerEuro, p_welcome: prog.welcomePoints || 0, p_rewards: prog.rewards || [] });
+      },
+      adjust: function (cardId, points, label) { return rpc('loyalty_adjust', { p_restaurant: current.id, p_card: cardId, p_points: points, p_label: label || '' }); }
     }
   };
 

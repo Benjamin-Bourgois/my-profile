@@ -71,6 +71,11 @@ Application Next.js + Vercel construite par Benjamin, toujours en ligne sur http
 
 Le plus récent en haut.
 
+- **31/10/2026 · Benjamin** : programme de fidélité (Menu → « ★ Fidélité ») : carte client sans compte (jeton gardé
+  sur le téléphone, `menu.html?r=…&carte=…` pour la retrouver ailleurs), points crédités à « Servie », récompenses
+  « produit offert » appliquées et vérifiées par `place_order` (ligne « Offert »), points rendus si la commande est
+  supprimée, liste des clients, ± points, export CSV des e-mails consentis. Tables `loyalty_programs`, `loyalty_cards`,
+  `loyalty_events`. À faire une fois : relancer `supabase/schema.sql`. Fichiers en `?v=36`.
 - **31/10/2026 · Benjamin** : planning sur le téléphone de chaque salarié : lien personnel `planning.html?t=…` (fonctions
   `staff_link`, `staff_portal`, `portal_*`), coordonnées dans `staff_private` (e-mail, téléphone), envoi par WhatsApp /
   SMS / e-mail à la publication, ajout à l'agenda (.ics). À faire une fois : relancer `supabase/schema.sql`. Fichiers en

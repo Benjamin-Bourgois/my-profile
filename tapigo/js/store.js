@@ -38,7 +38,8 @@
     margins: NS + 'margins.v2',
     haccp: NS + 'haccp',
     suppliers: NS + 'suppliers',
-    planning: NS + 'planning'
+    planning: NS + 'planning',
+    loyalty: NS + 'loyalty'
   };
 
   var memory = {};
@@ -307,6 +308,8 @@
       write(K.stock, stock);
       touched.forEach(function (id) { emit('stock:updated', { id: id, quantity: stock[id] }); });
     }
+    var fid = applyLoyalty(payload.loyalty, lines);
+    lines = fid.lines;
     var total = lines.reduce(function (s, l) { return s + l.unitPrice * l.qty; }, 0);
     var seq = read(K.seq, 1040) + 1;
     write(K.seq, seq);
@@ -324,11 +327,14 @@
       createdAt: now,
       history: [{ status: 'nouvelle', at: now }],
       seen: false,
-      source: payload.source || 'client'
+      source: payload.source || 'client',
+      loyaltyCard: fid.card ? fid.card.id : null,
+      loyaltyReward: fid.reward ? { id: fid.reward.id, label: fid.reward.label, points: fid.reward.points } : null
     };
     var orders = getOrders();
     orders.push(order);
     write(K.orders, orders);
+    if (fid.reward) loyaltyEvent(fid.card.id, 'depense', -fid.reward.points, fid.reward.label, order.id);
     if (!(opts && opts.silent)) emit('order:created', order);
     return order;
   }
@@ -340,10 +346,106 @@
       ord.seen = true;
       ord.history.push({ status: status, at: Date.now() });
       if (status === 'terminee' && ord.payment.status === 'pending') ord.payment.status = 'paid';
+      // Fidélité : points crédités quand la commande est servie (une seule fois).
+      if (ord.loyaltyCard && !ord.loyaltyCredited && (status === 'servie' || status === 'terminee')) {
+        ord.loyaltyCredited = true;
+        var L = loyaltyData();
+        if (L.program.enabled) {
+          var pts = Math.floor(Math.max(0, ord.total) * L.program.pointsPerEuro);
+          loyaltyEvent(ord.loyaltyCard, 'gain', pts, 'Commande n° ' + ord.number, ord.id, true);
+        }
+      }
     });
     if (o) emit('order:updated', o);
     return o;
   }
+
+  /* ---------------- Fidélité (démo) ---------------- */
+  function loyaltyData() {
+    var L = read(K.loyalty, null);
+    if (L) return L;
+    var day = 86400000, now = Date.now();
+    var card = function (id, name, email, pts, earned, visits, ago) {
+      return { id: id, token: id + 'demo0000000000000000000000000000', firstName: name, email: email, marketingOk: !!email, points: pts,
+        earned: earned, visits: visits, createdAt: now - ago * day * 3, lastVisitAt: now - ago * day };
+    };
+    L = {
+      program: { enabled: true, pointsPerEuro: 1, welcomePoints: 20, rewards: [
+        { id: 'rw1', label: 'Espresso offert', itemId: 'espresso', points: 30 },
+        { id: 'rw2', label: 'Citronnade offerte', itemId: 'citronnade', points: 60 },
+        { id: 'rw3', label: 'Spritz offert', itemId: 'spritz', points: 120 }] },
+      cards: [card('lc1', 'Marie', 'marie@example.com', 146, 286, 9, 2), card('lc2', 'Julien', '', 64, 104, 4, 6), card('lc3', 'Sofia', 'sofia@example.com', 22, 42, 2, 13)],
+      events: []
+    };
+    write(K.loyalty, L);
+    return L;
+  }
+  function loyaltyEvent(cardId, kind, points, label, orderId, visit) {
+    var L = loyaltyData(), c = L.cards.filter(function (x) { return x.id === cardId; })[0];
+    if (!c) return;
+    c.points = Math.max(0, c.points + points);
+    if (kind === 'gain') c.earned += points;
+    if (visit) { c.visits += 1; c.lastVisitAt = Date.now(); }
+    L.events.unshift({ cardId: cardId, kind: kind, points: points, label: label || '', at: Date.now(), orderId: orderId || null });
+    write(K.loyalty, L);
+  }
+  // Récompense utilisée à la commande : même règle que le serveur (une unité du produit offerte, hors options).
+  function applyLoyalty(fid, lines) {
+    if (!fid || !fid.card) return { lines: lines };
+    var L = loyaltyData(), card = L.cards.filter(function (x) { return x.token === fid.card; })[0];
+    if (!card) throw new Error('Carte de fidélité introuvable : recréez-la depuis la carte.');
+    if (!L.program.enabled) return { lines: lines };
+    if (!fid.reward) return { lines: lines, card: card };
+    var rw = L.program.rewards.filter(function (r) { return r.id === fid.reward; })[0];
+    if (!rw) throw new Error('Cette récompense n’existe plus');
+    if (card.points < rw.points) throw new Error('Pas assez de points pour « ' + rw.label + ' »');
+    var idx = -1;
+    lines.forEach(function (l, i) { if (idx < 0 && l.itemId === rw.itemId) idx = i; });
+    if (idx < 0) throw new Error('Ajoutez « ' + rw.label + ' » au panier pour utiliser votre récompense');
+    var line = lines[idx], item = window.Tapigo.getItem(rw.itemId), base = Math.min(itemPrice(item), line.unitPrice);
+    var out = lines.slice();
+    if (line.qty > 1) out[idx] = Object.assign({}, line, { qty: line.qty - 1, suggested: Math.min(line.suggested || 0, line.qty - 1) });
+    else out.splice(idx, 1);
+    out.push(Object.assign({}, line, { qty: 1, suggested: 0, unitPrice: Math.round((line.unitPrice - base) * 100) / 100, reward: rw.label }));
+    return { lines: out, card: card, reward: rw };
+  }
+  function loyaltyCardJson(c) {
+    var L = loyaltyData();
+    return { firstName: c.firstName, email: c.email, marketingOk: c.marketingOk, points: c.points, earned: c.earned, visits: c.visits, createdAt: c.createdAt,
+      number: (c.token.slice(0, 4) + '-' + c.token.slice(4, 8)).toUpperCase(),
+      events: L.events.filter(function (e) { return e.cardId === c.id; }).slice(0, 20) };
+  }
+  var loyalty = {
+    info: function () { var L = loyaltyData(); return Promise.resolve(L.program.enabled ? clone({ pointsPerEuro: L.program.pointsPerEuro, welcomePoints: L.program.welcomePoints, rewards: L.program.rewards }) : null); },
+    join: function (name, email, marketing) {
+      var L = loyaltyData();
+      if (!String(name || '').trim()) return Promise.reject(new Error('Indiquez votre prénom'));
+      var c = { id: 'lc_' + Date.now().toString(36), token: (Date.now().toString(36) + Math.random().toString(36).slice(2) + '00000000000000000000000000000000').slice(0, 32),
+        firstName: String(name).trim().slice(0, 40), email: (email || '').trim(), marketingOk: !!marketing && !!(email || '').trim(), points: 0, earned: 0, visits: 0, createdAt: Date.now(), lastVisitAt: null };
+      L.cards.push(c); write(K.loyalty, L);
+      if (L.program.welcomePoints) loyaltyEvent(c.id, 'bienvenue', L.program.welcomePoints, 'Bienvenue');
+      return Promise.resolve(Object.assign(loyaltyCardJson(loyaltyData().cards.filter(function (x) { return x.id === c.id; })[0]), { token: c.token }));
+    },
+    card: function (token) {
+      var c = loyaltyData().cards.filter(function (x) { return x.token === token; })[0];
+      return c ? Promise.resolve(clone(loyaltyCardJson(c))) : Promise.reject(new Error('Carte de fidélité introuvable'));
+    },
+    forget: function (token) { var L = loyaltyData(); L.cards = L.cards.filter(function (x) { return x.token !== token; }); write(K.loyalty, L); return Promise.resolve(); },
+    // Gérant
+    manage: {
+      load: function () {
+        var L = loyaltyData();
+        return Promise.resolve(clone({ program: L.program, cards: L.cards.slice().sort(function (a, b) { return (b.lastVisitAt || 0) - (a.lastVisitAt || 0); }),
+          events: L.events.slice(0, 500) }));
+      },
+      save: function (prog) {
+        var L = loyaltyData();
+        prog.rewards = (prog.rewards || []).map(function (r) { return Object.assign({}, r, { id: r.id || 'rw_' + Math.random().toString(36).slice(2, 8) }); });
+        L.program = prog; write(K.loyalty, L); return Promise.resolve();
+      },
+      adjust: function (cardId, points, label) { loyaltyEvent(cardId, 'ajustement', points, label || 'Geste du restaurant'); return Promise.resolve(); }
+    }
+  };
 
   function markSeen(id) {
     var o = patchOrder(id, function (ord) { ord.seen = true; });
@@ -1127,6 +1229,7 @@
     haccp: haccp,
     suppliers: suppliers,
     planning: planning,
+    loyalty: loyalty,
     portal: portal,
     getTableServers: getTableServers,
     getTableServer: getTableServer,

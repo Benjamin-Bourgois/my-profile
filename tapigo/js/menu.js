@@ -31,8 +31,11 @@
     trackingId: null,
     tip: { mode: 'none', pct: 0, amount: 0 },
     payMethod: LIVE ? 'onsite' : 'applepay',
-    onsiteWith: null // 'cash' | 'card' | 'mixed' : comment le client réglera à table
+    onsiteWith: null, // 'cash' | 'card' | 'mixed' : comment le client réglera à table
+    loy: { info: null, token: '', card: null, use: null } // fidélité : programme, carte du client, récompense choisie
   };
+  var LOY_KEY = 'tapigo.v1.loyalty.' + scope;
+  state.loy.token = T.read(LOY_KEY, '') || '';
 
   function norm(s) {
     return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -40,6 +43,154 @@
 
   function leftText(n) { return t(n > 1 ? 'Plus que {n} disponibles' : 'Plus que {n} disponible', { n: n }); }
   function articles(n) { return t(n > 1 ? '{n} articles' : '{n} article', { n: n }); }
+
+  /* ======================================================================
+     Fidélité : carte sans compte (jeton gardé sur le téléphone), points à
+     chaque commande servie, récompenses (un produit offert) dans le panier.
+     ====================================================================== */
+  function loyOn() { return !!(T.loyalty && state.loy.info); }
+  function pointsFor(amount) { return loyOn() ? Math.floor(Math.max(0, amount) * state.loy.info.pointsPerEuro) : 0; }
+  function rewardFor(id) { return loyOn() ? state.loy.info.rewards.filter(function (r) { return r.id === id; })[0] : null; }
+  function itemName(id) { var it = T.getItem(id); return it ? L.name(it) : ''; }
+
+  function loyLoad() {
+    if (!T.loyalty) return;
+    try {
+      var q = new URLSearchParams(location.search), c = (q.get('carte') || '').replace(/[^0-9a-z]/gi, '');
+      if (c.length >= 32) {
+        state.loy.token = c; T.write(LOY_KEY, c);
+        q.delete('carte'); history.replaceState(null, '', '?' + q.toString());
+      }
+    } catch (e) { /* ignore */ }
+    T.loyalty.info().then(function (i) {
+      state.loy.info = i || null;
+      renderLoy();
+      if (i && state.loy.token) refreshCard();
+    }, function () { /* programme indisponible : rien à afficher */ });
+  }
+
+  function refreshCard() {
+    if (!state.loy.token) return Promise.resolve();
+    return T.loyalty.card(state.loy.token).then(function (c) { state.loy.card = c; renderLoy(); }, function (err) {
+      if (/introuvable/i.test((err && err.message) || '')) { state.loy.token = ''; state.loy.card = null; T.write(LOY_KEY, ''); renderLoy(); }
+    });
+  }
+
+  function renderLoy() {
+    var b = $('#loyBtn');
+    if (!b) return;
+    b.hidden = !loyOn();
+    b.innerHTML = '★' + (state.loy.card ? ' <b>' + state.loy.card.points + '</b><span class="loy-btn__u"> ' + t('pts') + '</span>' : '<span class="loy-btn__u"> ' + t('Fidélité') + '</span>');
+    b.setAttribute('aria-label', t('Ma carte fidélité'));
+  }
+
+  // Remise de la récompense choisie (même règle que le serveur : une unité, hors options).
+  function loyDiscount(s) {
+    var r = state.loy.use && rewardFor(state.loy.use);
+    if (!r || !state.loy.card || state.loy.card.points < r.points) return 0;
+    var line = s.lines.filter(function (l) { return l.raw.itemId === r.itemId; })[0];
+    return line ? Math.min(T.itemPrice(line.item), line.built.unitPrice) : 0;
+  }
+  function loyPayload(s) {
+    if (!loyOn() || !state.loy.card || !state.loy.token) return null;
+    return { card: state.loy.token, reward: loyDiscount(s) > 0 ? state.loy.use : null };
+  }
+
+  function loyHTML(s) {
+    if (!loyOn()) return '';
+    var due = s.total - loyDiscount(s);
+    if (!state.loy.card) {
+      return '<div class="loy-box"><p class="loy-box__title">★ ' + t('Gagnez {n} points avec cette commande', { n: pointsFor(due) }) + '</p>' +
+        '<p class="help">' + t('Carte de fidélité gratuite, sans application.') + '</p>' +
+        '<button class="btn btn--soft btn--sm" type="button" data-loy-join>' + t('Créer ma carte') + '</button></div>';
+    }
+    var c = state.loy.card;
+    return '<div class="loy-box"><p class="loy-box__title">★ ' + t('{name} · {n} points', { name: esc(c.firstName), n: c.points }) + '</p>' +
+      '<p class="help">' + t('Vous gagnerez {n} points avec cette commande', { n: pointsFor(due) }) + '</p>' +
+      (state.loy.info.rewards.length ? '<div class="loy-rewards">' + state.loy.info.rewards.map(function (r) {
+        var inCart = s.lines.some(function (l) { return l.raw.itemId === r.itemId; }), enough = c.points >= r.points, on = state.loy.use === r.id && enough && inCart;
+        return '<button type="button" class="loy-reward' + (on ? ' is-on' : '') + '" data-loy-use="' + esc(r.id) + '"' + (enough && inCart ? '' : ' disabled') + ' aria-pressed="' + on + '">' +
+          '<b>' + esc(r.label) + '</b><small>' + (on ? t('Récompense : −{p}', { p: fmt(loyDiscount(s)) })
+            : !enough ? t('encore {n} pts', { n: r.points - c.points }) : !inCart ? t('Ajoutez « {name} » au panier', { name: esc(itemName(r.itemId)) }) : t('{n} pts', { n: r.points })) + '</small></button>';
+      }).join('') + '</div>' : '') + '</div>';
+  }
+
+  function openJoin(done) {
+    UI.openSheet({
+      label: t('Ma carte fidélité'),
+      head: '<p class="eyebrow">' + esc(state.restaurant.name) + '</p><h2>' + t('Ma carte fidélité') + '</h2>',
+      body: '<p class="product-desc">' + t('Gagnez des points à chaque commande et échangez-les contre des produits offerts.') +
+          (state.loy.info.welcomePoints ? ' <strong>' + t('+{n} points de bienvenue', { n: state.loy.info.welcomePoints }) + '</strong>' : '') + '</p>' +
+        '<form id="joinForm" class="form-grid" novalidate>' +
+          '<label class="field span-2"><span>' + t('Votre prénom') + '</span><input name="name" maxlength="40" autocomplete="given-name" autofocus></label>' +
+          '<label class="field span-2"><span>' + t('E-mail (facultatif)') + '</span><input name="email" type="email" maxlength="120" autocomplete="email"></label>' +
+          '<label class="check-line span-2"><input type="checkbox" name="marketing"><span>' + t('Je veux recevoir les nouvelles et offres de {r} par e-mail', { r: esc(state.restaurant.name) }) + '</span></label>' +
+          '<p class="help span-2">' + t('Vos données servent uniquement au programme de fidélité de {r}. Vous pouvez supprimer votre carte à tout moment.', { r: esc(state.restaurant.name) }) + '</p>' +
+        '</form>',
+      footer: '<button class="btn btn--primary" type="submit" form="joinForm">' + t('Créer ma carte et gagner des points') + '</button>',
+      onMount: function (sheet) {
+        var form = $('#joinForm', sheet), f = form.elements;
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          if (!f.name.value.trim()) return UI.toast(t('Indiquez votre prénom'));
+          T.loyalty.join(f.name.value.trim(), f.email.value.trim(), f.marketing.checked).then(function (c) {
+            state.loy.token = c.token; T.write(LOY_KEY, c.token);
+            delete c.token; state.loy.card = c; renderLoy();
+            UI.closeSheet().then(function () {
+              UI.toast(t('Bienvenue {name} ! Votre carte est créée.', { name: esc(c.firstName) }), 3500);
+              if (done) done();
+            });
+          }, function (err) { UI.toast(esc(err.message), 4000); });
+        });
+      }
+    });
+  }
+
+  function openCard() {
+    if (!loyOn()) return;
+    if (!state.loy.card) return openJoin(openCard);
+    var c = state.loy.card, rewards = state.loy.info.rewards.slice().sort(function (a, b) { return a.points - b.points; });
+    var next = rewards.filter(function (r) { return r.points > c.points; })[0];
+    var kind = { bienvenue: t('Bienvenue'), gain: t('Commande'), remboursement: t('Remboursé'), ajustement: t('Geste du restaurant') };
+    UI.openSheet({
+      label: t('Ma carte fidélité'),
+      head: '<p class="eyebrow">' + esc(state.restaurant.name) + '</p><h2>' + t('Ma carte fidélité') + '</h2>',
+      body: '<div class="loy-card"><span>' + esc(c.firstName) + '</span><b>' + t('{n} points', { n: c.points }) + '</b><small>' + t('Carte n° {c}', { c: esc(c.number) }) + '</small>' +
+          (next ? '<div class="loy-progress"><span style="width:' + Math.min(100, Math.round(c.points / next.points * 100)) + '%"></span></div>' +
+            '<small>' + t('Prochaine récompense : {label}', { label: esc(next.label) }) + ' · ' + t('Plus que {n} points', { n: next.points - c.points }) + '</small>' : '') + '</div>' +
+        '<h3 class="loy-h">' + t('Vos récompenses') + '</h3><div class="loy-list">' + rewards.map(function (r) {
+          var ok = c.points >= r.points;
+          return '<div class="loy-item' + (ok ? ' is-ok' : '') + '"><strong>' + esc(r.label) + '</strong><span>' + t('{n} pts', { n: r.points }) + '</span>' +
+            (ok ? '<small>' + t('Disponible : choisissez-la au moment de commander') + '</small>' : '') + '</div>';
+        }).join('') + '</div>' +
+        (c.events && c.events.length ? '<h3 class="loy-h">' + t('Historique') + '</h3><div class="loy-list">' + c.events.map(function (e) {
+          return '<div class="loy-item"><strong>' + (e.kind === 'depense' ? esc(e.label) : esc(kind[e.kind] || e.label)) + '</strong>' +
+            '<span class="' + (e.points < 0 ? 'loy-minus' : 'loy-plus') + '">' + (e.points > 0 ? '+' : '') + e.points + '</span>' +
+            '<small>' + new Date(e.at).toLocaleDateString(L.lang() === 'fr' ? 'fr-FR' : L.lang(), { day: 'numeric', month: 'short' }) + '</small></div>';
+        }).join('') + '</div>' : '') +
+        '<div class="loy-actions"><button class="btn btn--soft btn--sm" type="button" data-loy-share>' + t('Garder ma carte sur un autre téléphone') + '</button>' +
+          '<button class="link-btn link-btn--danger" type="button" data-loy-forget>' + t('Supprimer ma carte') + '</button></div>',
+      onMount: function (sheet) {
+        sheet.addEventListener('click', function (e) {
+          if (e.target.closest('[data-loy-share]')) {
+            var url = new URL(location.href); url.search = '';
+            url.searchParams.set('r', slug || ''); url.searchParams.set('carte', state.loy.token);
+            var link = url.toString();
+            if (navigator.share) return navigator.share({ title: t('Ma carte fidélité'), url: link }).catch(function () {});
+            if (navigator.clipboard) return navigator.clipboard.writeText(link).then(function () { UI.toast(t('Lien de votre carte copié')); });
+            return prompt('', link);
+          }
+          if (e.target.closest('[data-loy-forget]')) {
+            if (!confirm(t('Votre carte et vos points seront supprimés définitivement. Continuer ?'))) return;
+            T.loyalty.forget(state.loy.token).then(function () {
+              state.loy.token = ''; state.loy.card = null; state.loy.use = null; T.write(LOY_KEY, ''); renderLoy();
+              UI.closeSheet(); UI.toast(t('Carte supprimée'));
+            }, function (err) { UI.toast(esc(err.message)); });
+          }
+        });
+      }
+    });
+  }
 
   /* ======================================================================
      Langue de la carte (choisie par le client parmi celles du restaurant)
@@ -75,7 +226,7 @@
   function setLang(lang) {
     if (lang === L.lang()) return;
     L.set(lang);
-    applyStatic();
+    applyStatic(); renderLoy();
     renderHeader(); renderChips(); renderMenu(); renderCartBar(); renderTrackPill();
     var cur = state.trackingId && T.getOrder(state.trackingId);
     if (cur) $('#trackRoot .track').innerHTML = trackHTML(cur);
@@ -740,6 +891,7 @@
           payMethodHTML('onsite', I.wallet, LIVE ? t('Payer à table') : t('Payer sur place'), t('Le serveur passe avec le terminal en fin de repas')) +
         '</div>' +
         '<div id="onsiteBox"></div>' +
+        '<div id="loyBox"></div>' +
         '<div id="tipBox"></div>' +
         '<div id="cardForm"></div>' +
         '<p class="secure" id="payNote"></p>',
@@ -768,10 +920,14 @@
         var paintTip = function (rebuild) {
           var m = state.payMethod;
           var tipOn = tipsOffered() && m !== 'onsite';
-          if (rebuild) $('#tipBox', sheet).innerHTML = tipOn ? tipHTML(s.total) : '';
-          var due = s.total + (tipOn ? tipAmount(s.total) : 0);
+          var pay = s.total - loyDiscount(s);
+          if (rebuild) {
+            $('#tipBox', sheet).innerHTML = tipOn ? tipHTML(pay) : '';
+            $('#loyBox', sheet).innerHTML = loyHTML(s);
+          }
+          var due = pay + (tipOn ? tipAmount(pay) : 0);
           btn.innerHTML = m === 'onsite'
-            ? t('Commander · {p}', { p: fmt(s.total) })
+            ? t('Commander · {p}', { p: fmt(pay) })
             : m === 'online' ? I.lock.replace('<svg ', '<svg width="16" height="16" ') + ' ' + t('Payer · {p}', { p: fmt(due) })
             : m === 'applepay' ? I.apple.replace('<svg ', '<svg width="18" height="18" ') + ' ' + t('Payer et commander · {p}', { p: fmt(due) })
             : t('Payer et commander · {p}', { p: fmt(due) });
@@ -782,6 +938,9 @@
           if (e.target.name === 'pay') { state.payMethod = e.target.value; paint(); }
         });
         sheet.addEventListener('click', function (e) {
+          var lu = e.target.closest('[data-loy-use]');
+          if (lu) { state.loy.use = state.loy.use === lu.dataset.loyUse ? null : lu.dataset.loyUse; return paintTip(true); }
+          if (e.target.closest('[data-loy-join]')) { return UI.closeSheet().then(function () { openJoin(openCheckout); }); }
           var w = e.target.closest('[data-with]');
           if (w) { state.onsiteWith = w.dataset.with; $('#onsiteBox', sheet).innerHTML = onsiteHTML(); return; }
           var c = e.target.closest('[data-tip]');
@@ -802,7 +961,7 @@
           if (t.id === 'tipCustom') {
             t.value = t.value.replace(/[^0-9.,]/g, '').slice(0, 7);
             var amt = Math.round((parseFloat(t.value.replace(',', '.')) || 0) * 100) / 100;
-            state.tip.amount = Math.min(Math.max(0, amt), s.total);
+            state.tip.amount = Math.min(Math.max(0, amt), s.total - loyDiscount(s));
             paintTip(false);
           }
           t.style.borderColor = '';
@@ -887,11 +1046,13 @@
         table: tableNo,
         note: state.note,
         payment: payment,
-        tip: payment.method !== 'onsite' && tipsOffered() ? tipAmount(s.total) : 0,
+        tip: payment.method !== 'onsite' && tipsOffered() ? tipAmount(s.total - loyDiscount(s)) : 0,
+        loyalty: loyPayload(s),
         lines: s.lines.map(function (l) { return l.built; })
       });
     }).then(function (order) {
       state.cart = []; state.note = ''; state.tip = { mode: 'none', pct: 0, amount: 0 };
+      if (state.loy.use) { state.loy.use = null; refreshCard(); }
       saveCart();
       if (!table) setTable(tableNo);
       state.mine.push(order.id);
@@ -923,7 +1084,8 @@
       table: tableNo,
       note: state.note,
       pay: 'online',
-      tip: tipsOffered() ? tipAmount(s.total) : 0,
+      tip: tipsOffered() ? tipAmount(s.total - loyDiscount(s)) : 0,
+      loyalty: loyPayload(s),
       lines: s.lines.map(function (l) { return l.built; })
     }).then(function (order) {
       orderId = order.id;
@@ -1026,7 +1188,7 @@
           '<span class="step__label">' + t(s.label) + '</span><span class="step__time">' + stepTime(order, s.id) + '</span></li>';
       }).join('') + '</ol>' +
       '<div class="recap">' + order.lines.map(function (l) {
-        return '<div class="cart-line"><span class="qty">' + l.qty + '×</span><div><h4>' + esc(L.lineName(l)) + '</h4>' +
+        return '<div class="cart-line"><span class="qty">' + l.qty + '×</span><div><h4>' + esc(L.lineName(l)) + (l.reward ? ' <span class="badge badge--gold">★ ' + t('Offert') + '</span>' : '') + '</h4>' +
           (l.options.length ? '<p class="cart-line__opts">' + esc(optText(l)) + '</p>' : '') +
           (l.note ? '<p class="cart-line__note">« ' + esc(l.note) + ' »</p>' : '') +
           '</div><div class="cart-line__price">' + fmt(l.unitPrice * l.qty) + '</div></div>';
@@ -1037,6 +1199,8 @@
         '<div class="totals__row"><span>' + t('Paiement') + '</span><span class="badge ' + (paid ? 'badge--ok' : 'badge--warn') + '">' +
           (paid ? t('Payé · {m}', { m: t(PAY_LABEL[order.payment.method] || 'carte') }) : pending ? t('Paiement en cours…') : (t('À régler sur place') + (order.payment.with && WITH_LABEL[order.payment.with] ? ' · ' + t(WITH_LABEL[order.payment.with]).toLowerCase() : ''))) + '</span></div>' +
         (order.tip ? '<div class="totals__row"><span>' + t('Pourboire') + '</span><span>' + fmt(order.tip) + '</span></div>' : '') +
+        (order.loyaltyCard && loyOn() ? '<div class="totals__row"><span>★ ' + t('Fidélité') + '</span><span>' +
+          (order.status === 'servie' || order.status === 'terminee' ? t('+{n} points gagnés', { n: pointsFor(order.total) }) : t('+{n} points une fois la commande servie', { n: pointsFor(order.total) })) + '</span></div>' : '') +
         '<div class="totals__row totals__row--grand"><span>' + t('Total') + '</span><span>' + fmt(order.total + (order.tip || 0)) + '</span></div>' +
       '</div>' +
       ((order.status === 'servie' || order.status === 'terminee') && state.restaurant.reviewUrl
@@ -1233,6 +1397,7 @@
         }
         if (o.status === 'prete' || o.status === 'servie') UI.vibrate([60, 60, 60]);
         if (o.status === 'terminee') askReview(o);
+        if (o.loyaltyCard && (o.status === 'servie' || o.status === 'terminee')) setTimeout(refreshCard, 800);
         renderTrackPill();
       }
       if (msg.type === 'servers:updated') {
@@ -1283,6 +1448,8 @@
     $('#tableBadge').addEventListener('click', function () { openTablePicker(); });
     $('#serviceBtn').addEventListener('click', openService);
     $('#langBtn').addEventListener('click', openLang);
+    $('#loyBtn').addEventListener('click', openCard);
+    loyLoad();
     $('#welcome').addEventListener('click', function (e) {
       if (e.target.closest('[data-change-table]')) openTablePicker();
     });
